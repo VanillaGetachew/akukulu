@@ -97,6 +97,12 @@ export interface ConquerState {
   baseVisible: boolean;
   /** How many times the discard pile has been reshuffled into the deck this round. */
   reshuffles: number;
+  /** Points laid down this turn by a player who has not opened yet (sets may go down one at a time). */
+  openingProgress: number;
+  /** Took the discard before opening: must reach the threshold this turn to be allowed to discard. */
+  mustOpen: boolean;
+  /** Took the base card: must go out this turn. */
+  mustFinish: boolean;
   turnDeadline: number | null;
   lastEvent: ConquerLastEvent | null;
   roundResult: ConquerRoundResult | null;
@@ -163,6 +169,7 @@ function beginRound(state: ConquerState, predictor: number, ctx: EngineContext, 
   state.pendingPickup = null;
   state.baseVisible = false;
   state.reshuffles = 0;
+  resetTurn(state);
   state.prediction = null;
   state.wildCards = [];
   state.wildRanks = [];
@@ -227,7 +234,7 @@ function endRound(state: ConquerState, winner: number | null, reason: ConquerRou
   state.roundResult = { round: state.round, winnerId: winner === null ? null : state.players[winner].playerId, reason, penalties };
   state.history.push(state.roundResult);
   state.pendingWild = null;
-  state.pendingPickup = null;
+  resetTurn(state);
   state.phase = 'roundOver';
   setDeadline(state, ctx);
   const text = winner === null ? 'Round drawn' : reason === 'out' ? 'went out and won the round' : reason === 'forfeit' ? 'won by forfeit' : 'won on lower penalty';
@@ -255,7 +262,16 @@ function forfeit(state: ConquerState, index: number, reason: string, ctx: Engine
   finishMatch(state, out);
 }
 
+/** Clears per-turn obligations and progress. */
+function resetTurn(state: ConquerState) {
+  state.openingProgress = 0;
+  state.mustOpen = false;
+  state.mustFinish = false;
+  state.pendingPickup = null;
+}
+
 function nextTurn(state: ConquerState, ctx: EngineContext) {
+  resetTurn(state);
   state.current = 1 - state.current;
   state.phase = 'draw';
   setDeadline(state, ctx);
@@ -322,10 +338,9 @@ function applyTablePlay(state: ConquerState, index: number, melds: ConquerMeldSp
     placedCards.push(...spec.cards);
   }
   if (melds.length > 0 && !p.opened) {
-    if (openingTotal < rules.openingThreshold) {
-      return `Opening melds total ${openingTotal} points — you need at least ${rules.openingThreshold}`;
-    }
-    p.opened = true;
+    // Sets may go down one at a time; together they must reach the threshold this turn.
+    state.openingProgress += openingTotal;
+    if (state.openingProgress >= rules.openingThreshold) p.opened = true;
   }
 
   for (const l of layoffs) {
@@ -435,6 +450,9 @@ export const conquerEngine: GameEngine<ConquerState, ConquerConfig, ConquerView>
       pendingPickup: null,
       baseVisible: false,
       reshuffles: 0,
+      openingProgress: 0,
+      mustOpen: false,
+      mustFinish: false,
       turnDeadline: null,
       lastEvent: null,
       roundResult: null,
@@ -501,6 +519,19 @@ export const conquerEngine: GameEngine<ConquerState, ConquerConfig, ConquerView>
         event(state, out, playerId, 'draw_stock', 'drew from the stock');
         return ok(state, out.events, out.ledger);
       }
+      case 'takeBase': {
+        if (state.phase !== 'draw') return fail('WRONG_PHASE', state.phase === 'meld' ? 'You have already drawn this turn' : 'You cannot draw now');
+        if (!state.baseVisible || state.stock[0] !== state.baseCard) return fail('NO_BASE', 'The base card is no longer under the deck');
+        state.stock.shift();
+        state.baseVisible = false;
+        p.hand.push(state.baseCard!);
+        state.mustFinish = true;
+        p.missedTurns = 0;
+        state.phase = 'meld';
+        setDeadline(state, ctx);
+        event(state, out, playerId, 'take_base', `took the base card ${cardLabel(state.baseCard!)} — must go out this turn`, { card: state.baseCard });
+        return ok(state, out.events, out.ledger);
+      }
       case 'takeDiscard': {
         if (state.phase !== 'draw') return fail('WRONG_PHASE', state.phase === 'meld' ? 'You have already drawn this turn' : 'You cannot draw now');
         const top = state.discard[state.discard.length - 1];
@@ -511,8 +542,9 @@ export const conquerEngine: GameEngine<ConquerState, ConquerConfig, ConquerView>
         if (typeof layoffs === 'string') return fail('BAD_ACTION', layoffs);
         state.discard.pop();
         p.hand.push(top);
-        // The card joins the hand; the player cannot discard until it is on the table.
+        // The card joins the hand. A player who has not opened must now reach the threshold this turn.
         state.pendingPickup = top;
+        if (!p.opened) state.mustOpen = true;
         if (melds.length || layoffs.length) {
           const error = applyTablePlay(state, index, melds, layoffs, null);
           if (error) return fail('ILLEGAL_PICKUP', `Cannot take ${cardLabel(top)}: ${error}`);
@@ -535,7 +567,7 @@ export const conquerEngine: GameEngine<ConquerState, ConquerConfig, ConquerView>
         if (error) return fail('ILLEGAL_MELD', error);
         p.missedTurns = 0;
         setDeadline(state, ctx);
-        event(state, out, playerId, type, type === 'layoff' ? 'laid off cards' : wasOpen ? 'laid down a meld' : 'opened with 41+', { count: melds.length + layoffs.length });
+        event(state, out, playerId, type, type === 'layoff' ? 'added cards to a meld' : wasOpen ? 'laid down a meld' : p.opened ? `went in with ${state.openingProgress} points` : `laid down a set (${state.openingProgress}/${state.config.rules.openingThreshold})`, { count: melds.length + layoffs.length });
         return ok(state, out.events, out.ledger);
       }
       case 'swapWild': {
@@ -564,8 +596,12 @@ export const conquerEngine: GameEngine<ConquerState, ConquerConfig, ConquerView>
         const card = String(a.card ?? '');
         if (!p.hand.includes(card)) return fail('ILLEGAL_DISCARD', `${card} is not in your hand`);
         if (state.pendingWild && p.hand.includes(state.pendingWild)) return fail('ILLEGAL_DISCARD', 'Meld the wildcard you swapped before discarding');
-        if (state.pendingPickup && p.hand.includes(state.pendingPickup)) {
-          return fail('ILLEGAL_DISCARD', `Meld the ${cardLabel(state.pendingPickup)} you picked up before discarding — otherwise you lose when time runs out`);
+        if (state.mustFinish && p.hand.length !== 1) {
+          return fail('ILLEGAL_DISCARD', 'You took the base card — meld everything and discard your last card this turn, or you lose when time runs out');
+        }
+        if (!p.opened && (state.mustOpen || state.openingProgress > 0)) {
+          const thr = state.config.rules.openingThreshold;
+          return fail('ILLEGAL_DISCARD', `Lay down ${thr} points before discarding (${state.openingProgress}/${thr}) — otherwise you lose when time runs out`);
         }
         p.missedTurns = 0;
         discardCard(state, index, card, ctx, out);
@@ -662,6 +698,9 @@ export const conquerEngine: GameEngine<ConquerState, ConquerConfig, ConquerView>
       hand: me ? [...me.hand] : [],
       pendingWild: myTurn ? s.pendingWild : null,
       pendingPickup: s.phase === 'meld' ? s.pendingPickup : null,
+      openingProgress: s.openingProgress,
+      mustOpen: s.mustOpen,
+      mustFinish: s.mustFinish,
       melds: s.melds.map((m) => ({ id: m.id, ownerId: m.ownerId, kind: m.kind, cards: m.placed.map((x) => ({ ...x })), points: m.placed.reduce((n, x) => n + x.points, 0) })),
       stockCount: s.stock.length,
       discardTop: s.discard[s.discard.length - 1] ?? null,
@@ -674,10 +713,16 @@ export const conquerEngine: GameEngine<ConquerState, ConquerConfig, ConquerView>
         predict: myTurn && s.phase === 'predict',
         drawStock: myTurn && s.phase === 'draw',
         takeDiscard: myTurn && s.phase === 'draw' && s.discard.length > 0,
+        takeBase: myTurn && s.phase === 'draw' && s.baseVisible && s.stock[0] === s.baseCard,
         meld: myTurn && s.phase === 'meld',
         layoff: myTurn && s.phase === 'meld' && (me!.opened || !s.config.rules.layoffRequiresOpen),
         swapWild: myTurn && s.phase === 'meld' && me!.opened && s.config.rules.wild.allowSwap && !s.pendingWild,
-        discard: myTurn && s.phase === 'meld' && !(s.pendingWild && me!.hand.includes(s.pendingWild)) && !(s.pendingPickup && me!.hand.includes(s.pendingPickup)),
+        discard:
+          myTurn &&
+          s.phase === 'meld' &&
+          !(s.pendingWild && me!.hand.includes(s.pendingWild)) &&
+          !(s.mustFinish && me!.hand.length !== 1) &&
+          !(!me!.opened && (s.mustOpen || s.openingProgress > 0)),
         rematch: me !== null && s.phase === 'roundOver' && !me.wantsRematch && s.players.every((p) => p.status === 'active'),
       },
     };

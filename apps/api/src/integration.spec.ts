@@ -217,7 +217,8 @@ suite('API integration', () => {
     expect(await act(predictor, matchId, { type: 'takeDiscard' })).toEqual({ ok: true });
     expect(await act(predictor, matchId, { type: 'drawStock' })).toMatchObject({ ok: false, code: 'WRONG_PHASE' });
     expect(await act(predictor, matchId, { type: 'discard', card: pv.hand[0] })).toMatchObject({ ok: false, code: 'ILLEGAL_DISCARD' });
-    expect(await act(predictor, matchId, { type: 'meld', melds: [{ cards: pv.hand.slice(0, 3) }], claimedPoints: 99 })).toMatchObject({ ok: false });
+    // A meld that repeats a card is always invalid, whatever points the client claims.
+    expect(await act(predictor, matchId, { type: 'meld', melds: [{ cards: [pv.hand[0], pv.hand[0], pv.hand[1]] }], claimedPoints: 99 })).toMatchObject({ ok: false, code: 'ILLEGAL_MELD' });
     expect(await act(predictor, matchId, { type: 'discard', card: view.hand[1] })).toMatchObject({ ok: false, code: 'ILLEGAL_DISCARD' });
   });
 

@@ -109,8 +109,23 @@ function WaitingRoom({ room, onAction, busy }: { room: RoomSummary; onAction: (p
   );
 }
 
-function ResultSheet({ summary, onClose }: { summary: MatchSummary; onClose: () => void }) {
+function ResultSheet({ summary, stake }: { summary: MatchSummary; stake: number }) {
   const { user } = useSession();
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  // Play again: straight into a new table of the same game and stake.
+  const playAgain = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const room = await api<RoomSummary>('/rooms/quick-play', { body: { gameSlug: summary.gameSlug, stake } });
+      router.push(`/room/${room.code}`);
+    } catch (err) {
+      setError((err as Error).message);
+      setBusy(false);
+    }
+  };
   const mine = summary.players.find((p) => p.userId === user?.id);
   const title = summary.status === 'cancelled' ? 'Match voided' : mine?.outcome === 'win' ? 'You won!' : mine?.outcome === 'draw' ? 'Draw' : 'Match over';
   return (
@@ -132,13 +147,14 @@ function ResultSheet({ summary, onClose }: { summary: MatchSummary; onClose: () 
               </div>
             ))}
         </div>
+        {error && <p className="mt-3 text-sm text-danger">{error}</p>}
         <div className="mt-4 grid grid-cols-2 gap-2">
-          <button className="btn-ghost" onClick={onClose}>
-            View table
-          </button>
-          <Link href={`/games/${summary.gameSlug}`} className="btn-primary">
-            Play again
+          <Link href="/" className="btn-ghost">
+            Lobby
           </Link>
+          <button className="btn-primary" disabled={busy} onClick={playAgain}>
+            {busy ? 'Finding a table…' : 'Play again'}
+          </button>
         </div>
       </div>
     </div>
@@ -154,7 +170,6 @@ export default function RoomPage() {
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [showResult, setShowResult] = useState(true);
   const [finalSummary, setFinalSummary] = useState<MatchSummary | null>(null);
   const match = useMatch(room?.matchId ?? null);
 
@@ -249,7 +264,7 @@ export default function RoomPage() {
           )}
         </>
       )}
-      {finalSummary && showResult && <ResultSheet summary={finalSummary} onClose={() => setShowResult(false)} />}
+      {finalSummary && room && <ResultSheet summary={finalSummary} stake={room.stake} />}
       <Toast message={toast ?? match.error} onClose={() => (setToast(null), match.setError(null))} />
     </Page>
   );

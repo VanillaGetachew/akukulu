@@ -8,11 +8,12 @@ import { useSession } from '@/lib/session';
 import { GameThumb } from '@/components/art';
 import { Avatar, Coin, EmptyState, ErrorState, LoadingState, MaintenanceState, Page, Toast } from '@/components/ui';
 
-const STAKES: Record<GameSlug, { label: string; options: number[]; default: number }> = {
-  ludo: { label: 'Entry stake', options: [0, 50, 100, 250], default: 0 },
-  poker: { label: 'Buy-in', options: [200, 500, 1000, 2500], default: 500 },
-  blackjack: { label: 'Minimum bet', options: [10, 25, 50, 100], default: 10 },
-  conquer: { label: 'Stake per round', options: [0, 25, 50, 100], default: 0 },
+/** Preset wagers per game; min is the smallest custom wager the server accepts. */
+const STAKES: Record<GameSlug, { label: string; options: number[]; default: number; min: number }> = {
+  ludo: { label: 'Entry stake', options: [0, 50, 100, 250, 500, 1000, 2500, 5000], default: 0, min: 0 },
+  poker: { label: 'Buy-in', options: [200, 500, 1000, 2500, 5000, 10000, 25000, 50000], default: 500, min: 100 },
+  blackjack: { label: 'Minimum bet', options: [10, 25, 50, 100, 250, 500, 1000, 5000], default: 10, min: 1 },
+  conquer: { label: 'Stake per round', options: [0, 50, 100, 250, 500, 1000, 2500, 5000], default: 0, min: 0 },
 };
 
 const RULES: Record<GameSlug, string[]> = {
@@ -40,6 +41,7 @@ export default function GameLobby() {
   const [busy, setBusy] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [stake, setStake] = useState(isGameSlug(slug) ? STAKES[slug].default : 0);
+  const [custom, setCustom] = useState('');
   const [maxPlayers, setMaxPlayers] = useState(4);
   const [code, setCode] = useState('');
 
@@ -86,7 +88,18 @@ export default function GameLobby() {
     );
   }
   const stakes = STAKES[slug];
-  const affordable = (user?.balance ?? 0) >= stake;
+  const balance = user?.balance ?? 0;
+  const affordable = balance >= stake;
+  const customValue = custom.trim() === '' ? null : Number(custom);
+  const customError =
+    customValue === null
+      ? null
+      : !Number.isInteger(customValue) || customValue < stakes.min
+        ? `Enter a whole number of at least ${stakes.min}`
+        : customValue > balance
+          ? `You only have ${balance.toLocaleString()} points`
+          : null;
+  const compact = (n: number) => (n >= 1000 ? `${n % 1000 === 0 ? n / 1000 : (n / 1000).toFixed(1)}K` : String(n));
 
   return (
     <Page onRefresh={load} refreshing={refreshing}>
@@ -121,14 +134,34 @@ export default function GameLobby() {
                     {stakes.options.map((s) => (
                       <button
                         key={s}
-                        onClick={() => setStake(s)}
-                        className={`flex items-center justify-center gap-1 rounded-xl border py-2 text-sm font-bold ${stake === s ? 'border-lime bg-lime/10 text-lime' : 'border-line bg-black/20 text-fg'}`}
+                        onClick={() => {
+                          setStake(s);
+                          setCustom('');
+                        }}
+                        disabled={s > balance}
+                        className={`flex items-center justify-center gap-1 rounded-xl border py-2 text-sm font-bold disabled:opacity-35 ${stake === s && custom === '' ? 'border-lime bg-lime/10 text-lime' : 'border-line bg-black/20 text-fg'}`}
                       >
-                        {s === 0 ? 'Free' : (<><Coin className="h-3.5 w-3.5" />{s}</>)}
+                        {s === 0 ? 'Free' : (<><Coin className="h-3.5 w-3.5" />{compact(s)}</>)}
                       </button>
                     ))}
                   </div>
-                  {!affordable && <p className="mt-2 text-xs text-danger">You need {stake} points for this table.</p>}
+                  <label className="mt-2 flex items-center gap-2">
+                    <span className="shrink-0 text-xs font-bold text-muted">Custom</span>
+                    <input
+                      className={`input py-2 ${custom !== '' && !customError ? 'border-lime/60' : ''}`}
+                      inputMode="numeric"
+                      placeholder={`Any amount from ${stakes.min} to ${balance.toLocaleString()}`}
+                      value={custom}
+                      onChange={(e) => {
+                        const v = e.target.value.replace(/[^0-9]/g, '').slice(0, 7);
+                        setCustom(v);
+                        const n = Number(v);
+                        if (v !== '' && Number.isInteger(n) && n >= stakes.min && n <= balance) setStake(n);
+                      }}
+                    />
+                  </label>
+                  {customError && <p className="mt-2 text-xs text-danger">{customError}</p>}
+                  {!customError && !affordable && <p className="mt-2 text-xs text-danger">You need {stake.toLocaleString()} points for this table.</p>}
                 </div>
 
                 {slug !== 'blackjack' && slug !== 'conquer' && (
@@ -145,13 +178,13 @@ export default function GameLobby() {
                 )}
 
                 <div className="grid grid-cols-2 gap-2">
-                  <button className="btn-primary" disabled={busy || !affordable} onClick={() => run(() => api('/rooms/quick-play', { body: { gameSlug: slug, stake } }))}>
+                  <button className="btn-primary" disabled={busy || !affordable || !!customError} onClick={() => run(() => api('/rooms/quick-play', { body: { gameSlug: slug, stake } }))}>
                     {game.solo ? 'Sit at a table' : 'Quick play'}
                   </button>
                   {!game.solo && (
                     <button
                       className="btn-ghost"
-                      disabled={busy || !affordable}
+                      disabled={busy || !affordable || !!customError}
                       onClick={() => run(() => api('/rooms', { body: { gameSlug: slug, stake, visibility: 'private', maxPlayers } }))}
                     >
                       Private room

@@ -55,18 +55,17 @@ Boundaries (`prediction.boundary`, still unconfirmed): by default ranks **wrap**
 - **Run:** 3 or more consecutive cards of one suit (A low or high; no wrap).
 - Every proposed meld is validated on the server (`interpretMeld`, `extendMeld`). Claimed point totals from clients are ignored.
 
-## 6. Opening (41 points)
-- One action may lay down one or more melds. If the player has not opened, their combined value must be **≥ 41**. Only the cards in those melds count.
-- Opening state is stored per player. After opening, melds of any value and lay-offs are allowed.
-- Lay-offs require having opened (`layoffRequiresOpen`). Opened players may lay off on either player's melds (`layoffOnOpponentMelds`).
-
+## 6. Going in (41 points)
+- A player who has not gone in ("opened") lays down sets and runs **one at a time or together**; within one turn their values add up toward **41**. Only cards in those melds count.
+- Reaching 41 means the player is in for the rest of the round. After that, melds of any value are allowed, and they may add cards to melds on the table (**"Open"** — lay-offs; `layoffRequiresOpen`, on either player's melds via `layoffOnOpponentMelds`).
+- If melds were laid down this turn but the total is still under 41, **the player cannot discard**; when the timer runs out they lose the round.
 ## 7. Turn sequence
 The starter's first turn skips the draw (14 cards, discard to start). Every other turn:
 
 1. **Draw** — exactly one of:
    - `drawStock`: take the top stock card.
-   - `takeDiscard`: take the top discard into hand (confirmed by the owner). The player **cannot discard until that card is melded or laid off** (if not yet open, that means opening with 41+ including it). If they cannot, the turn timer runs out and they **lose the round**. The card underneath becomes the visible top of the pile. Melds may optionally be sent in the same action.
-2. **Meld** (optional, repeatable): `meld`, `layoff`, `swapWild`.
+   - `takeDiscard`: take the top discard into hand (owner-confirmed). **Before going in**, this commits the player to reach 41 this turn using any of their cards — the picked-up card does not have to be part of the melds. Until they reach 41 they cannot discard, and running out of time loses the round. **After going in**, the discard can be taken freely with no obligation. The card underneath becomes the visible top of the pile.
+   - `takeBase`: take the face-up **base card** from under the deck (after an "Are you sure you want to draw the base card?" confirmation). The player must then **go out this turn** — meld everything and discard the last card — or they lose when time runs out.2. **Meld** (optional, repeatable): `meld`, `layoff`, `swapWild`.
 3. **Discard** one card from hand. This ends the turn and the opponent is notified.
 
 The server rejects out-of-turn actions, a second draw, discards before drawing, cards not held, and a discard while a swapped wildcard is unused. Duplicate requests (same `clientActionId`) are applied once. Concurrent conflicting requests are serialised by a database row lock: exactly one wins and the other gets `WRONG_PHASE`.
@@ -97,9 +96,11 @@ The server tracks each player's hand, every table meld (with who contributed eac
 Each player receives only their own hand. Opponent hand sizes, the deck count and the discard top are public. The deck order and opponent cards are never sent; hands are revealed only at round end for scoring. The base card is hidden from everyone until the prediction, then shown under the deck.
 
 ## 13. Table controls
-- Tap the **deck** to draw. Tap the **discard** to take it into your hand (it glows gold until melded; you cannot discard before melding it).
+- Tap the **deck** to draw, the **discard** to take it into your hand (it glows gold), or the **base card** peeking under the deck (rank and suit visible) to take it after confirming.
+- Progress toward 41 is shown as a pill (e.g. `ከመሬት ካርታ ወስደዋል — 30/41`).
 - Table melds show each card's rank and suit; a joker shows the card it stands for in gold, so you can see what to swap.
-- **ገቢ** (meld / open): select cards and press it; the app splits the selection into sets and runs, and the server validates them (41+ to open).
+- **ገቢ** (Meld): select cards and press it; the app splits the selection into sets and runs (asking which card a joker stands for when there is a choice).
+- **ጨምር** (Open): select one card to add it to the meld on the table it fits (or tap the meld directly).
 - **ጆከር መተካት** (swap joker): select the natural card a table joker stands for.
 - **ጣል** (discard): select one card.
 - **ደርድር** (best order): rearranges the hand with the best melds first, jokers placed in the gaps they fill, then the rest by suit and rank (`arrangeHand()`).

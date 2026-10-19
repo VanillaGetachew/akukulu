@@ -224,7 +224,7 @@ function TurnBar({ view, serverNow, state, mine }: { view: ConquerView; serverNo
 function ActionButton({ am, en, onClick, disabled, tone = 'teal' }: { am: string; en: string; onClick: () => void; disabled?: boolean; tone?: 'teal' | 'gold' | 'red' }) {
   const tones = { teal: 'bg-[#1d6b5c]/90 border-[#3fb79c]/50', gold: 'bg-[#6b5a1d]/90 border-[#d8b84a]/50', red: 'bg-[#6b2a1d]/90 border-[#e0705a]/50' };
   return (
-    <button type="button" onClick={onClick} disabled={disabled} className={`flex min-w-[4.5rem] flex-col items-center rounded-lg border px-2.5 py-1 text-white shadow transition active:scale-95 disabled:opacity-35 ${tones[tone]}`}>
+    <button type="button" onClick={onClick} disabled={disabled} className={`flex min-w-[3.9rem] flex-col items-center rounded-lg border px-2 py-1 text-white shadow transition active:scale-95 disabled:opacity-35 ${tones[tone]}`}>
       <span className="font-ethiopic text-sm font-bold leading-tight">{am}</span>
       <span className="text-[9px] font-semibold uppercase tracking-wide text-white/70">{en}</span>
     </button>
@@ -246,6 +246,7 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
   const [order, setOrder] = useState<Card[]>([]);
   const [selected, setSelected] = useState<Card[]>([]);
   const [choice, setChoice] = useState<JokerChoice | null>(null);
+  const [confirmBase, setConfirmBase] = useState(false);
   const [hint, setHint] = useState<string | null>(null);
   const [handRef, handWidth] = useWidth<HTMLDivElement>();
   const [oppRef, oppWidth] = useWidth<HTMLDivElement>();
@@ -321,6 +322,20 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
     void act({ type: 'layoff', layoffs: [{ meldId: meld.id, card, as }] }).then((r) => r.ok && setSelected([]));
   };
 
+  /** "Open": add the selected card to the meld it fits (asks which meld when several fit). */
+  const addToMeld = () => {
+    if (selected.length !== 1) return;
+    const card = selected[0];
+    const fits = view.melds.filter((m) => {
+      if (m.ownerId !== user?.id && !view.config.rules.layoffOnOpponentMelds) return false;
+      const others = new Set(view.melds.filter((x) => x.id !== m.id).flatMap((x) => x.cards.map((c) => c.as)));
+      return layoffOptions(toInterpretation(m), card, { ...meldCtx, taken: others }).length > 0;
+    });
+    if (fits.length === 0) setHint(`${label(card)} does not fit any meld on the table`);
+    else if (fits.length === 1) layOff(fits[0]);
+    else setHint('It fits more than one meld — tap the one to add it to');
+  };
+
   const pick = (m: Interpretation) => {
     if (!choice) return;
     if (choice.kind === 'layoff') {
@@ -341,6 +356,31 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
       </Link>
       {children}
       {choice && <JokerChooser choice={choice} onPick={pick} onCancel={() => setChoice(null)} />}
+      {confirmBase && (
+        <div className="absolute inset-0 z-40 grid place-items-center bg-black/60 p-6 backdrop-blur-sm" role="dialog" aria-modal="true">
+          <div className="card grid w-full max-w-sm gap-4 p-5 text-center text-fg">
+            <div>
+              <div className="text-base font-bold">Are you sure you want to draw the base card?</div>
+              <div className="mt-1 font-ethiopic text-sm text-muted">የመሠረት ካርታውን መውሰድ እርግጠኛ ነዎት?</div>
+              <div className="mt-2 text-xs text-gold">You must meld everything and finish this turn, or you lose.</div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <button className="btn-ghost py-3" onClick={() => setConfirmBase(false)}>
+                No
+              </button>
+              <button
+                className="btn-primary py-3"
+                onClick={() => {
+                  setConfirmBase(false);
+                  void act({ type: 'takeBase' });
+                }}
+              >
+                Yes
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {hint && (
         <div className="pointer-events-none absolute inset-x-0 bottom-32 z-40 flex justify-center px-4">
           <div className="animate-pop rounded-xl bg-danger px-4 py-2 text-sm font-semibold">{hint}</div>
@@ -405,24 +445,33 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
       {/* Deck and discard */}
       <div className="flex min-h-0 flex-1 items-center justify-center gap-10">
         <div className="flex flex-col items-center gap-1">
-          <button
-            type="button"
-            disabled={!view.legal.drawStock || pending}
-            onClick={() => void act({ type: 'drawStock' })}
-            className="relative pt-7 disabled:cursor-default"
-            aria-label={`Draw from the deck (${view.stockCount} left)`}
-          >
+          <div className="relative pt-11">
+            {/* The base card lies face-up under the deck; its corner (rank and suit) stays visible. */}
             {view.baseInStock && view.baseCard && (
-              <div className="absolute left-0 top-0" title="Joker indicator card (bottom of the deck)">
-                <PlayingCard card={view.baseCard} />
-              </div>
+              <button
+                type="button"
+                disabled={!view.legal.takeBase || pending}
+                onClick={() => setConfirmBase(true)}
+                className={`absolute left-1/2 top-0 -translate-x-1/2 rounded-lg disabled:cursor-default ${view.legal.takeBase ? 'ring-2 ring-gold/70' : ''}`}
+                aria-label={`Base card ${label(view.baseCard)} — draw it (you must then go out this turn)`}
+              >
+                <FanCard card={view.baseCard} />
+              </button>
             )}
-            <div className={`relative rounded-lg ${view.legal.drawStock ? 'animate-pulseRing' : ''}`}>
-              <div className="absolute left-0.5 top-0.5 h-full w-full rounded-lg bg-black/30" />
-              <PlayingCard card="??" />
-              <span className="absolute right-1 top-1 rounded-full bg-black/70 px-1.5 text-[10px] font-bold">{view.stockCount}</span>
-            </div>
-          </button>
+            <button
+              type="button"
+              disabled={!view.legal.drawStock || pending}
+              onClick={() => void act({ type: 'drawStock' })}
+              className="relative disabled:cursor-default"
+              aria-label={`Draw from the deck (${view.stockCount} left)`}
+            >
+              <div className={`relative rounded-lg ${view.legal.drawStock ? 'animate-pulseRing' : ''}`}>
+                <div className="absolute left-0.5 top-0.5 h-full w-full rounded-lg bg-black/30" />
+                <PlayingCard card="??" />
+                <span className="absolute right-1 top-1 rounded-full bg-black/70 px-1.5 text-[10px] font-bold">{view.stockCount}</span>
+              </div>
+            </button>
+          </div>
           <span className="text-[10px] font-bold uppercase tracking-widest text-white/70">Deck</span>
           {view.prediction && (
             <span className="rounded-full bg-black/50 px-2 py-0.5 font-ethiopic text-[11px] font-bold" title={`Jokers: ${view.wildCards.map(label).join(' ')}`}>
@@ -430,13 +479,13 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
             </span>
           )}
         </div>
-        <div className="flex flex-col items-center gap-1 pt-7">
+        <div className="flex flex-col items-center gap-1 pt-11">
           <button
             type="button"
             disabled={!view.legal.takeDiscard || pending}
             onClick={() => void act({ type: 'takeDiscard' })}
             className="relative disabled:cursor-default"
-            aria-label="Take the top discard (you must meld it before discarding)"
+            aria-label="Take the top discard"
           >
             {view.discardCount > 1 && <div className="absolute left-1 top-1 h-[4.5rem] w-[3.25rem] rounded-lg bg-white/30" />}
             {view.discardTop ? (
@@ -460,15 +509,27 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
       {view.phase !== 'roundOver' && view.phase !== 'finished' && (
         <div className="py-2">
           <TurnBar view={view} serverNow={serverNow} state={state} mine={myTurn} />
+          {myTurn && !me?.opened && (view.mustOpen || view.openingProgress > 0) && (
+            <div className="mx-auto mb-1 w-fit rounded-full border border-gold/60 bg-black/40 px-3 py-1 text-center font-ethiopic text-[11px] font-bold text-gold">
+              {view.mustOpen ? 'ከመሬት ካርታ ወስደዋል — ' : ''}
+              {view.openingProgress}/{view.config.rules.openingThreshold} (ሚሞላ ካርታ ውረድ · lay down sets to reach {view.config.rules.openingThreshold})
+            </div>
+          )}
+          {myTurn && view.mustFinish && (
+            <div className="mx-auto mb-1 w-fit rounded-full border border-danger/70 bg-black/40 px-3 py-1 text-center text-[11px] font-bold text-[#ff9aa9]">
+              <span className="font-ethiopic">የመሠረት ካርታ ወስደዋል</span> — meld everything and discard your last card this turn
+            </div>
+          )}
+          <TurnBar view={view} serverNow={serverNow} state={state} mine={myTurn} />
           <div className="mt-1 text-center text-[11px] text-white/70">
-            You · {me?.opened ? <span className="text-lime">ገብተዋል (opened)</span> : `${view.config.rules.openingThreshold} ነጥብ ለመግባት (to open)`}
+            You · {me?.opened ? <span className="text-lime">ገብተዋል (in)</span> : `ለመግባት ${view.config.rules.openingThreshold} ነጥብ (${view.config.rules.openingThreshold} to go in)`}
             {view.pendingWild && <span className="text-gold"> · use your joker {label(view.pendingWild)} before discarding</span>}
-            {view.pendingPickup && myTurn && (
-              <div className="font-bold text-gold">
-                Meld the {label(view.pendingPickup)} you picked up before discarding — or you lose when time runs out
+            {view.pendingPickup && !myTurn && (
+              <div className="text-white/80">
+                {nameOf(state, view.currentPlayerId)} picked up {label(view.pendingPickup)}
+                {view.mustOpen ? ' and must go in this turn' : ''}
               </div>
             )}
-            {view.pendingPickup && !myTurn && <div className="text-white/80">{nameOf(state, view.currentPlayerId)} picked up {label(view.pendingPickup)} and must meld it</div>}
           </div>
         </div>
       )}
@@ -480,7 +541,8 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
             <Fan cards={order} width={handWidth} selected={selected} wild={wild} marked={myTurn ? view.pendingPickup : null} onTap={myTurn ? toggle : undefined} />
           </div>
           <div className="mt-1 flex flex-wrap justify-center gap-1.5 px-2">
-            <ActionButton am="ገቢ" en={me.opened ? 'meld' : 'open'} onClick={enter} disabled={!myTurn || pending || view.phase !== 'meld' || selected.length < 3} />
+            <ActionButton am="ገቢ" en="meld" onClick={enter} disabled={!myTurn || pending || view.phase !== 'meld' || selected.length < 3} />
+            <ActionButton am="ጨምር" en="open" onClick={addToMeld} disabled={!canLayOff || pending} />
             <ActionButton am="ጆከር መተካት" en="swap joker" tone="gold" onClick={() => swapTarget && void act({ type: 'swapWild', meldId: swapTarget.id, card: selected[0] })} disabled={!view.legal.swapWild || !swapTarget || pending} />
             <ActionButton am="ጣል" en="discard" tone="red" onClick={() => void act({ type: 'discard', card: selected[0] })} disabled={!view.legal.discard || selected.length !== 1 || pending} />
             <ActionButton am="ደርድር" en="best order" onClick={() => setOrder(arrangeHand(view.hand, meldCtx).order)} disabled={view.hand.length === 0} />

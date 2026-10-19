@@ -136,6 +136,8 @@ export interface ConquerLayoffSpec {
 export type ConquerAction =
   | { type: 'predict'; choice: ConquerPrediction }
   | { type: 'drawStock' }
+  /** Draw the face-up base card from under the deck; the player must then go out this turn. */
+  | { type: 'takeBase' }
   /** Take the top discard; it must appear in the melds/lay-offs submitted with it. */
   | { type: 'takeDiscard'; melds?: ConquerMeldSpec[]; layoffs?: ConquerLayoffSpec[] }
   /** Lay down melds (an opening when not yet open). */
@@ -218,8 +220,14 @@ export interface ConquerView {
   /** The viewer's private hand (empty for spectators). */
   hand: Card[];
   pendingWild: Card | null;
-  /** A discard the current player took and must meld before discarding (public). */
+  /** The discard the current player took this turn (public; shown highlighted). */
   pendingPickup: Card | null;
+  /** Points the current, not-yet-open player has laid down this turn toward the opening threshold. */
+  openingProgress: number;
+  /** The current player took the discard before opening and must reach the threshold this turn. */
+  mustOpen: boolean;
+  /** The current player took the base card and must go out this turn. */
+  mustFinish: boolean;
   melds: ConquerMeldView[];
   stockCount: number;
   discardTop: Card | null;
@@ -232,6 +240,7 @@ export interface ConquerView {
     predict: boolean;
     drawStock: boolean;
     takeDiscard: boolean;
+    takeBase: boolean;
     meld: boolean;
     layoff: boolean;
     swapWild: boolean;

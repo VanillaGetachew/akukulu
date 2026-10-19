@@ -160,12 +160,32 @@ describe('Conquer opening (41 points)', () => {
   const hand = '3s 4s 5s 2s 7h 7d 7c 7s 9h 9d 9c Kh Kd Kc';
   const base = () => run(rigged({ a: hand, b: FILLER_B, stockTop: 'Qc' }), 'a', { type: 'drawStock' });
 
-  it('rejects 40 points', () => {
-    const res = act(base(), 'a', { type: 'meld', melds: [{ cards: h('3s 4s 5s') }, { cards: h('7h 7d 7c 7s') }] });
-    expect(res).toMatchObject({ ok: false, code: 'ILLEGAL_MELD' });
-    expect(!res.ok && res.error).toMatch(/40 points/);
+  it('40 points go down but do not open, and block the discard', () => {
+    const s = run(base(), 'a', { type: 'meld', melds: [{ cards: h('3s 4s 5s') }, { cards: h('7h 7d 7c 7s') }] });
+    expect(s.players[0].opened).toBe(false);
+    expect(s.openingProgress).toBe(40);
+    const res = act(s, 'a', { type: 'discard', card: 'Qc' });
+    expect(res).toMatchObject({ ok: false, code: 'ILLEGAL_DISCARD' });
+    expect(!res.ok && res.error).toMatch(/40\/41/);
+    expect(act(s, 'a', { type: 'layoff', layoffs: [{ meldId: s.melds[0].id, card: '2s' }] })).toMatchObject({ ok: false });
   });
 
+  it('builds the opening one set at a time within the turn', () => {
+    let s = run(base(), 'a', { type: 'meld', melds: [{ cards: h('Kh Kd Kc') }] });
+    expect(s.players[0].opened).toBe(false);
+    expect(conquerEngine.view(s, 'a')).toMatchObject({ openingProgress: 30, legal: { discard: false } });
+    s = run(s, 'a', { type: 'meld', melds: [{ cards: h('3s 4s 5s') }] });
+    expect(s.players[0].opened).toBe(true);
+    s = run(s, 'a', { type: 'discard', card: 'Qc' });
+    expect(s.current).toBe(1);
+    expect(s.openingProgress).toBe(0);
+  });
+
+  it('loses the round when a partial opening never reaches 41', () => {
+    let s = run(base(), 'a', { type: 'meld', melds: [{ cards: h('Kh Kd Kc') }] });
+    s = expectOk(conquerEngine.tick(s, ctx(s.turnDeadline!))).state;
+    expect(s.roundResult).toMatchObject({ winnerId: 'b', reason: 'timeout' });
+  });
   it('accepts exactly 41 points', () => {
     const s = run(base(), 'a', { type: 'meld', melds: [{ cards: h('2s 3s 4s 5s') }, { cards: h('9h 9d 9c') }] });
     expect(s.players[0].opened).toBe(true);
@@ -215,32 +235,41 @@ describe('Conquer opening (41 points)', () => {
 describe('Conquer discard pickup', () => {
   const hand = '3h 4h Kh Kd Kc 9s 9d 9c 2s 6c Jh Ts Js Qs';
 
-  it('puts the taken discard in hand and blocks discarding until it is melded', () => {
+  it('before opening, taking the discard means reaching 41 this turn — with any cards', () => {
     let s = rigged({ a: hand, b: FILLER_B, discard: '7c 5h' });
     s = run(s, 'a', { type: 'takeDiscard' });
     expect(s.players[0].hand).toContain('5h');
-    expect(s.pendingPickup).toBe('5h');
     expect(s.discard).toEqual(['7c']); // the card underneath is now on top
-    expect(conquerEngine.view(s, 'b').pendingPickup).toBe('5h');
+    expect(conquerEngine.view(s, 'b')).toMatchObject({ pendingPickup: '5h', mustOpen: true });
     expect(conquerEngine.view(s, 'a').legal.discard).toBe(false);
-    const blocked = act(s, 'a', { type: 'discard', card: 'Qs' });
-    expect(blocked).toMatchObject({ ok: false, code: 'ILLEGAL_DISCARD' });
-    expect(!blocked.ok && blocked.error).toMatch(/5♥ you picked up/);
-    // Melding it without other melds does not reach 41, so the opening is rejected and the obligation stays.
-    expect(act(s, 'a', { type: 'meld', melds: [{ cards: h('3h 4h 5h') }] })).toMatchObject({ ok: false });
-    s = run(s, 'a', { type: 'meld', melds: [{ cards: h('3h 4h 5h') }, { cards: h('Kh Kd Kc') }] });
-    expect(s.pendingPickup).toBeNull();
-    s = run(s, 'a', { type: 'discard', card: 'Qs' });
+    expect(act(s, 'a', { type: 'discard', card: 'Qs' })).toMatchObject({ ok: false, code: 'ILLEGAL_DISCARD' });
+    // The picked-up 5♥ does not have to be used: K K K + 9 9 9 = 57 opens.
+    s = run(s, 'a', { type: 'meld', melds: [{ cards: h('Kh Kd Kc') }, { cards: h('9s 9d 9c') }] });
+    expect(s.players[0].opened).toBe(true);
+    expect(s.players[0].hand).toContain('5h');
+    s = run(s, 'a', { type: 'discard', card: '5h' });
     expect(s.current).toBe(1);
   });
 
+  it('after opening, the discard can be taken with no obligation', () => {
+    let s = rigged({ a: hand, b: FILLER_B, stockTop: '7s 2h' });
+    s = run(s, 'a', { type: 'drawStock' });
+    s = run(s, 'a', { type: 'meld', melds: [{ cards: h('Kh Kd Kc') }, { cards: h('9s 9d 9c') }] });
+    s = run(s, 'a', { type: 'discard', card: 'Qs' });
+    s = run(s, 'b', { type: 'drawStock' });
+    s = run(s, 'b', { type: 'discard', card: '2h' });
+    s = run(s, 'a', { type: 'takeDiscard' });
+    expect(s.mustOpen).toBe(false);
+    s = run(s, 'a', { type: 'discard', card: '2h' });
+    expect(s.current).toBe(1);
+  });
   it('still accepts taking and melding in one action', () => {
     const s = run(rigged({ a: hand, b: FILLER_B, discard: '5h' }), 'a', { type: 'takeDiscard', melds: [{ cards: h('3h 4h 5h') }, { cards: h('Kh Kd Kc') }] });
     expect(s.players[0].opened).toBe(true);
     expect(s.pendingPickup).toBeNull();
   });
 
-  it('loses the round if the picked-up card is never melded before time runs out', () => {
+  it('loses the round if a player who picked up before opening cannot reach 41 in time', () => {
     let s = rigged({ a: hand, b: FILLER_B, discard: 'As' });
     s = run(s, 'a', { type: 'takeDiscard' });
     s = expectOk(conquerEngine.tick(s, ctx(s.turnDeadline!))).state;
@@ -257,6 +286,42 @@ describe('Conquer discard pickup', () => {
     expect(act(s, 'a', { type: 'takeDiscard', layoffs: [{ meldId: s.melds[0].id, card: '9h' }] })).toMatchObject({ ok: false, code: 'ILLEGAL_PICKUP' });
     s = run(s, 'a', { type: 'takeDiscard', layoffs: [{ meldId: s.melds[1].id, card: '9h' }] });
     expect(s.melds[1].placed).toHaveLength(4);
+  });
+});
+
+describe('Conquer base card', () => {
+  it('can be drawn from under the deck, but the player must go out that turn', () => {
+    let s = started().state;
+    s = run(s, s.players[s.predictor].playerId, { type: 'predict', choice: 'up' });
+    const starter = s.players[s.current].playerId;
+    s = run(s, starter, { type: 'discard', card: s.players[s.current].hand[0] });
+    const id = s.players[s.current].playerId;
+    expect(conquerEngine.view(s, id).legal.takeBase).toBe(true);
+    s = run(s, id, { type: 'takeBase' });
+    expect(s.players[s.current].hand).toContain(s.baseCard);
+    expect(conquerEngine.view(s, id)).toMatchObject({ mustFinish: true, baseInStock: false, legal: { discard: false } });
+    expect(act(s, id, { type: 'discard', card: s.players[s.current].hand[0] })).toMatchObject({ ok: false, code: 'ILLEGAL_DISCARD' });
+    expect(act(s, id, { type: 'drawStock' })).toMatchObject({ ok: false, code: 'WRONG_PHASE' });
+    s = expectOk(conquerEngine.tick(s, ctx(s.turnDeadline!))).state;
+    expect(s.roundResult).toMatchObject({ reason: 'timeout' });
+  });
+
+  it('wins if the player goes out after taking it', () => {
+    let s = rigged({ a: WINNING_HAND, b: FILLER_B });
+    // Put 5♥ face-up under the deck as the base card: it completes 2♥-5♥.
+    s.stock = ['5h', ...s.stock.filter((c) => c !== '5h')];
+    s.baseCard = '5h';
+    s.baseVisible = true;
+    s = run(s, 'a', { type: 'takeBase' });
+    s = run(s, 'a', { type: 'meld', melds: [{ cards: h('3s 4s 5s 6s') }, { cards: h('Kh Kd Kc') }, { cards: h('9h 9d 9c') }, { cards: h('2h 3h 4h 5h') }] });
+    s = run(s, 'a', { type: 'discard', card: 'Qc' });
+    expect(s.roundResult).toMatchObject({ winnerId: 'a', reason: 'out' });
+  });
+
+  it('is not available once drawn or after the deck is reshuffled', () => {
+    const s = rigged({ a: WINNING_HAND, b: FILLER_B });
+    s.baseVisible = false;
+    expect(act(s, 'a', { type: 'takeBase' })).toMatchObject({ ok: false, code: 'NO_BASE' });
   });
 });
 

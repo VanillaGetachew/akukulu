@@ -276,9 +276,10 @@ export const blackjackEngine: GameEngine<BlackjackState, BlackjackConfig, Blackj
     }
     if (raw.doubleAfterSplit !== undefined) c.doubleAfterSplit = Boolean(raw.doubleAfterSplit);
     if (raw.maxHands !== undefined) c.maxHands = intInRange(raw.maxHands, 1, 4, 'maxHands');
-    if (stake > 0) c.minBet = intInRange(stake, 1, 100_000, 'stake');
+    if (stake > 0) c.minBet = intInRange(stake, 1, 1_000_000, 'stake');
     if (raw.maxBet !== undefined) c.maxBet = intInRange(raw.maxBet, c.minBet, 1_000_000, 'maxBet');
-    if (c.maxBet < c.minBet) c.maxBet = c.minBet;
+    // High-stakes tables scale the maximum bet with the minimum.
+    c.maxBet = Math.max(c.maxBet, c.minBet * 20);
     return c;
   },
 
