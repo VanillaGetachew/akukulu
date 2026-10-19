@@ -16,6 +16,8 @@ export interface TestApp {
 
 export async function startApp(databaseUrl: string, opts: { dropSchema: boolean }): Promise<TestApp> {
   process.env.DISABLE_MATCH_SWEEP = 'true';
+  // Tests drive matches far faster than a human; the production limit is 10/s.
+  process.env.ACTION_RATE_LIMIT_PER_SEC = '1000';
   const config = loadConfig({
     NODE_ENV: 'test',
     DATABASE_URL: databaseUrl,

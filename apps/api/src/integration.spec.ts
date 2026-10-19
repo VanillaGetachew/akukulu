@@ -146,7 +146,7 @@ suite('API integration', () => {
       const view = current === a ? s.view : (await state<LudoView>(matchId, b)).view;
       const action = view.phase === 'roll' ? { type: 'roll' } : { type: 'move', token: view.legalTokens[view.legalTokens.length - 1] };
       const ack = await act(current, matchId, action);
-      expect(ack).toMatchObject({ ok: true });
+      expect(ack).toEqual({ ok: true });
     }
     expect(s.status).toBe('finished');
     const winner = s.view.winnerId === a.id ? a : b;

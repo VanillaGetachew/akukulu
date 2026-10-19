@@ -1,0 +1,80 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Colour tokens as RGB channels so Tailwind opacity modifiers work. */
+  --ink: 7 7 26;
+  --night: 13 12 36;
+  --panel: 25 21 54;
+  --panel-2: 35 29 71;
+  --charcoal: 27 27 38;
+  --line: rgba(255, 255, 255, 0.08);
+  --fg: 243 241 255;
+  --muted: 154 149 189;
+  --lime: 46 230 122;
+  --lime-deep: 18 184 90;
+  --gold: 255 201 74;
+  --danger: 255 90 122;
+  --violet: 139 92 246;
+  color-scheme: dark;
+}
+
+html,
+body {
+  background: rgb(var(--ink));
+  color: rgb(var(--fg));
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior-y: none;
+}
+
+body {
+  min-height: 100dvh;
+  background:
+    radial-gradient(1200px 500px at 50% -200px, rgba(139, 92, 246, 0.22), transparent 70%),
+    radial-gradient(800px 400px at 110% 10%, rgba(46, 230, 122, 0.08), transparent 70%),
+    rgb(var(--ink));
+  background-attachment: fixed;
+}
+
+@layer components {
+  .card {
+    @apply rounded-2xl border border-line bg-panel/90 shadow-card;
+  }
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold transition active:scale-[.97] disabled:cursor-not-allowed disabled:opacity-40;
+  }
+  .btn-primary {
+    @apply btn bg-lime text-ink shadow-glow hover:brightness-110;
+  }
+  .btn-ghost {
+    @apply btn border border-line bg-panel2 text-fg hover:bg-white/10;
+  }
+  .btn-danger {
+    @apply btn bg-danger/90 text-white hover:bg-danger;
+  }
+  .chip {
+    @apply inline-flex items-center gap-1 rounded-full border border-line bg-black/30 px-2.5 py-1 text-xs font-semibold text-muted;
+  }
+  .input {
+    @apply w-full rounded-xl border border-line bg-black/30 px-3 py-2.5 text-sm text-fg outline-none placeholder:text-muted/60 focus:border-lime/60;
+  }
+  .skeleton {
+    @apply animate-shimmer rounded-xl bg-[linear-gradient(90deg,rgba(255,255,255,.04),rgba(255,255,255,.1),rgba(255,255,255,.04))] bg-[length:200%_100%];
+  }
+}
+
+.felt {
+  background:
+    radial-gradient(ellipse at center, rgba(46, 230, 122, 0.18), transparent 65%),
+    radial-gradient(ellipse at center, #133a2a 0%, #0b2419 60%, #08170f 100%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

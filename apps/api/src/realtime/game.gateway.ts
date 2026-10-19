@@ -20,7 +20,7 @@ interface SocketData {
   userId: string;
 }
 
-const ACTIONS_PER_SECOND = 10;
+const actionsPerSecond = () => Number(process.env.ACTION_RATE_LIMIT_PER_SEC ?? 10);
 
 /**
  * Socket.IO entry point. Clients authenticate with their session JWT in the
@@ -122,7 +122,7 @@ export class GameGateway implements OnGatewayInit, OnGatewayConnection {
   ): Promise<ActionAck> {
     try {
       const userId = this.userId(socket);
-      if (!(await this.presence.allowAction(userId, ACTIONS_PER_SECOND))) {
+      if (!(await this.presence.allowAction(userId, actionsPerSecond()))) {
         return { ok: false, code: 'RATE_LIMITED', error: 'Slow down a little' };
       }
       if (typeof body?.matchId !== 'string') throw new GameError('BAD_REQUEST', 'matchId required');
