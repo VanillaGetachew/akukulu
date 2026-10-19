@@ -127,11 +127,23 @@ function ResultSheet({ summary, stake }: { summary: MatchSummary; stake: number 
     }
   };
   const mine = summary.players.find((p) => p.userId === user?.id);
-  const title = summary.status === 'cancelled' ? 'Match voided' : mine?.outcome === 'win' ? 'You won!' : mine?.outcome === 'draw' ? 'Draw' : 'Match over';
+  const delta = mine?.pointsDelta ?? 0;
+  const title =
+    summary.status === 'cancelled'
+      ? 'Match voided'
+      : delta > 0
+        ? `You won ${delta.toLocaleString()} points!`
+        : delta < 0
+          ? `You lost ${Math.abs(delta).toLocaleString()} points`
+          : mine?.outcome === 'win'
+            ? 'You won!'
+            : mine?.outcome === 'draw'
+              ? 'Draw'
+              : 'Match over';
   return (
     <div className="fixed inset-0 z-40 grid place-items-end bg-black/60 p-4 backdrop-blur-sm sm:place-items-center" role="dialog" aria-modal="true">
       <div className="card w-full max-w-md animate-pop p-5">
-        <h2 className={`font-display text-2xl font-extrabold ${mine?.outcome === 'win' ? 'text-lime' : ''}`}>{title}</h2>
+        <h2 className={`font-display text-2xl font-extrabold ${delta > 0 || mine?.outcome === 'win' ? 'text-lime' : delta < 0 ? 'text-danger' : ''}`}>{title}</h2>
         <div className="mt-3 grid gap-1.5">
           {[...summary.players]
             .sort((a, b) => (a.placement ?? 99) - (b.placement ?? 99))

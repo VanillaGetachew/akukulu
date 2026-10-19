@@ -20,6 +20,10 @@ const RED: readonly Suit[] = ['h', 'd'];
 
 export const isRed = (s: Suit) => RED.includes(s);
 
+/** Sets are laid out alternating black and red: ♠ ♥ ♣ ♦. */
+const SET_ORDER: readonly Suit[] = ['s', 'h', 'c', 'd'];
+const bySetOrder = (a: { as: Card }, b: { as: Card }) => SET_ORDER.indexOf(cardSuit(a.as)) - SET_ORDER.indexOf(cardSuit(b.as));
+
 /** Natural value: Ace 11, 2–10 face value, J/Q/K 10. */
 export function naturalValue(rank: Rank): number {
   if (rank === 'A') return 11;
@@ -154,7 +158,7 @@ function setCandidate(cards: Card[], rank: Rank, ctx: MeldContext, hint: Record<
   }
   if (naturals(placed) < ctx.rules.wild.minNaturalPerMeld) return null;
   if (placed.some((p) => !p.wild && ctx.taken.has(p.as))) return null;
-  placed.sort((a, b) => SUITS.indexOf(cardSuit(a.as)) - SUITS.indexOf(cardSuit(b.as)));
+  placed.sort(bySetOrder);
   return { kind: 'set', placed, points: total(placed) };
 }
 
@@ -273,7 +277,7 @@ export function extendMeld(meld: Interpretation, card: Card, ctx: MeldContext, h
       if (!as) return fail('No free position in this set');
     }
     const placed = [...meld.placed, { card, as, wild: as !== card, points: naturalValue(rank) }].sort(
-      (a, b) => SUITS.indexOf(cardSuit(a.as)) - SUITS.indexOf(cardSuit(b.as)),
+      bySetOrder,
     );
     return { ok: true, meld: { kind: 'set', placed, points: total(placed) } };
   }

@@ -23,7 +23,7 @@ import {
   type Rank,
 } from '@akukulu/shared';
 import { useSession } from '@/lib/session';
-import { PlayingCard } from '@/components/ui';
+import { Coin, PlayingCard } from '@/components/ui';
 import { nameOf, type TableProps } from './types';
 
 /** Order of the prediction buttons, as players know them. */
@@ -73,7 +73,7 @@ function FanCard({ card, selected, joker, marked }: { card: Card; selected?: boo
 }
 
 /** Cards on a shallow arc that always fits its box. `flip` is the opponent's fan at the top. */
-function Fan({ cards, width, flip, selected, wild, marked, onTap }: { cards: Card[]; width: number; flip?: boolean; selected?: Card[]; wild?: Set<Card>; marked?: Card | null; onTap?: (c: Card) => void }) {
+function Fan({ cards, width, flip, selected, wild, marked, onTap, floatAction }: { cards: Card[]; width: number; flip?: boolean; selected?: Card[]; wild?: Set<Card>; marked?: Card | null; onTap?: (c: Card) => void; floatAction?: { am: string; en: string; onClick: () => void } | null }) {
   const n = cards.length;
   const cw = flip ? 36 : HAND_W;
   const ch = flip ? 48 : HAND_H;
@@ -111,6 +111,22 @@ function Fan({ cards, width, flip, selected, wild, marked, onTap }: { cards: Car
           </button>
         );
       })}
+      {floatAction && selected && selected.length > 0 && (() => {
+        // Centred above the selected (lifted) cards.
+        const idx = cards.map((c, i) => (selected.includes(c) ? i - mid : null)).filter((d): d is number => d !== null);
+        const centre = idx.reduce((s, d) => s + d, 0) / idx.length;
+        return (
+          <button
+            type="button"
+            onClick={floatAction.onClick}
+            className="absolute left-1/2 z-[100] flex animate-pop flex-col items-center rounded-xl border-2 border-white/80 bg-lime px-4 py-1 text-ink shadow-glow"
+            style={{ bottom: 6 + maxDrop + ch + lift + 6, transform: `translateX(calc(-50% + ${centre * spacing}px))` }}
+          >
+            <span className="font-ethiopic text-base font-black leading-tight">{floatAction.am}</span>
+            <span className="text-[9px] font-bold uppercase tracking-wide">{floatAction.en}</span>
+          </button>
+        );
+      })()}
     </div>
   );
 }
@@ -256,7 +272,9 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
     setOrder((prev) => {
       const kept = prev.filter((c) => view.hand.includes(c));
       const added = view.hand.filter((c) => !kept.includes(c));
-      return kept.length ? [...kept, ...added] : [...view.hand].sort(bySuitRank);
+      if (!added.length && kept.length === view.hand.length) return kept;
+      // Whenever the hand changes (deal, draw, meld), lay it out in the best order.
+      return arrangeHand(view.hand, { wild: new Set(view.wildCards), rules: view.config.rules, taken: new Set(view.melds.flatMap((m) => m.cards.map((x) => x.as))) }).order;
     });
     setSelected((s) => s.filter((c) => view.hand.includes(c)));
   }, [view.hand]);
@@ -271,6 +289,11 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
   const toggle = (c: Card) => setSelected((s) => (s.includes(c) ? s.filter((x) => x !== c) : [...s, c]));
   const swapTarget = selected.length === 1 ? view.melds.find((m) => m.cards.some((c) => c.wild && c.as === selected[0])) : undefined;
   const canLayOff = myTurn && me?.opened && view.phase === 'meld' && selected.length === 1;
+  /** The floating ውረድ (meld) button appears only when the selected cards form valid melds. */
+  const canMeld = useMemo(
+    () => myTurn && view.phase === 'meld' && selected.length >= 3 && partitionIntoMelds(selected, meldCtx) !== null,
+    [myTurn, view.phase, selected, meldCtx],
+  );
 
   const sendMelds = (melds: Card[][], hints: Record<Card, Card>[]) => {
     const specs: ConquerMeldSpec[] = melds.map((cards, i) => ({ cards, as: hints[i] }));
@@ -474,8 +497,8 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
           </div>
           <span className="text-[10px] font-bold uppercase tracking-widest text-white/70">Deck</span>
           {view.prediction && (
-            <span className="rounded-full bg-black/50 px-2 py-0.5 font-ethiopic text-[11px] font-bold" title={`Jokers: ${view.wildCards.map(label).join(' ')}`}>
-              {CONQUER_PREDICTION_LABEL[view.prediction].am} · ★{view.wildCards.map(label).join(' ')}
+            <span className="rounded-full bg-black/50 px-2.5 py-0.5 font-ethiopic text-[11px] font-bold">
+              {CONQUER_PREDICTION_LABEL[view.prediction].am}
             </span>
           )}
         </div>
@@ -508,7 +531,6 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
       </div>
       {view.phase !== 'roundOver' && view.phase !== 'finished' && (
         <div className="py-2">
-          <TurnBar view={view} serverNow={serverNow} state={state} mine={myTurn} />
           {myTurn && !me?.opened && (view.mustOpen || view.openingProgress > 0) && (
             <div className="mx-auto mb-1 w-fit rounded-full border border-gold/60 bg-black/40 px-3 py-1 text-center font-ethiopic text-[11px] font-bold text-gold">
               {view.mustOpen ? 'ከመሬት ካርታ ወስደዋል — ' : ''}
@@ -538,10 +560,17 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
       {me && view.phase !== 'roundOver' && view.phase !== 'finished' && (
         <div className="pb-[max(0.75rem,env(safe-area-inset-bottom))]">
           <div ref={handRef} className="mx-auto w-full max-w-xl">
-            <Fan cards={order} width={handWidth} selected={selected} wild={wild} marked={myTurn ? view.pendingPickup : null} onTap={myTurn ? toggle : undefined} />
+            <Fan
+              cards={order}
+              width={handWidth}
+              selected={selected}
+              wild={wild}
+              marked={myTurn ? view.pendingPickup : null}
+              onTap={myTurn ? toggle : undefined}
+              floatAction={canMeld && !pending ? { am: 'ውረድ', en: 'meld', onClick: enter } : null}
+            />
           </div>
           <div className="mt-1 flex flex-wrap justify-center gap-1.5 px-2">
-            <ActionButton am="ገቢ" en="meld" onClick={enter} disabled={!myTurn || pending || view.phase !== 'meld' || selected.length < 3} />
             <ActionButton am="ጨምር" en="open" onClick={addToMeld} disabled={!canLayOff || pending} />
             <ActionButton am="ጆከር መተካት" en="swap joker" tone="gold" onClick={() => swapTarget && void act({ type: 'swapWild', meldId: swapTarget.id, card: selected[0] })} disabled={!view.legal.swapWild || !swapTarget || pending} />
             <ActionButton am="ጣል" en="discard" tone="red" onClick={() => void act({ type: 'discard', card: selected[0] })} disabled={!view.legal.discard || selected.length !== 1 || pending} />
@@ -566,19 +595,38 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
                     ? 'Won by forfeit.'
                     : 'The deck ran out — lower penalty wins.'}
             </div>
-            {view.players.map((p) => (
-              <div key={p.playerId} className="grid gap-1">
-                <div className="flex justify-between text-xs font-bold">
-                  <span>{nameOf(state, p.playerId)}</span>
-                  <span>Penalty {result.penalties[p.playerId] ?? 0}</span>
+            {(() => {
+              const stake = view.config.stake;
+              const mine = result.winnerId === null ? 0 : result.winnerId === user?.id ? stake : -stake;
+              return (
+                <div className={`flex items-center justify-center gap-2 rounded-xl py-2.5 text-lg font-black ${mine > 0 ? 'bg-lime/15 text-lime' : mine < 0 ? 'bg-danger/15 text-danger' : 'bg-white/5 text-muted'}`}>
+                  <Coin className="h-5 w-5" />
+                  {stake === 0 ? 'Free round — no points at stake' : mine > 0 ? `You won ${stake.toLocaleString()} points` : mine < 0 ? `You lost ${stake.toLocaleString()} points` : 'Draw — stakes returned'}
                 </div>
-                <div className="flex flex-wrap -space-x-5">
-                  {[...(p.revealedHand ?? [])].sort(bySuitRank).map((c) => (
-                    <PlayingCard key={c} card={c} size="sm" />
-                  ))}
+              );
+            })()}
+            {view.players.map((p) => {
+              const delta = result.winnerId === null ? 0 : p.playerId === result.winnerId ? view.config.stake : -view.config.stake;
+              return (
+                <div key={p.playerId} className="grid gap-1">
+                  <div className="flex justify-between text-xs font-bold">
+                    <span>{nameOf(state, p.playerId)}</span>
+                    <span className="flex gap-3">
+                      <span className="text-muted">Penalty {result.penalties[p.playerId] ?? 0}</span>
+                      <span className={delta > 0 ? 'text-lime' : delta < 0 ? 'text-danger' : 'text-muted'}>
+                        {delta > 0 ? '+' : ''}
+                        {delta.toLocaleString()}
+                      </span>
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap gap-0.5">
+                    {[...(p.revealedHand ?? [])].sort(bySuitRank).map((c) => (
+                      <MiniCard key={c} placed={{ card: c, as: c, wild: false }} />
+                    ))}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
             {view.phase === 'roundOver' ? (
               <div className="grid grid-cols-2 gap-2">
                 <button className="btn-primary" disabled={pending || !view.legal.rematch} onClick={() => void act({ type: 'rematch' })}>

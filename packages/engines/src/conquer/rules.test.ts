@@ -57,6 +57,10 @@ describe('card values and Aces', () => {
 });
 
 describe('sets and runs', () => {
+  it('lays sets out alternating black and red', () => {
+    expect(okMeld('9d 9c 9h 9s').placed.map((p) => p.as)).toEqual(['9s', '9h', '9c', '9d']);
+  });
+
   it('accepts sets of three or four distinct suits', () => {
     expect(okMeld('9s 9h 9d').kind).toBe('set');
     expect(okMeld('9s 9h 9d 9c').points).toBe(36);
