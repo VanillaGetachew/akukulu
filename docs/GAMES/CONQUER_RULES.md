@@ -20,7 +20,7 @@ This specification replaces the earlier 40-card Conquian draft. That draft was n
 
 An Ace's value always comes from its **role in the meld** being validated; it never has a single global value. Run order is A-2-3-…-10-J-Q-K, with the Ace allowed low or high (`runs.aceHigh`). **No wrap-around**: K-A-2 is never a run.
 
-**Ambiguity.** When a meld can be read more than one way (a wildcard that could extend a run at either end, or wildcards that could sit in different slots), the client may pin each wildcard's identity with `as`. Without a pin, the server picks the **highest-scoring valid reading**. Example from play: with 6s and 4s wild, `6♠ 7♠ 8♠ 10♠ 4♦` is read as 7-8-[6♠=9♠]-10-[4♦=J♠] = 44, not 6-7-8-[4♦=9♠]-10 = 40. Tests cover A-2-3 (6), Q-K-A (31), A-K-wild → Q-K-A, and the K-A-2 rejection.
+**Ambiguity.** When a meld can be read more than one way (a wildcard that could extend a run at either end, or wildcards that could sit in different slots), **the player chooses** what each joker stands for (the table shows every option, e.g. 5♥ 6♥ + joker as 4♥ or 7♥; 9♠ 9♥ + joker as 9♦ or 9♣; a joker laid off at either end of a run). The choice is sent as `as`. Without a choice, the server picks the **highest-scoring valid reading**. Example from play: with 6s and 4s wild, `6♠ 7♠ 8♠ 10♠ 4♦` is read as 7-8-[6♠=9♠]-10-[4♦=J♠] = 44, not 6-7-8-[4♦=9♠]-10 = 40. Tests cover A-2-3 (6), Q-K-A (31), A-K-wild → Q-K-A, and the K-A-2 rejection.
 
 ## 3. Pre-game wildcard prediction (blind)
 1. The deck is shuffled with `crypto.randomInt` and one card is drawn at random as the **base card** (the joker indicator).
@@ -65,7 +65,7 @@ The starter's first turn skips the draw (14 cards, discard to start). Every othe
 
 1. **Draw** — exactly one of:
    - `drawStock`: take the top stock card.
-   - `takeDiscard`: take the top discard **together with** melds and/or lay-offs that use it. The server validates the whole package before the card moves. A player who has not opened must use it in an opening of 41+. The card underneath then becomes the visible top of the pile.
+   - `takeDiscard`: take the top discard into hand (confirmed by the owner). The player **cannot discard until that card is melded or laid off** (if not yet open, that means opening with 41+ including it). If they cannot, the turn timer runs out and they **lose the round**. The card underneath becomes the visible top of the pile. Melds may optionally be sent in the same action.
 2. **Meld** (optional, repeatable): `meld`, `layoff`, `swapWild`.
 3. **Discard** one card from hand. This ends the turn and the opponent is notified.
 
@@ -78,10 +78,9 @@ The server tracks each player's hand, every table meld (with who contributed eac
 
 ## 9. Winning and stock exhaustion
 - **Going out:** meld everything except one card, then discard it to leave an empty hand. Melds may never empty the hand (`mustDiscardToWin`), so a final discard is always required. The round ends immediately.
-- **Stock exhaustion:** the last stock card may be drawn. If the stock is empty when a turn ends and nobody went out, the round ends (`exhaustion: 'lowerPenaltyWins'`):
-  - Both hands are revealed and scored. Penalty values are as in section 2, with Ace = 11 (`acePenalty`) and a wildcard in hand = its natural value (`wild.penalty`).
-  - The **lower penalty wins**; equal penalties are a **draw**. The `'dead'` option makes every exhausted round a draw.
-- The discard pile is **never reshuffled**.
+- **Deck runs out** (confirmed by the owner, `exhaustion: 'reshuffle'`): the last deck card may be drawn. When the deck is empty at the end of a turn, the discard pile **except its top card** is shuffled (`crypto.randomInt`) and becomes the new deck; play continues. The base card is no longer shown once it has been drawn or reshuffled.
+- Alternative options kept for configuration: `'lowerPenaltyWins'` (reveal hands, lower penalty wins, equal is a draw; Ace = 11, joker in hand = natural value) and `'dead'` (exhausted round is a draw).
+- **Penalties** are still computed and shown for every round result.
 
 ## 10. Rounds, rematches and points
 - An optional stake per player per round (room stake) is debited at the start of each round. The round winner receives both stakes; a draw refunds both. Ledger keys `match:<id>:r<n>:stake|payout|refund:<player>` make settlement idempotent.
@@ -89,16 +88,17 @@ The server tracks each player's hand, every table meld (with who contributed eac
 - Match result: ranked by rounds won. Equal rounds is a draw, unless someone left (they lose).
 
 ## 11. Timeouts and disconnection
-- Prediction: 30 s. On timeout the server predicts **Up** and counts a missed turn.
-- Turn: 60 s. On timeout the server draws from the stock if needed and discards the highest-penalty non-wild card; any pending swap obligation is released. This counts as a missed turn.
-- 3 consecutive missed turns, or leaving mid-round, forfeits the round to the opponent and ends the match.
+- **Running out of time loses the round** (confirmed by the owner, `timeoutLoses`): prediction 30 s, turn 60 s. The opponent wins the round and its stakes; a rematch is still offered.
+- Leaving mid-round forfeits the round to the opponent and ends the match.
+- (With `timeoutLoses: false` the server would instead auto-play timed-out turns and forfeit after `maxMissedTurns`.)
 - Disconnected players keep their seat. The opponent sees an online/offline badge, and on reconnect the client re-subscribes and receives its private state. All state lives in PostgreSQL, and an integration test restarts the API mid-turn and continues the round.
 
 ## 12. Privacy
 Each player receives only their own hand. Opponent hand sizes, the deck count and the discard top are public. The deck order and opponent cards are never sent; hands are revealed only at round end for scoring. The base card is hidden from everyone until the prediction, then shown under the deck.
 
 ## 13. Table controls
-- Tap the **deck** to draw. Tap the **discard** to take it, then select the hand cards that meld with it and press **ገቢ**, or tap a meld to lay it off there.
+- Tap the **deck** to draw. Tap the **discard** to take it into your hand (it glows gold until melded; you cannot discard before melding it).
+- Table melds show each card's rank and suit; a joker shows the card it stands for in gold, so you can see what to swap.
 - **ገቢ** (meld / open): select cards and press it; the app splits the selection into sets and runs, and the server validates them (41+ to open).
 - **ጆከር መተካት** (swap joker): select the natural card a table joker stands for.
 - **ጣል** (discard): select one card.
@@ -115,7 +115,6 @@ Each player receives only their own hand. Opponent hand sizes, the deck count an
 | `runs.aceHigh` | Allowed (Q-K-A) | Is Q-K-A legal? |
 | `layoffOnOpponentMelds` | Allowed | May you lay off on the opponent's melds? |
 | `mustDiscardToWin` | Yes | Must the last card be discarded, or can you go out by melding? |
-| `exhaustion` | Lower penalty wins | Or is an exhausted round void? |
 
 Changing an answer means editing `DEFAULT_CONQUER_RULES` (and `CONQUER_UNVERIFIED_RULES`) in `packages/shared/src/games/conquer.ts`; the rules module and engine read only these options. Rooms cannot override rules.
 

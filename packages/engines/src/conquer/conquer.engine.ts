@@ -91,6 +91,12 @@ export interface ConquerState {
   meldSeq: number;
   /** A wildcard taken by swap that must be used before discarding. */
   pendingWild: Card | null;
+  /** A discard taken this turn that must be melded or laid off before discarding. */
+  pendingPickup: Card | null;
+  /** The base card is still face-up at the bottom of the deck. */
+  baseVisible: boolean;
+  /** How many times the discard pile has been reshuffled into the deck this round. */
+  reshuffles: number;
   turnDeadline: number | null;
   lastEvent: ConquerLastEvent | null;
   roundResult: ConquerRoundResult | null;
@@ -154,6 +160,9 @@ function beginRound(state: ConquerState, predictor: number, ctx: EngineContext, 
   state.discard = [];
   state.melds = [];
   state.pendingWild = null;
+  state.pendingPickup = null;
+  state.baseVisible = false;
+  state.reshuffles = 0;
   state.prediction = null;
   state.wildCards = [];
   state.wildRanks = [];
@@ -187,6 +196,7 @@ function applyPrediction(state: ConquerState, choice: ConquerPrediction, ctx: En
     state.players[(first + i) % 2].hand.push(deck.pop()!);
   }
   state.stock = [state.baseCard!, ...deck];
+  state.baseVisible = true;
   state.discard = [];
   state.current = first;
   state.phase = 'meld';
@@ -217,6 +227,7 @@ function endRound(state: ConquerState, winner: number | null, reason: ConquerRou
   state.roundResult = { round: state.round, winnerId: winner === null ? null : state.players[winner].playerId, reason, penalties };
   state.history.push(state.roundResult);
   state.pendingWild = null;
+  state.pendingPickup = null;
   state.phase = 'roundOver';
   setDeadline(state, ctx);
   const text = winner === null ? 'Round drawn' : reason === 'out' ? 'went out and won the round' : reason === 'forfeit' ? 'won by forfeit' : 'won on lower penalty';
@@ -334,6 +345,7 @@ function applyTablePlay(state: ConquerState, index: number, melds: ConquerMeldSp
   if (required && !placedCards.includes(required)) return 'A taken discard must be used in a meld right away';
   if (rules.mustDiscardToWin && p.hand.length === 0) return 'Keep one card — you must finish by discarding';
   if (state.pendingWild && placedCards.includes(state.pendingWild)) state.pendingWild = null;
+  if (state.pendingPickup && placedCards.includes(state.pendingPickup)) state.pendingPickup = null;
   return null;
 }
 
@@ -352,6 +364,15 @@ function discardCard(state: ConquerState, index: number, card: Card, ctx: Engine
   event(state, out, p.playerId, 'discard', `discarded ${cardLabel(card)}`, { card });
   if (p.hand.length === 0) {
     endRound(state, index, 'out', ctx, out);
+  } else if (state.stock.length === 0 && state.config.rules.exhaustion === 'reshuffle' && state.discard.length > 1) {
+    // Deck exhausted: everything but the top discard is shuffled back in as the new deck.
+    const top = state.discard.pop()!;
+    state.stock = shuffle(state.discard, ctx.rng);
+    state.discard = [top];
+    state.baseVisible = false;
+    state.reshuffles += 1;
+    event(state, out, null, 'reshuffle', 'The deck ran out — discards were shuffled back in', { count: state.stock.length });
+    nextTurn(state, ctx);
   } else if (state.stock.length === 0) {
     const [a, b] = state.players.map((x) => penaltyOf(state, x.hand));
     const winner = state.config.rules.exhaustion === 'dead' || a === b ? null : a < b ? 0 : 1;
@@ -411,6 +432,9 @@ export const conquerEngine: GameEngine<ConquerState, ConquerConfig, ConquerView>
       melds: [],
       meldSeq: 0,
       pendingWild: null,
+      pendingPickup: null,
+      baseVisible: false,
+      reshuffles: 0,
       turnDeadline: null,
       lastEvent: null,
       roundResult: null,
@@ -469,6 +493,7 @@ export const conquerEngine: GameEngine<ConquerState, ConquerConfig, ConquerView>
       case 'drawStock': {
         if (state.phase !== 'draw') return fail('WRONG_PHASE', state.phase === 'meld' ? 'You have already drawn this turn' : 'You cannot draw now');
         const card = state.stock.pop()!;
+        if (state.stock.length === 0 || card === state.baseCard) state.baseVisible = false;
         p.hand.push(card);
         p.missedTurns = 0;
         state.phase = 'meld';
@@ -486,12 +511,16 @@ export const conquerEngine: GameEngine<ConquerState, ConquerConfig, ConquerView>
         if (typeof layoffs === 'string') return fail('BAD_ACTION', layoffs);
         state.discard.pop();
         p.hand.push(top);
-        const error = applyTablePlay(state, index, melds, layoffs, top);
-        if (error) return fail('ILLEGAL_PICKUP', `Cannot take ${top}: ${error}`);
+        // The card joins the hand; the player cannot discard until it is on the table.
+        state.pendingPickup = top;
+        if (melds.length || layoffs.length) {
+          const error = applyTablePlay(state, index, melds, layoffs, null);
+          if (error) return fail('ILLEGAL_PICKUP', `Cannot take ${cardLabel(top)}: ${error}`);
+        }
         p.missedTurns = 0;
         state.phase = 'meld';
         setDeadline(state, ctx);
-        event(state, out, playerId, 'take_discard', `took ${cardLabel(top)} and melded it`, { card: top });
+        event(state, out, playerId, 'take_discard', `took ${cardLabel(top)} from the discard pile`, { card: top });
         return ok(state, out.events, out.ledger);
       }
       case 'meld':
@@ -535,6 +564,9 @@ export const conquerEngine: GameEngine<ConquerState, ConquerConfig, ConquerView>
         const card = String(a.card ?? '');
         if (!p.hand.includes(card)) return fail('ILLEGAL_DISCARD', `${card} is not in your hand`);
         if (state.pendingWild && p.hand.includes(state.pendingWild)) return fail('ILLEGAL_DISCARD', 'Meld the wildcard you swapped before discarding');
+        if (state.pendingPickup && p.hand.includes(state.pendingPickup)) {
+          return fail('ILLEGAL_DISCARD', `Meld the ${cardLabel(state.pendingPickup)} you picked up before discarding — otherwise you lose when time runs out`);
+        }
         p.missedTurns = 0;
         discardCard(state, index, card, ctx, out);
         return ok(state, out.events, out.ledger);
@@ -557,6 +589,16 @@ export const conquerEngine: GameEngine<ConquerState, ConquerConfig, ConquerView>
     const p = state.players[index];
     p.missedTurns += 1;
     out.events.push({ type: 'timeout', playerId: p.playerId, data: { missedTurns: p.missedTurns } });
+    if (state.config.rules.timeoutLoses) {
+      if (state.baseSetAside) {
+        // Timed out while predicting: return the base card so the inventory stays whole.
+        state.stock.push(state.baseCard!);
+        state.baseSetAside = false;
+      }
+      event(state, out, p.playerId, 'timeout', 'ran out of time and lost the round');
+      endRound(state, 1 - index, 'timeout', ctx, out);
+      return ok(state, out.events, out.ledger);
+    }
     if (p.missedTurns >= state.config.maxMissedTurns) {
       forfeit(state, index, 'missed too many turns', ctx, out);
       return ok(state, out.events, out.ledger);
@@ -569,8 +611,9 @@ export const conquerEngine: GameEngine<ConquerState, ConquerConfig, ConquerView>
       p.hand.push(state.stock.pop()!);
       state.phase = 'meld';
     }
-    // A timed-out turn releases any pending swap obligation.
+    // A timed-out turn releases any pending obligations.
     state.pendingWild = null;
+    state.pendingPickup = null;
     discardCard(state, index, autoDiscardCard(state, p.hand), ctx, out);
     return ok(state, out.events, out.ledger);
   },
@@ -598,7 +641,7 @@ export const conquerEngine: GameEngine<ConquerState, ConquerConfig, ConquerView>
       predictorId: s.players[s.predictor]?.playerId ?? null,
       // The prediction is blind: nobody sees the base card until it is made.
       baseCard: s.phase === 'predict' ? null : s.baseCard,
-      baseInStock: s.phase !== 'predict' && !!s.baseCard && s.stock[0] === s.baseCard,
+      baseInStock: s.phase !== 'predict' && s.baseVisible && s.stock.length > 0,
       prediction: s.prediction,
       wildCards: [...s.wildCards],
       wildRanks: [...s.wildRanks],
@@ -618,7 +661,8 @@ export const conquerEngine: GameEngine<ConquerState, ConquerConfig, ConquerView>
       })),
       hand: me ? [...me.hand] : [],
       pendingWild: myTurn ? s.pendingWild : null,
-      melds: s.melds.map((m) => ({ id: m.id, ownerId: m.ownerId, kind: m.kind, cards: m.placed.map(({ pos: _pos, ...x }) => x), points: m.placed.reduce((n, x) => n + x.points, 0) })),
+      pendingPickup: s.phase === 'meld' ? s.pendingPickup : null,
+      melds: s.melds.map((m) => ({ id: m.id, ownerId: m.ownerId, kind: m.kind, cards: m.placed.map((x) => ({ ...x })), points: m.placed.reduce((n, x) => n + x.points, 0) })),
       stockCount: s.stock.length,
       discardTop: s.discard[s.discard.length - 1] ?? null,
       discardCount: s.discard.length,
@@ -633,7 +677,7 @@ export const conquerEngine: GameEngine<ConquerState, ConquerConfig, ConquerView>
         meld: myTurn && s.phase === 'meld',
         layoff: myTurn && s.phase === 'meld' && (me!.opened || !s.config.rules.layoffRequiresOpen),
         swapWild: myTurn && s.phase === 'meld' && me!.opened && s.config.rules.wild.allowSwap && !s.pendingWild,
-        discard: myTurn && s.phase === 'meld' && !(s.pendingWild && me!.hand.includes(s.pendingWild)),
+        discard: myTurn && s.phase === 'meld' && !(s.pendingWild && me!.hand.includes(s.pendingWild)) && !(s.pendingPickup && me!.hand.includes(s.pendingPickup)),
         rematch: me !== null && s.phase === 'roundOver' && !me.wantsRematch && s.players.every((p) => p.status === 'active'),
       },
     };

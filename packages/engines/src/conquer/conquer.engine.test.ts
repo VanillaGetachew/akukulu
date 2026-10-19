@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CONQUER_PREDICTIONS, DEFAULT_CONQUER_CONFIG, HIDDEN_CARD, standardDeck, type ConquerConfig } from '@akukulu/shared';
+import { CONQUER_PREDICTIONS, DEFAULT_CONQUER_CONFIG, DEFAULT_CONQUER_RULES, HIDDEN_CARD, standardDeck, type ConquerConfig, type ConquerRules } from '@akukulu/shared';
 import { seededRng, type EngineContext, type EngineResult, type LedgerIntent } from '../core';
 import { conquerEngine, conquerInventory, isCompleteDeck, type ConquerState } from './conquer.engine';
 import { interpretMeld, openingPoints, penaltyValue, selectWildcards, suggestNaturalMelds, type MeldContext } from './rules';
@@ -7,6 +7,7 @@ import { interpretMeld, openingPoints, penaltyValue, selectWildcards, suggestNat
 const NOW = 50_000_000;
 const ctx = (now = NOW, seed = 11, balance = 10_000): EngineContext => ({ rng: seededRng(seed), now, balances: { a: balance, b: balance } });
 const h = (s: string) => (s ? s.split(' ') : []);
+const withRules = (patch: Partial<ConquerRules>): Partial<ConquerConfig> => ({ rules: { ...DEFAULT_CONQUER_RULES, ...patch } });
 
 function expectOk(res: EngineResult<ConquerState> | null): { state: ConquerState; ledger: LedgerIntent[] } {
   if (!res) throw new Error('expected a result');
@@ -214,18 +215,36 @@ describe('Conquer opening (41 points)', () => {
 describe('Conquer discard pickup', () => {
   const hand = '3h 4h Kh Kd Kc 9s 9d 9c 2s 6c Jh Ts Js Qs';
 
-  it('takes the discard only together with a meld that uses it', () => {
-    const s = rigged({ a: hand, b: FILLER_B, discard: '5h' });
-    const plain = act(s, 'a', { type: 'takeDiscard' });
-    expect(plain).toMatchObject({ ok: false, code: 'ILLEGAL_PICKUP' });
-    const tooSmall = act(s, 'a', { type: 'takeDiscard', melds: [{ cards: h('3h 4h 5h') }] });
-    expect(!tooSmall.ok && tooSmall.error).toMatch(/41/);
-    const notUsed = act(s, 'a', { type: 'takeDiscard', melds: [{ cards: h('Kh Kd Kc') }, { cards: h('9s 9d 9c') }] });
-    expect(!notUsed.ok && notUsed.error).toMatch(/used in a meld/);
-    const good = run(s, 'a', { type: 'takeDiscard', melds: [{ cards: h('3h 4h 5h') }, { cards: h('Kh Kd Kc') }] });
-    expect(good.players[0].opened).toBe(true);
-    expect(good.discard).toHaveLength(0);
-    expect(good.phase).toBe('meld');
+  it('puts the taken discard in hand and blocks discarding until it is melded', () => {
+    let s = rigged({ a: hand, b: FILLER_B, discard: '7c 5h' });
+    s = run(s, 'a', { type: 'takeDiscard' });
+    expect(s.players[0].hand).toContain('5h');
+    expect(s.pendingPickup).toBe('5h');
+    expect(s.discard).toEqual(['7c']); // the card underneath is now on top
+    expect(conquerEngine.view(s, 'b').pendingPickup).toBe('5h');
+    expect(conquerEngine.view(s, 'a').legal.discard).toBe(false);
+    const blocked = act(s, 'a', { type: 'discard', card: 'Qs' });
+    expect(blocked).toMatchObject({ ok: false, code: 'ILLEGAL_DISCARD' });
+    expect(!blocked.ok && blocked.error).toMatch(/5♥ you picked up/);
+    // Melding it without other melds does not reach 41, so the opening is rejected and the obligation stays.
+    expect(act(s, 'a', { type: 'meld', melds: [{ cards: h('3h 4h 5h') }] })).toMatchObject({ ok: false });
+    s = run(s, 'a', { type: 'meld', melds: [{ cards: h('3h 4h 5h') }, { cards: h('Kh Kd Kc') }] });
+    expect(s.pendingPickup).toBeNull();
+    s = run(s, 'a', { type: 'discard', card: 'Qs' });
+    expect(s.current).toBe(1);
+  });
+
+  it('still accepts taking and melding in one action', () => {
+    const s = run(rigged({ a: hand, b: FILLER_B, discard: '5h' }), 'a', { type: 'takeDiscard', melds: [{ cards: h('3h 4h 5h') }, { cards: h('Kh Kd Kc') }] });
+    expect(s.players[0].opened).toBe(true);
+    expect(s.pendingPickup).toBeNull();
+  });
+
+  it('loses the round if the picked-up card is never melded before time runs out', () => {
+    let s = rigged({ a: hand, b: FILLER_B, discard: 'As' });
+    s = run(s, 'a', { type: 'takeDiscard' });
+    s = expectOk(conquerEngine.tick(s, ctx(s.turnDeadline!))).state;
+    expect(s.roundResult).toMatchObject({ winnerId: 'b', reason: 'timeout' });
   });
 
   it('lets an opened player take a discard only to lay it off where it fits', () => {
@@ -282,8 +301,25 @@ describe('Conquer round end', () => {
     expect(act(s, 'b', { type: 'drawStock' })).toMatchObject({ ok: false });
   });
 
-  it('ends on stock exhaustion: lower penalty wins', () => {
+  it('shuffles the discard pile (except its top card) back in when the deck runs out', () => {
     let s = rigged({ a: '2s 3s 4s 2h 3h 4h 2d 3d 4d 5c 6c 7c 8c 9c', b: 'Ks Kh Kd Qs Qh Qd Js Jh Jd Ts Th Td 9s 9h', stockTop: '2c' });
+    s.stock = ['2c'];
+    s.discard = standardDeck().filter((c) => !new Set([...s.players[0].hand, ...s.players[1].hand, '2c']).has(c));
+    const before = new Set(s.discard);
+    s = run(s, 'a', { type: 'drawStock' });
+    s = run(s, 'a', { type: 'discard', card: '9c' });
+    expect(s.phase).toBe('draw');
+    expect(s.current).toBe(1);
+    expect(s.discard).toEqual(['9c']);
+    expect(new Set(s.stock)).toEqual(before);
+    expect(s.reshuffles).toBe(1);
+    expect(conquerEngine.view(s, 'b').baseInStock).toBe(false);
+    s = run(s, 'b', { type: 'drawStock' });
+    expect(s.players[1].hand).toHaveLength(15);
+  });
+
+  it('ends on stock exhaustion with the lower-penalty option', () => {
+    let s = rigged({ a: '2s 3s 4s 2h 3h 4h 2d 3d 4d 5c 6c 7c 8c 9c', b: 'Ks Kh Kd Qs Qh Qd Js Jh Jd Ts Th Td 9s 9h', stockTop: '2c', config: withRules({ exhaustion: 'lowerPenaltyWins' }) });
     s.stock = ['2c'];
     s.discard = standardDeck().filter((c) => !new Set([...s.players[0].hand, ...s.players[1].hand, '2c']).has(c));
     s = run(s, 'a', { type: 'drawStock' });
@@ -294,7 +330,7 @@ describe('Conquer round end', () => {
   });
 
   it('records a draw and refunds stakes when penalties are equal', () => {
-    let s = rigged({ a: '2s 3s 4s 5s 6s 7s 8s 2h 3h 4h 5h 6h 7h 9s', b: '2d 3d 4d 5d 6d 7d 8d 2c 3c 4c 5c 6c 7c 9h', stockTop: 'Ts', config: { stake: 30 } });
+    let s = rigged({ a: '2s 3s 4s 5s 6s 7s 8s 2h 3h 4h 5h 6h 7h 9s', b: '2d 3d 4d 5d 6d 7d 8d 2c 3c 4c 5c 6c 7c 9h', stockTop: 'Ts', config: { stake: 30, ...withRules({ exhaustion: 'lowerPenaltyWins' }) } });
     s.stock = ['Ts'];
     s.discard = standardDeck().filter((c) => !new Set([...s.players[0].hand, ...s.players[1].hand, 'Ts']).has(c));
     s = run(s, 'a', { type: 'drawStock' });
@@ -334,15 +370,26 @@ describe('Conquer round end', () => {
 });
 
 describe('Conquer timeouts, leaving and privacy', () => {
-  it('auto-predicts Up when the predictor times out', () => {
+  it('the predictor loses the round if the prediction timer runs out', () => {
     const { state } = started();
     const s = expectOk(conquerEngine.tick(state, ctx(state.turnDeadline!))).state;
-    expect(s.prediction).toBe('up');
-    expect(s.players[s.predictor].missedTurns).toBe(1);
+    expect(s.roundResult).toMatchObject({ winnerId: state.players[1 - state.predictor].playerId, reason: 'timeout' });
+    expect(s.phase).toBe('roundOver');
   });
 
-  it('auto-draws and discards on a turn timeout, and forfeits after repeated misses', () => {
-    let s = rigged({ a: WINNING_HAND, b: FILLER_B });
+  it('a player whose turn timer runs out loses the round (rematch still possible)', () => {
+    let s = rigged({ a: WINNING_HAND, b: FILLER_B, config: { stake: 10 } });
+    s.turnDeadline = NOW;
+    const res = expectOk(conquerEngine.tick(s, ctx()));
+    s = res.state;
+    expect(s.roundResult).toMatchObject({ winnerId: 'b', reason: 'timeout' });
+    expect(s.phase).toBe('roundOver');
+    expect(res.ledger).toEqual([expect.objectContaining({ playerId: 'b', amount: 20 })]);
+    expect(conquerEngine.view(s, 'a').legal.rematch).toBe(true);
+  });
+
+  it('with timeoutLoses off, auto-plays the turn and forfeits after repeated misses', () => {
+    let s = rigged({ a: WINNING_HAND, b: FILLER_B, config: withRules({ timeoutLoses: false }) });
     s.turnDeadline = NOW;
     s = expectOk(conquerEngine.tick(s, ctx())).state;
     expect(s.players[0].hand).toHaveLength(14);
@@ -394,7 +441,9 @@ function bestOpening(hand: string[], meldCtx: MeldContext, threshold: number, ke
 describe('Conquer simulated matches', () => {
   it('plays complete rounds with every card accounted for after every action', () => {
     let outs = 0;
-    let exhaustions = 0;
+    let timeouts = 0;
+    let reshuffles = 0;
+    let pickups = 0;
     for (let seed = 1; seed <= 40; seed++) {
       const rng = seededRng(seed);
       const c = (now: number): EngineContext => ({ rng, now, balances: { a: 1e6, b: 1e6 } });
@@ -413,15 +462,27 @@ describe('Conquer simulated matches', () => {
       };
       for (let round = 0; round < 2; round++) {
         step(s.players[s.predictor].playerId, { type: 'predict', choice: CONQUER_PREDICTIONS[rng.int(4)] });
+        let turns = 0;
         while (s.phase === 'draw' || s.phase === 'meld') {
-          if (++steps > 5000) throw new Error('round did not terminate');
+          if (++steps > 20_000) throw new Error('simulation did not terminate');
           const me = s.players[s.current];
           const id = me.playerId;
+          if (++turns > 150) {
+            // Two weak bots can reshuffle forever; let the clock decide (the player on turn loses).
+            const res = conquerEngine.tick(s, c(s.turnDeadline!));
+            s = expectOk(res).state;
+            ledger.push(...res!.ok ? res!.ledger : []);
+            break;
+          }
           if (s.phase === 'draw') {
             // Completed-turn invariant: hand + own table cards = 13.
             const v = conquerEngine.view(s, id);
             expect(v.hand.length + v.players[s.current].tableCount).toBe(13);
-            expect(step(id, { type: 'drawStock' })).toBe(true);
+            // An opened bot takes the discard when it can lay it straight off.
+            const top = s.discard[s.discard.length - 1];
+            const took = me.opened && top !== undefined && s.melds.some((m) => step(id, { type: 'takeDiscard', layoffs: [{ meldId: m.id, card: top }] }));
+            if (took) pickups++;
+            else expect(step(id, { type: 'drawStock' })).toBe(true);
           }
           const meldCtx: MeldContext = { wild: new Set(s.wildCards), rules: s.config.rules, taken: new Set(s.melds.flatMap((m) => m.placed.map((p) => p.as))) };
           const melds = bestOpening(s.players[s.current].hand, meldCtx, me.opened ? 0 : s.config.rules.openingThreshold, 1);
@@ -437,8 +498,9 @@ describe('Conquer simulated matches', () => {
           expect(step(id, { type: 'discard', card: discard })).toBe(true);
         }
         expect(s.phase).toBe('roundOver');
+        reshuffles += s.reshuffles;
         if (s.roundResult!.reason === 'out') outs++;
-        else exhaustions++;
+        else if (s.roundResult!.reason === 'timeout') timeouts++;
         for (const m of s.melds) {
           expect(interpretMeld(m.placed.map((p) => p.card), { wild: new Set(s.wildCards), rules: s.config.rules, taken: new Set() }).ok).toBe(true);
         }
@@ -454,7 +516,9 @@ describe('Conquer simulated matches', () => {
       expect(net).toBe(0);
       expect(new Set(ledger.map((l) => l.key)).size).toBe(ledger.length);
     }
-    expect(outs + exhaustions).toBe(80);
+    expect(outs + timeouts).toBe(80);
     expect(outs).toBeGreaterThan(0);
+    expect(reshuffles).toBeGreaterThan(0);
+    expect(pickups).toBeGreaterThan(0);
   });
 });

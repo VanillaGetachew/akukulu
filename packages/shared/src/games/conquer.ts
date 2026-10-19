@@ -45,16 +45,21 @@ export interface ConquerRules {
     /** Ace may end a run high (Q-K-A). Ace-low (A-2-3) is always allowed. */
     aceHigh: boolean;
   };
-  /** The top discard may be taken only if it is melded/laid off in the same action. */
-  discardPickup: 'mustMeldImmediately';
+  /** A taken discard goes to hand and must be melded or laid off before the player may discard. */
+  discardPickup: 'mustMeldBeforeDiscard';
   /** Only opened players may lay off. */
   layoffRequiresOpen: boolean;
   /** Opened players may lay off onto the opponent's melds too. */
   layoffOnOpponentMelds: boolean;
   /** Going out requires a final discard (melds may never empty the hand). */
   mustDiscardToWin: boolean;
-  /** When the stock is empty after a completed turn the round ends. */
-  exhaustion: 'lowerPenaltyWins' | 'dead';
+  /**
+   * When the deck runs out: 'reshuffle' shuffles the discard pile (all but its top card) back
+   * into the deck; 'lowerPenaltyWins' / 'dead' end the round instead.
+   */
+  exhaustion: 'reshuffle' | 'lowerPenaltyWins' | 'dead';
+  /** A player whose turn timer runs out loses the round. */
+  timeoutLoses: boolean;
   /** Penalty value of an Ace left in hand. */
   acePenalty: number;
 }
@@ -74,11 +79,12 @@ export const DEFAULT_CONQUER_RULES: ConquerRules = {
   },
   wild: { minNaturalPerMeld: 2, openingValue: 'represented', allowSwap: true, swappedMustBeUsedSameTurn: true, penalty: 'natural' },
   runs: { aceHigh: true },
-  discardPickup: 'mustMeldImmediately',
+  discardPickup: 'mustMeldBeforeDiscard',
   layoffRequiresOpen: true,
   layoffOnOpponentMelds: true,
   mustDiscardToWin: true,
-  exhaustion: 'lowerPenaltyWins',
+  exhaustion: 'reshuffle',
+  timeoutLoses: true,
   acePenalty: 11,
 };
 
@@ -93,7 +99,6 @@ export const CONQUER_UNVERIFIED_RULES: readonly string[] = [
   'runs.aceHigh',
   'layoffOnOpponentMelds',
   'mustDiscardToWin',
-  'exhaustion',
 ];
 
 export interface ConquerConfig {
@@ -151,6 +156,8 @@ export interface ConquerPlacedCard {
   /** Points this card contributes in its role. */
   points: number;
   ownerId: string;
+  /** Position in a run (A low = 1 … K = 13, A high = 14). */
+  pos?: number;
 }
 
 export interface ConquerMeldView {
@@ -188,7 +195,7 @@ export interface ConquerLastEvent {
 export interface ConquerRoundResult {
   round: number;
   winnerId: string | null;
-  reason: 'out' | 'exhaustion' | 'forfeit';
+  reason: 'out' | 'exhaustion' | 'forfeit' | 'timeout';
   penalties: Record<string, number>;
 }
 
@@ -211,6 +218,8 @@ export interface ConquerView {
   /** The viewer's private hand (empty for spectators). */
   hand: Card[];
   pendingWild: Card | null;
+  /** A discard the current player took and must meld before discarding (public). */
+  pendingPickup: Card | null;
   melds: ConquerMeldView[];
   stockCount: number;
   discardTop: Card | null;

@@ -484,3 +484,69 @@ export function arrangeHand(hand: Card[], ctx: MeldContext): { order: Card[]; me
     .sort((a, b) => Number(ctx.wild.has(a)) - Number(ctx.wild.has(b)) || suitOrder(a) - suitOrder(b) || lowPosition(cardRank(a)) - lowPosition(cardRank(b)));
   return { order: [...melds.flat(), ...rest], melds };
 }
+
+/* ------------------------------------------------------------------ */
+/* Joker choices                                                       */
+/* ------------------------------------------------------------------ */
+
+const identityKey = (m: Interpretation) => `${m.kind}:${m.placed.map((p) => p.as).sort().join(',')}`;
+
+function* combinations<T>(items: T[], k: number, start = 0, acc: T[] = []): Generator<T[]> {
+  if (acc.length === k) {
+    yield acc;
+    return;
+  }
+  for (let i = start; i < items.length; i++) yield* combinations(items, k, i + 1, [...acc, items[i]]);
+}
+
+/**
+ * Every distinct valid reading of a meld (what each joker stands for), best
+ * first. A single entry means there is nothing for the player to choose.
+ */
+export function meldOptions(cards: Card[], ctx: MeldContext): Interpretation[] {
+  if (cards.length < 3 || new Set(cards).size !== cards.length) return [];
+  if (cards.some((c) => !ctx.wild.has(c) && ctx.taken.has(c))) return [];
+  const found = new Map<string, Interpretation>();
+  const add = (m: Interpretation | null) => {
+    if (m && !found.has(identityKey(m))) found.set(identityKey(m), m);
+  };
+  for (const rank of new Set(cards.map(cardRank))) {
+    const naturalSuits = new Set(cards.filter((c) => !ctx.wild.has(c) && cardRank(c) === rank).map(cardSuit));
+    const jokers = cards.filter((c) => ctx.wild.has(c));
+    // Jokers of this rank may play as themselves; the rest pick any free suit.
+    const selfPlaying = jokers.filter((c) => cardRank(c) === rank && !naturalSuits.has(cardSuit(c)));
+    const substitutes = jokers.filter((c) => !selfPlaying.includes(c));
+    const used = new Set([...naturalSuits, ...selfPlaying.map(cardSuit)]);
+    const free = SUITS.filter((s) => !used.has(s) && !ctx.taken.has(`${rank}${s}`));
+    if (substitutes.length === 0) add(setCandidate(cards, rank, ctx, {}));
+    for (const suits of combinations(free, substitutes.length)) {
+      const hint: Record<Card, Card> = {};
+      substitutes.forEach((c, i) => (hint[c] = `${rank}${suits[i]}`));
+      add(setCandidate(cards, rank, ctx, hint));
+    }
+  }
+  for (const suit of new Set(cards.map(cardSuit))) for (const run of runCandidates(cards, suit, ctx, {})) add(run);
+  return [...found.values()].sort((a, b) => b.points - a.points);
+}
+
+/** Every distinct way to lay `card` off on `meld` (a joker may fit either end of a run, or any free suit of a set). */
+export function layoffOptions(meld: Interpretation, card: Card, ctx: MeldContext): Interpretation[] {
+  const results = new Map<string, Interpretation>();
+  const tryAs = (as?: Card) => {
+    const r = extendMeld(meld, card, ctx, as);
+    if (r.ok && !results.has(identityKey(r.meld))) results.set(identityKey(r.meld), r.meld);
+  };
+  tryAs(undefined);
+  if (ctx.wild.has(card)) {
+    if (meld.kind === 'set') {
+      const rank = cardRank(meld.placed[0].as);
+      for (const s of SUITS) tryAs(`${rank}${s}`);
+    } else {
+      const suit = cardSuit(meld.placed[0].as);
+      const low = meld.placed[0].pos!;
+      const high = meld.placed[meld.placed.length - 1].pos!;
+      for (const p of [low - 1, high + 1]) if (p >= 1 && p <= 14) tryAs(`${rankAtPosition(p)}${suit}`);
+    }
+  }
+  return [...results.values()].sort((a, b) => b.points - a.points);
+}

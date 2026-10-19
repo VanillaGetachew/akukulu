@@ -2,13 +2,22 @@
 
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { arrangeHand, partitionIntoMelds, type MeldContext } from '@akukulu/engines/dist/conquer/rules';
+import {
+  arrangeHand,
+  layoffOptions,
+  meldOptions,
+  partitionIntoMelds,
+  type Interpretation,
+  type MeldContext,
+} from '@akukulu/engines/dist/conquer/rules';
 import {
   CONQUER_PREDICTION_LABEL,
   RANK_LABEL,
   SUIT_SYMBOL,
   type Card,
+  type ConquerMeldSpec,
   type ConquerMeldView,
+  type ConquerPlacedCard,
   type ConquerPrediction,
   type ConquerView,
   type Rank,
@@ -44,13 +53,13 @@ const HAND_H = 78;
  * A card face for a tight fan: rank, suit and joker star are stacked in the
  * top-left corner, the only part of each card that stays visible.
  */
-function FanCard({ card, selected, joker }: { card: Card; selected?: boolean; joker?: boolean }) {
+function FanCard({ card, selected, joker, marked }: { card: Card; selected?: boolean; joker?: boolean; marked?: boolean }) {
   const rank = RANK_LABEL[card[0] as Rank];
   const suit = SUIT_SYMBOL[card[1] as 's'];
   const red = card[1] === 'h' || card[1] === 'd';
   return (
     <div
-      className={`relative rounded-lg bg-[#fbfaff] shadow-[0_2px_6px_rgba(0,0,0,.45)] ${selected ? 'ring-[3px] ring-lime' : 'ring-1 ring-black/10'} ${red ? 'text-[#e0284f]' : 'text-[#16161f]'}`}
+      className={`relative rounded-lg bg-[#fbfaff] shadow-[0_2px_6px_rgba(0,0,0,.45)] ${selected ? 'ring-[3px] ring-lime' : marked ? 'ring-[3px] ring-gold' : 'ring-1 ring-black/10'} ${red ? 'text-[#e0284f]' : 'text-[#16161f]'}`}
       style={{ width: HAND_W, height: HAND_H }}
     >
       <div className="absolute left-[3px] top-[3px] flex w-[17px] flex-col items-center leading-none">
@@ -64,7 +73,7 @@ function FanCard({ card, selected, joker }: { card: Card; selected?: boolean; jo
 }
 
 /** Cards on a shallow arc that always fits its box. `flip` is the opponent's fan at the top. */
-function Fan({ cards, width, flip, selected, wild, onTap }: { cards: Card[]; width: number; flip?: boolean; selected?: Card[]; wild?: Set<Card>; onTap?: (c: Card) => void }) {
+function Fan({ cards, width, flip, selected, wild, marked, onTap }: { cards: Card[]; width: number; flip?: boolean; selected?: Card[]; wild?: Set<Card>; marked?: Card | null; onTap?: (c: Card) => void }) {
   const n = cards.length;
   const cw = flip ? 36 : HAND_W;
   const ch = flip ? 48 : HAND_H;
@@ -98,13 +107,76 @@ function Fan({ cards, width, flip, selected, wild, onTap }: { cards: Card[]; wid
               zIndex: i,
             }}
           >
-            {c === '??' ? <PlayingCard card="??" size="sm" /> : <FanCard card={c} selected={lifted} joker={wild?.has(c)} />}
+            {c === '??' ? <PlayingCard card="??" size="sm" /> : <FanCard card={c} selected={lifted} joker={wild?.has(c)} marked={c === marked} />}
           </button>
         );
       })}
     </div>
   );
 }
+/**
+ * Small table card with its index in the visible corner. A joker shows the card
+ * it stands for, in gold, so the matching natural card can be swapped in.
+ */
+function MiniCard({ placed, highlight }: { placed: Pick<ConquerPlacedCard, 'card' | 'as' | 'wild'>; highlight?: boolean }) {
+  const shown = placed.wild ? placed.as : placed.card;
+  const rank = RANK_LABEL[shown[0] as Rank];
+  const suit = SUIT_SYMBOL[shown[1] as 's'];
+  const red = shown[1] === 'h' || shown[1] === 'd';
+  return (
+    <div
+      className={`relative h-[46px] w-[33px] shrink-0 rounded-md shadow-[0_1px_3px_rgba(0,0,0,.5)] ${placed.wild ? 'bg-[#ffe7a0] ring-2 ring-[#e3a008]' : 'bg-[#fbfaff]'} ${highlight ? 'outline outline-2 outline-lime' : ''} ${red ? 'text-[#e0284f]' : 'text-[#16161f]'}`}
+      title={placed.wild ? `Joker (${label(placed.card)}) playing as ${label(placed.as)}` : label(placed.card)}
+    >
+      <div className="absolute left-[2px] top-[2px] flex w-[14px] flex-col items-center leading-none">
+        <span className={`font-black ${rank === '10' ? 'text-[10px] tracking-tighter' : 'text-[12px]'}`}>{rank}</span>
+        <span className="text-[11px]">{suit}</span>
+        {placed.wild && <span className="text-[9px] text-[#b45309]">★</span>}
+      </div>
+      <span className="absolute bottom-0.5 right-1 text-[15px] leading-none">{suit}</span>
+    </div>
+  );
+}
+
+const toInterpretation = (m: ConquerMeldView): Interpretation => ({
+  kind: m.kind,
+  placed: m.cards.map(({ card, as, wild, points, pos }) => ({ card, as, wild, points, pos })),
+  points: m.points,
+});
+
+/** What each joker in a reading stands for — sent to the server as the meld's `as` hint. */
+const jokerHint = (m: Interpretation): Record<Card, Card> => Object.fromEntries(m.placed.filter((p) => p.wild).map((p) => [p.card, p.as]));
+
+type JokerChoice =
+  | { kind: 'meld'; melds: Card[][]; index: number; hints: Record<Card, Card>[]; taken: Set<Card>; options: Interpretation[] }
+  | { kind: 'layoff'; meldId: string; card: Card; options: Interpretation[] };
+
+function JokerChooser({ choice, onPick, onCancel }: { choice: JokerChoice; onPick: (m: Interpretation) => void; onCancel: () => void }) {
+  return (
+    <div className="absolute inset-0 z-40 grid place-items-center bg-black/60 p-4" role="dialog" aria-modal="true">
+      <div className="card grid w-full max-w-sm gap-3 p-4 text-fg">
+        <div>
+          <div className="font-ethiopic text-base font-bold">ጆከሩ የትኛውን ካርድ ይወክል?</div>
+          <div className="text-xs text-muted">Choose which card the joker stands for.</div>
+        </div>
+        {choice.options.map((m) => (
+          <button key={m.placed.map((p) => p.as).join()} onClick={() => onPick(m)} className="flex items-center justify-between rounded-xl border border-line bg-black/20 p-2 hover:border-lime/60">
+            <div className="flex gap-1">
+              {m.placed.map((p) => (
+                <MiniCard key={p.card} placed={p} highlight={p.wild} />
+              ))}
+            </div>
+            <span className="text-xs font-bold text-muted">{m.points} pts</span>
+          </button>
+        ))}
+        <button className="btn-ghost" onClick={onCancel}>
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function MeldRow({ meld, onTap }: { meld: ConquerMeldView; onTap?: () => void }) {
   return (
     <button
@@ -114,16 +186,9 @@ function MeldRow({ meld, onTap }: { meld: ConquerMeldView; onTap?: () => void })
       className={`flex items-center rounded-xl p-1 transition ${onTap ? 'bg-lime/15 ring-1 ring-lime/60' : 'bg-black/20'}`}
       aria-label={`${meld.kind}, ${meld.points} points${onTap ? ' — tap to lay off here' : ''}`}
     >
-      <div className="flex -space-x-6">
+      <div className="flex -space-x-2.5">
         {meld.cards.map((c) => (
-          <div key={c.card} className="relative">
-            <PlayingCard card={c.card} size="sm" />
-            {c.wild && (
-              <span className="absolute -bottom-1.5 left-0 rounded bg-gold px-0.5 text-[8px] font-black text-ink" title={`Joker playing as ${label(c.as)}`}>
-                ★{label(c.as)}
-              </span>
-            )}
-          </div>
+          <MiniCard key={c.card} placed={c} />
         ))}
       </div>
       <span className="ml-1 px-1 text-[10px] font-bold text-white/70">{meld.points}</span>
@@ -180,7 +245,7 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
 
   const [order, setOrder] = useState<Card[]>([]);
   const [selected, setSelected] = useState<Card[]>([]);
-  const [pickup, setPickup] = useState(false);
+  const [choice, setChoice] = useState<JokerChoice | null>(null);
   const [hint, setHint] = useState<string | null>(null);
   const [handRef, handWidth] = useWidth<HTMLDivElement>();
   const [oppRef, oppWidth] = useWidth<HTMLDivElement>();
@@ -195,7 +260,7 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
     setSelected((s) => s.filter((c) => view.hand.includes(c)));
   }, [view.hand]);
 
-  useEffect(() => setPickup(false), [view.phase, view.currentPlayerId, view.discardTop]);
+  useEffect(() => setChoice(null), [view.phase, view.currentPlayerId]);
   useEffect(() => {
     if (!hint) return;
     const t = setTimeout(() => setHint(null), 3500);
@@ -204,26 +269,69 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
 
   const toggle = (c: Card) => setSelected((s) => (s.includes(c) ? s.filter((x) => x !== c) : [...s, c]));
   const swapTarget = selected.length === 1 ? view.melds.find((m) => m.cards.some((c) => c.wild && c.as === selected[0])) : undefined;
-  const canLayOff = myTurn && me?.opened && ((view.phase === 'meld' && selected.length === 1) || (pickup && selected.length <= 1));
+  const canLayOff = myTurn && me?.opened && view.phase === 'meld' && selected.length === 1;
+
+  const sendMelds = (melds: Card[][], hints: Record<Card, Card>[]) => {
+    const specs: ConquerMeldSpec[] = melds.map((cards, i) => ({ cards, as: hints[i] }));
+    void act({ type: 'meld', melds: specs }).then((r) => r.ok && setSelected([]));
+  };
+
+  /** Resolves each meld's joker reading, asking the player whenever there is more than one. */
+  const resolveMelds = (melds: Card[][], index: number, hints: Record<Card, Card>[], taken: Set<Card>) => {
+    for (let i = index; i < melds.length; i++) {
+      const options = meldOptions(melds[i], { ...meldCtx, taken });
+      if (options.length === 0) {
+        setHint('The selected cards do not form valid sets or runs');
+        return;
+      }
+      if (options.length > 1) {
+        setChoice({ kind: 'meld', melds, index: i, hints, taken, options });
+        return;
+      }
+      hints[i] = jokerHint(options[0]);
+      taken = new Set([...taken, ...options[0].placed.map((p) => p.as)]);
+    }
+    setChoice(null);
+    sendMelds(melds, hints);
+  };
 
   const enter = () => {
-    const cards = pickup && view.discardTop ? [...selected, view.discardTop] : selected;
-    const melds = partitionIntoMelds(cards, meldCtx);
+    const melds = partitionIntoMelds(selected, meldCtx);
     if (!melds) {
-      setHint(pickup ? 'Select cards that form melds together with the discard' : 'The selected cards do not form valid sets or runs');
+      setHint('The selected cards do not form valid sets or runs');
       return;
     }
-    const specs = melds.map((m) => ({ cards: m }));
-    void act(pickup ? { type: 'takeDiscard', melds: specs } : { type: 'meld', melds: specs }).then((r) => r.ok && setSelected([]));
+    resolveMelds(melds, 0, [], new Set(meldCtx.taken));
   };
 
   const layOff = (meld: ConquerMeldView) => {
-    if (pickup && view.discardTop) {
-      const layoffs = [...selected, view.discardTop].map((card) => ({ meldId: meld.id, card }));
-      void act({ type: 'takeDiscard', layoffs });
-    } else if (selected.length === 1) {
-      void act({ type: 'layoff', layoffs: [{ meldId: meld.id, card: selected[0] }] }).then((r) => r.ok && setSelected([]));
+    if (selected.length !== 1) return;
+    const card = selected[0];
+    const others = new Set(view.melds.filter((m) => m.id !== meld.id).flatMap((m) => m.cards.map((c) => c.as)));
+    const options = layoffOptions(toInterpretation(meld), card, { ...meldCtx, taken: others });
+    if (options.length === 0) {
+      setHint(`${label(card)} does not fit that meld`);
+      return;
     }
+    if (options.length > 1) {
+      setChoice({ kind: 'layoff', meldId: meld.id, card, options });
+      return;
+    }
+    const as = options[0].placed.find((p) => p.card === card)?.as;
+    void act({ type: 'layoff', layoffs: [{ meldId: meld.id, card, as }] }).then((r) => r.ok && setSelected([]));
+  };
+
+  const pick = (m: Interpretation) => {
+    if (!choice) return;
+    if (choice.kind === 'layoff') {
+      const as = m.placed.find((p) => p.card === choice.card)?.as;
+      setChoice(null);
+      void act({ type: 'layoff', layoffs: [{ meldId: choice.meldId, card: choice.card, as }] }).then((r) => r.ok && setSelected([]));
+      return;
+    }
+    const hints = [...choice.hints];
+    hints[choice.index] = jokerHint(m);
+    resolveMelds(choice.melds, choice.index + 1, hints, new Set([...choice.taken, ...m.placed.map((p) => p.as)]));
   };
 
   const shell = (children: React.ReactNode) => (
@@ -232,6 +340,7 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
         ← Lobby
       </Link>
       {children}
+      {choice && <JokerChooser choice={choice} onPick={pick} onCancel={() => setChoice(null)} />}
       {hint && (
         <div className="pointer-events-none absolute inset-x-0 bottom-32 z-40 flex justify-center px-4">
           <div className="animate-pop rounded-xl bg-danger px-4 py-2 text-sm font-semibold">{hint}</div>
@@ -325,16 +434,13 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
           <button
             type="button"
             disabled={!view.legal.takeDiscard || pending}
-            onClick={() => {
-              setPickup((p) => !p);
-              setHint(pickup ? null : 'Select the cards to meld with it and tap ገቢ — or tap a meld to lay it off');
-            }}
+            onClick={() => void act({ type: 'takeDiscard' })}
             className="relative disabled:cursor-default"
-            aria-label="Take the top discard"
+            aria-label="Take the top discard (you must meld it before discarding)"
           >
             {view.discardCount > 1 && <div className="absolute left-1 top-1 h-[4.5rem] w-[3.25rem] rounded-lg bg-white/30" />}
             {view.discardTop ? (
-              <div className={`relative rounded-lg ${pickup ? 'ring-4 ring-gold' : ''}`}>
+              <div className={`relative rounded-lg ${view.legal.takeDiscard ? 'ring-2 ring-gold/70' : ''}`}>
                 <PlayingCard card={view.discardTop} />
               </div>
             ) : (
@@ -357,6 +463,12 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
           <div className="mt-1 text-center text-[11px] text-white/70">
             You · {me?.opened ? <span className="text-lime">ገብተዋል (opened)</span> : `${view.config.rules.openingThreshold} ነጥብ ለመግባት (to open)`}
             {view.pendingWild && <span className="text-gold"> · use your joker {label(view.pendingWild)} before discarding</span>}
+            {view.pendingPickup && myTurn && (
+              <div className="font-bold text-gold">
+                Meld the {label(view.pendingPickup)} you picked up before discarding — or you lose when time runs out
+              </div>
+            )}
+            {view.pendingPickup && !myTurn && <div className="text-white/80">{nameOf(state, view.currentPlayerId)} picked up {label(view.pendingPickup)} and must meld it</div>}
           </div>
         </div>
       )}
@@ -365,12 +477,12 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
       {me && view.phase !== 'roundOver' && view.phase !== 'finished' && (
         <div className="pb-[max(0.75rem,env(safe-area-inset-bottom))]">
           <div ref={handRef} className="mx-auto w-full max-w-xl">
-            <Fan cards={order} width={handWidth} selected={selected} wild={wild} onTap={myTurn ? toggle : undefined} />
+            <Fan cards={order} width={handWidth} selected={selected} wild={wild} marked={myTurn ? view.pendingPickup : null} onTap={myTurn ? toggle : undefined} />
           </div>
           <div className="mt-1 flex flex-wrap justify-center gap-1.5 px-2">
-            <ActionButton am="ገቢ" en={pickup ? 'take & meld' : me.opened ? 'meld' : 'open'} onClick={enter} disabled={!myTurn || pending || !(view.phase === 'meld' || pickup) || selected.length + (pickup ? 1 : 0) < 3} />
+            <ActionButton am="ገቢ" en={me.opened ? 'meld' : 'open'} onClick={enter} disabled={!myTurn || pending || view.phase !== 'meld' || selected.length < 3} />
             <ActionButton am="ጆከር መተካት" en="swap joker" tone="gold" onClick={() => swapTarget && void act({ type: 'swapWild', meldId: swapTarget.id, card: selected[0] })} disabled={!view.legal.swapWild || !swapTarget || pending} />
-            <ActionButton am="ጣል" en="discard" tone="red" onClick={() => void act({ type: 'discard', card: selected[0] })} disabled={!view.legal.discard || selected.length !== 1 || pickup || pending} />
+            <ActionButton am="ጣል" en="discard" tone="red" onClick={() => void act({ type: 'discard', card: selected[0] })} disabled={!view.legal.discard || selected.length !== 1 || pending} />
             <ActionButton am="ደርድር" en="best order" onClick={() => setOrder(arrangeHand(view.hand, meldCtx).order)} disabled={view.hand.length === 0} />
           </div>
         </div>
@@ -384,7 +496,13 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
               {result.winnerId === null ? 'Round drawn' : result.winnerId === user?.id ? 'You won the round!' : `${nameOf(state, result.winnerId)} won the round`}
             </div>
             <div className="text-xs text-muted">
-              {result.reason === 'out' ? 'Went out by melding every card and discarding the last.' : result.reason === 'forfeit' ? 'Won by forfeit.' : 'The deck ran out — lower penalty wins.'}
+              {result.reason === 'out'
+                ? 'Went out by melding every card and discarding the last.'
+                : result.reason === 'timeout'
+                  ? `${result.winnerId === user?.id ? 'Your opponent' : 'You'} ran out of time.`
+                  : result.reason === 'forfeit'
+                    ? 'Won by forfeit.'
+                    : 'The deck ran out — lower penalty wins.'}
             </div>
             {view.players.map((p) => (
               <div key={p.playerId} className="grid gap-1">

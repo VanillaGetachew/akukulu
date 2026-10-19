@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_CONQUER_RULES, type ConquerRules } from '@akukulu/shared';
-import { arrangeHand, extendMeld, interpretMeld, naturalValue, openingPoints, partitionIntoMelds, penaltyValue, selectWildcards, type MeldContext } from './rules';
+import { arrangeHand, extendMeld, interpretMeld, layoffOptions, meldOptions, naturalValue, openingPoints, partitionIntoMelds, penaltyValue, selectWildcards, type MeldContext } from './rules';
 
 const h = (s: string) => s.split(' ');
 const rules = (patch: Partial<ConquerRules> = {}): ConquerRules => ({ ...DEFAULT_CONQUER_RULES, ...patch });
@@ -178,5 +178,26 @@ describe('optimum hand order', () => {
   });
   it('keeps unmatched wildcards last', () => {
     expect(arrangeHand(h('8c Kd 2h'), ctx(['8c'])).order).toEqual(['2h', 'Kd', '8c']);
+  });
+});
+describe('joker choices', () => {
+  const asOf = (m: { placed: { card: string; as: string }[] }, joker: string) => m.placed.find((p) => p.card === joker)!.as;
+  it('offers every end a joker can fill in a run, best first', () => {
+    const options = meldOptions(h('5h 6h 8c'), ctx(['8c']));
+    expect(options.map((o) => asOf(o, '8c'))).toEqual(['7h', '4h']);
+  });
+  it('offers every free suit for a joker in a set', () => {
+    expect(meldOptions(h('9s 9h 8c'), ctx(['8c'])).map((o) => asOf(o, '8c')).sort()).toEqual(['9c', '9d']);
+    expect(meldOptions(h('9s 9h 8c'), ctx(['8c'], ['9d'])).map((o) => asOf(o, '8c'))).toEqual(['9c']);
+  });
+  it('has a single option when nothing is ambiguous', () => {
+    expect(meldOptions(h('5h 6h 7h'), ctx())).toHaveLength(1);
+    expect(meldOptions(h('5h 8c 7h'), ctx(['8c']))).toHaveLength(1);
+  });
+  it('lists lay-off positions for a joker', () => {
+    const run = interpretMeld(h('5h 6h 7h'), ctx());
+    if (!run.ok) throw new Error(run.error);
+    expect(layoffOptions(run.meld, '8c', ctx(['8c'])).map((o) => asOf(o, '8c')).sort()).toEqual(['4h', '8h']);
+    expect(layoffOptions(run.meld, '8h', ctx())).toHaveLength(1);
   });
 });

@@ -168,22 +168,29 @@ suite('API integration', () => {
     expect((await state(matchId, a)).version).toBe(before + 1);
     expect(handLengths(await internal())).toEqual({ [predictor.id]: 14, [other.id]: 13 });
 
-    // Both players draw and discard until the stock runs out.
-    for (let i = 0; i < 60; i++) {
+    // Both players draw and discard until the deck runs out and the discards are reshuffled in.
+    for (let i = 0; i < 80 && (await internal()).reshuffles === 0; i++) {
       s = await state<ConquerView>(matchId, a);
-      if (s.view.phase !== 'draw' && s.view.phase !== 'meld') break;
       const current = s.view.currentPlayerId === a.id ? a : b;
       const mine = (await state<ConquerView>(matchId, current)).view;
       expect(await act(current, matchId, mine.phase === 'draw' ? { type: 'drawStock' } : { type: 'discard', card: mine.hand[0] })).toEqual({ ok: true });
     }
-    expect(s.view.phase).toBe('roundOver');
-    expect(s.view.roundResult?.reason).toBe('exhaustion');
-    expect(s.view.players.every((p) => p.revealedHand !== null)).toBe(true);
-    const winnerId = s.view.roundResult!.winnerId;
-    expect((await balance(a)) + (await balance(b))).toBe(2000);
-    if (winnerId) expect(await balance(winnerId === a.id ? a : b)).toBe(1020);
+    const reshuffled = await internal();
+    expect(reshuffled.reshuffles).toBe(1);
+    expect(reshuffled.discard).toHaveLength(1);
+    expect(reshuffled.stock.length).toBeGreaterThan(20);
 
-    expect(await act(a, matchId, { type: 'leave' })).toEqual({ ok: true });
+    // The player on turn leaves: the opponent wins the round and the pot, exactly once.
+    s = await state<ConquerView>(matchId, a);
+    const leaver = s.view.currentPlayerId === a.id ? a : b;
+    const winner = leaver === a ? b : a;
+    expect(await act(leaver, matchId, { type: 'leave' })).toEqual({ ok: true });
+    s = await state<ConquerView>(matchId, a);
+    expect(s.view.roundResult).toMatchObject({ winnerId: winner.id, reason: 'forfeit' });
+    expect(s.view.players.every((p) => p.revealedHand !== null)).toBe(true);
+    const winnerId = winner.id;
+    expect((await balance(a)) + (await balance(b))).toBe(2000);
+    expect(await balance(winner)).toBe(1020);
     const summary = (await api('GET', `/matches/${matchId}`, a.token)).body;
     expect(summary.status).toBe('finished');
     const payouts = await ds.query(`SELECT COUNT(*)::int AS n FROM ledger_entries WHERE "matchId" = $1 AND type IN ('payout','refund')`, [matchId]);
@@ -206,8 +213,10 @@ suite('API integration', () => {
     expect(await act(first, matchId, { type: 'discard', card: view.hand[0] })).toEqual({ ok: true });
     const pv = (await state<ConquerView>(matchId, predictor)).view;
     expect(await act(predictor, matchId, { type: 'discard', card: pv.hand[0] })).toMatchObject({ ok: false, code: 'WRONG_PHASE' });
-    expect(await act(predictor, matchId, { type: 'takeDiscard' })).toMatchObject({ ok: false, code: 'ILLEGAL_PICKUP' });
-    await act(predictor, matchId, { type: 'drawStock' });
+    // Taking the discard puts it in hand, but discarding is blocked until it is melded.
+    expect(await act(predictor, matchId, { type: 'takeDiscard' })).toEqual({ ok: true });
+    expect(await act(predictor, matchId, { type: 'drawStock' })).toMatchObject({ ok: false, code: 'WRONG_PHASE' });
+    expect(await act(predictor, matchId, { type: 'discard', card: pv.hand[0] })).toMatchObject({ ok: false, code: 'ILLEGAL_DISCARD' });
     expect(await act(predictor, matchId, { type: 'meld', melds: [{ cards: pv.hand.slice(0, 3) }], claimedPoints: 99 })).toMatchObject({ ok: false });
     expect(await act(predictor, matchId, { type: 'discard', card: view.hand[1] })).toMatchObject({ ok: false, code: 'ILLEGAL_DISCARD' });
   });
