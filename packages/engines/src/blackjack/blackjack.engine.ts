@@ -255,7 +255,7 @@ function finishSession(state: BlackjackState, reason: string, out: Out) {
   out.events.push({ type: 'session_finished', playerId: state.playerId, data: { reason, net: state.sessionNet } });
 }
 
-export const blackjackEngine: GameEngine<BlackjackState, BlackjackConfig> = {
+export const blackjackEngine: GameEngine<BlackjackState, BlackjackConfig, BlackjackView> = {
   slug: 'blackjack',
 
   parseConfig(input, stake) {

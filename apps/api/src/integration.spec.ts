@@ -6,7 +6,15 @@ import { randomUUID } from 'node:crypto';
 import type { Socket } from 'socket.io-client';
 import { DataSource } from 'typeorm';
 import { seededRng } from '@akukulu/engines';
-import { GAME_SLUGS, type BlackjackView, type LudoView, type MatchStatePayload, type PokerView } from '@akukulu/shared';
+import {
+  GAME_SLUGS,
+  LEGACY_CONQUER_MAINTENANCE_MESSAGE,
+  type BlackjackView,
+  type ConquerView,
+  type LudoView,
+  type MatchStatePayload,
+  type PokerView,
+} from '@akukulu/shared';
 import { GamesService } from './games/games.service';
 import { MatchRuntimeService } from './matches/match-runtime.service';
 import { LedgerService } from './wallet/ledger.service';
@@ -72,12 +80,14 @@ suite('API integration', () => {
   it('serves exactly the four-game catalog and prunes legacy games', async () => {
     const ds = t.app.get(DataSource);
     await ds.query(`INSERT INTO games (slug, name, tagline, description, "minPlayers", "maxPlayers") VALUES ('bingo','Bingo','x','x',1,1)`);
+    // A database seeded before Conquer had an engine carries the automatic "rules pending" maintenance.
+    await ds.query(`UPDATE games SET maintenance = true, "maintenanceMessage" = $1, "maxPlayers" = 5 WHERE slug = 'conquer'`, [LEGACY_CONQUER_MAINTENANCE_MESSAGE]);
     await t.app.get(GamesService).syncCatalog();
     const res = await api('GET', '/games');
     expect(res.body.map((g: { slug: string }) => g.slug)).toEqual([...GAME_SLUGS]);
     const bySlug = Object.fromEntries(res.body.map((g: { slug: string }) => [g.slug, g]));
     expect(bySlug.ludo.playable).toBe(true);
-    expect(bySlug.conquer).toMatchObject({ playable: false, maintenance: true });
+    expect(bySlug.conquer).toMatchObject({ playable: true, maintenance: false, beta: true, minPlayers: 2, maxPlayers: 2 });
   });
 
   it('verifies Telegram initData on the backend and grants the welcome bonus once', async () => {
@@ -114,10 +124,84 @@ suite('API integration', () => {
     expect(rows).toHaveLength(0);
   });
 
-  it('rejects rooms for Conquer while it is in maintenance', async () => {
-    const p = await login('Conqueror');
-    const res = await api('POST', '/rooms', p.token, { gameSlug: 'conquer' });
-    expect(res.status).toBe(503);
+  it('plays a full 1v1 Conquer round over Socket.IO with private hands and exactly-once settlement', async () => {
+    const a = await login('Tigist');
+    const b = await login('Kebede');
+    const matchId = await startRoom('conquer', 20, [a, b]);
+    expect(await balance(a)).toBe(980);
+    const ds = t.app.get(DataSource);
+    const internal = async () => (await ds.query(`SELECT state FROM matches WHERE id = $1`, [matchId]))[0].state;
+
+    let s = await state<ConquerView>(matchId, a);
+    expect(s.view.phase).toBe('predict');
+    const predictor = s.view.predictorId === a.id ? a : b;
+    const other = predictor === a ? b : a;
+    expect((await state<ConquerView>(matchId, other)).view.baseCard).toBe('??');
+    expect(await act(other, matchId, { type: 'predict', choice: 'up' })).toMatchObject({ ok: false, code: 'NOT_YOUR_TURN' });
+    expect(await act(predictor, matchId, { type: 'predict', choice: 'upDown' })).toEqual({ ok: true });
+
+    const st = await internal();
+    expect(st.players.map((p: { hand: string[] }) => p.hand.length)).toEqual([14, 14]);
+    expect(st.stock).toHaveLength(23);
+    expect(st.wildCards).toHaveLength(8);
+    const handOf = (id: string): string[] => st.players.find((p: { playerId: string }) => p.playerId === id).hand;
+    const viewA = (await state<ConquerView>(matchId, a)).view;
+    expect(viewA.hand.sort()).toEqual([...handOf(a.id)].sort());
+    const leaks = (payloads: unknown[], cards: string[]) => payloads.some((p) => cards.some((c) => JSON.stringify(p).includes(`"${c}"`)));
+    const secretFromA = [...handOf(b.id), ...st.stock].filter((c: string) => c !== st.baseCard && !st.wildCards.includes(c));
+    expect(leaks(a.states, secretFromA)).toBe(false);
+
+    // Simultaneous conflicting submissions: exactly one draw is accepted.
+    const first = other; // the non-predictor plays first
+    const racing = await Promise.all([act(first, matchId, { type: 'drawStock' }), act(first, matchId, { type: 'drawStock' })]);
+    expect(racing.filter((r) => r.ok)).toHaveLength(1);
+    expect(racing.find((r) => !r.ok)).toMatchObject({ code: 'WRONG_PHASE' });
+    // Duplicate submission of the same discard is applied once.
+    const hand = (await state<ConquerView>(matchId, first)).view.hand;
+    const dup = randomUUID();
+    const before = (await state(matchId, a)).version;
+    expect(await Promise.all([act(first, matchId, { type: 'discard', card: hand[0] }, dup), act(first, matchId, { type: 'discard', card: hand[0] }, dup)])).toEqual([{ ok: true }, { ok: true }]);
+    expect((await state(matchId, a)).version).toBe(before + 1);
+
+    // Both players draw and discard until the stock runs out.
+    for (let i = 0; i < 60; i++) {
+      s = await state<ConquerView>(matchId, a);
+      if (s.view.phase !== 'draw' && s.view.phase !== 'meld') break;
+      const current = s.view.currentPlayerId === a.id ? a : b;
+      const mine = (await state<ConquerView>(matchId, current)).view;
+      expect(await act(current, matchId, mine.phase === 'draw' ? { type: 'drawStock' } : { type: 'discard', card: mine.hand[0] })).toEqual({ ok: true });
+    }
+    expect(s.view.phase).toBe('roundOver');
+    expect(s.view.roundResult?.reason).toBe('exhaustion');
+    expect(s.view.players.every((p) => p.revealedHand !== null)).toBe(true);
+    const winnerId = s.view.roundResult!.winnerId;
+    expect((await balance(a)) + (await balance(b))).toBe(2000);
+    if (winnerId) expect(await balance(winnerId === a.id ? a : b)).toBe(1020);
+
+    expect(await act(a, matchId, { type: 'leave' })).toEqual({ ok: true });
+    const summary = (await api('GET', `/matches/${matchId}`, a.token)).body;
+    expect(summary.status).toBe('finished');
+    const payouts = await ds.query(`SELECT COUNT(*)::int AS n FROM ledger_entries WHERE "matchId" = $1 AND type IN ('payout','refund')`, [matchId]);
+    expect(payouts[0].n).toBe(winnerId ? 1 : 2);
+    const stats = (await api('GET', '/me/stats', a.token)).body;
+    expect(stats).toEqual([expect.objectContaining({ gameSlug: 'conquer', played: 1 })]);
+  });
+
+  it('rejects illegal Conquer actions on the server', async () => {
+    const a = await login('Mekdes');
+    const b = await login('Henok');
+    const matchId = await startRoom('conquer', 0, [a, b]);
+    const s = await state<ConquerView>(matchId, a);
+    const predictor = s.view.predictorId === a.id ? a : b;
+    await act(predictor, matchId, { type: 'predict', choice: 'side' });
+    const first = predictor === a ? b : a;
+    const view = (await state<ConquerView>(matchId, first)).view;
+    expect(await act(first, matchId, { type: 'discard', card: view.hand[0] })).toMatchObject({ ok: false, code: 'WRONG_PHASE' });
+    expect(await act(first, matchId, { type: 'takeDiscard' })).toMatchObject({ ok: false, code: 'ILLEGAL_PICKUP' });
+    await act(first, matchId, { type: 'drawStock' });
+    expect(await act(first, matchId, { type: 'meld', melds: [{ cards: view.hand.slice(0, 3) }], claimedPoints: 99 })).toMatchObject({ ok: false });
+    const notMine = (await state<ConquerView>(matchId, predictor)).view.hand[0];
+    expect(await act(first, matchId, { type: 'discard', card: notMine })).toMatchObject({ ok: false, code: 'ILLEGAL_DISCARD' });
   });
 
   it('two independent players finish a Ludo match over Socket.IO with exactly-once settlement', async () => {
@@ -207,7 +291,8 @@ suite('API integration', () => {
     if (s.view.phase === 'playerTurn') {
       expect(s.view.dealer.cards[1]).toBe('??');
       const [{ state: internal }] = await t.app.get(DataSource).query(`SELECT state FROM matches WHERE id = $1`, [matchId]);
-      expect(JSON.stringify(s)).not.toContain(`"${internal.dealer[1]}"`);
+      // A six-deck shoe can repeat cards, so compare the dealer's cards rather than searching the payload.
+      expect(s.view.dealer.cards).toEqual([internal.dealer[0], '??']);
       expect(await act(p, matchId, { type: 'stand' })).toMatchObject({ ok: true });
       s = await state<BlackjackView>(matchId, p);
     }
@@ -250,5 +335,33 @@ suite('API integration', () => {
     expect(await emitAck(current.socket, 'match:subscribe', { matchId })).toMatchObject({ ok: true });
     expect(await act(current, matchId, { type: 'roll' })).toMatchObject({ ok: true });
     expect((await state(matchId, a)).version).toBe(before.version + 1);
+  });
+
+  it('restores a Conquer round mid-turn after a restart with hands and wildcards intact', async () => {
+    const a = await login('Saba');
+    const b = await login('Abel');
+    const matchId = await startRoom('conquer', 0, [a, b]);
+    let s = await state<ConquerView>(matchId, a);
+    const predictor = s.view.predictorId === a.id ? a : b;
+    await act(predictor, matchId, { type: 'predict', choice: 'down' });
+    const first = predictor === a ? b : a;
+    await act(first, matchId, { type: 'drawStock' });
+    const before = await state<ConquerView>(matchId, first);
+    expect(before.view.phase).toBe('meld');
+    for (const sock of sockets) sock.disconnect();
+    await t.close();
+
+    t = await startApp(DB!, { dropSchema: false });
+    api = client(t.url);
+    await t.app.get(MatchRuntimeService).recover();
+    const after = await state<ConquerView>(matchId, first);
+    expect(after.version).toBe(before.version);
+    expect(after.view).toEqual(before.view);
+    first.socket = await connect(t.url, first.token);
+    sockets.push(first.socket);
+    expect(await act(first, matchId, { type: 'discard', card: after.view.hand[0] })).toEqual({ ok: true });
+    s = await state<ConquerView>(matchId, a);
+    expect(s.view.currentPlayerId).toBe(predictor.id);
+    expect(s.view.discardTop).toBe(after.view.hand[0]);
   });
 });

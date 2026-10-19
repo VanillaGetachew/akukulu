@@ -2,8 +2,9 @@ import type { GameSlug } from './catalog';
 import type { LudoView } from './games/ludo';
 import type { PokerView } from './games/poker';
 import type { BlackjackView } from './games/blackjack';
+import type { ConquerView } from './games/conquer';
 
-export type GameView = LudoView | PokerView | BlackjackView;
+export type GameView = LudoView | PokerView | BlackjackView | ConquerView;
 
 export interface UserProfile {
   id: string;
@@ -38,6 +39,8 @@ export interface GameSummary {
   activePlayers: number;
   openRooms: number;
   playable: boolean;
+  /** Playable, but some rules still await confirmation. */
+  beta: boolean;
 }
 
 export type RoomStatus = 'waiting' | 'in_progress' | 'finished' | 'cancelled';

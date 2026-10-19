@@ -1,7 +1,7 @@
 import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { DataSource, Not, In } from 'typeorm';
 import { getEngine } from '@akukulu/engines';
-import { GAME_CATALOG, GAME_SLUGS, type GameSlug, type GameSummary } from '@akukulu/shared';
+import { GAME_CATALOG, GAME_SLUGS, LEGACY_CONQUER_MAINTENANCE_MESSAGE, getCatalogEntry, type GameSlug, type GameSummary } from '@akukulu/shared';
 import { GameEntity } from '../database/entities';
 import { GameError } from '../common/util';
 
@@ -38,9 +38,12 @@ export class GamesService implements OnApplicationBootstrap {
       if (existing) {
         // A game without an engine can never leave maintenance.
         const forceMaintenance = !getEngine(entry.slug);
+        // Lift the automatic "rules pending" maintenance once an engine exists (admin toggles are kept).
+        const liftLegacy = !forceMaintenance && existing.maintenance && existing.maintenanceMessage === LEGACY_CONQUER_MAINTENANCE_MESSAGE;
         await repo.update(entry.slug, {
           ...copy,
           ...(forceMaintenance ? { maintenance: true, maintenanceMessage: entry.maintenanceMessage ?? existing.maintenanceMessage } : {}),
+          ...(liftLegacy ? { maintenance: false, maintenanceMessage: null } : {}),
         });
       } else {
         await repo.insert({
@@ -83,6 +86,7 @@ export class GamesService implements OnApplicationBootstrap {
       activePlayers,
       openRooms,
       playable: g.enabled && !g.maintenance && getEngine(g.slug) !== null,
+      beta: getCatalogEntry(g.slug).beta ?? false,
     };
   }
 

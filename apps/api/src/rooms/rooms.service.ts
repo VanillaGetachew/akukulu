@@ -28,6 +28,7 @@ function requiredBalance(slug: GameSlug, config: Record<string, unknown>): numbe
   if (slug === 'ludo') return Number(config.stake ?? 0);
   if (slug === 'poker') return Number(config.buyIn ?? 0);
   if (slug === 'blackjack') return Number(config.minBet ?? 0);
+  if (slug === 'conquer') return Number(config.stake ?? 0);
   return 0;
 }
 

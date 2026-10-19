@@ -217,7 +217,7 @@ function performRoll(state: LudoState, ctx: EngineContext, out: StepOutput, auto
   setDeadline(state, ctx);
 }
 
-export const ludoEngine: GameEngine<LudoState, LudoConfig> = {
+export const ludoEngine: GameEngine<LudoState, LudoConfig, LudoView> = {
   slug: 'ludo',
 
   parseConfig(input, stake) {

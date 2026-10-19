@@ -421,7 +421,7 @@ function applyBettingAction(state: PokerState, index: number, action: unknown, o
   }
 }
 
-export const pokerEngine: GameEngine<PokerState, PokerConfig> = {
+export const pokerEngine: GameEngine<PokerState, PokerConfig, PokerView> = {
   slug: 'poker',
 
   parseConfig(input, stake) {

@@ -101,7 +101,7 @@ export function fail<S = never>(code: string, error: string): EngineResult<S> {
 
 export class ConfigError extends Error {}
 
-export interface GameEngine<S = unknown, C = unknown> {
+export interface GameEngine<S = unknown, C = unknown, V extends GameView = GameView> {
   readonly slug: GameSlug;
   /** Merge user-supplied options with defaults and validate. Throws ConfigError. */
   parseConfig(input: unknown, stake: number): C;
@@ -114,7 +114,7 @@ export interface GameEngine<S = unknown, C = unknown> {
   isFinished(state: S): boolean;
   placements(state: S): Placement[] | null;
   /** Personalised view: never contains information the viewer is not entitled to. */
-  view(state: S, viewerId: string | null): GameView;
+  view(state: S, viewerId: string | null): V;
 }
 
 /** Deep clone for immutable state transitions (state is plain JSON). */

@@ -22,6 +22,8 @@ export interface GameCatalogEntry {
   /** Seed value only; admins can toggle at runtime. */
   defaultMaintenance: boolean;
   maintenanceMessage?: string;
+  /** Playable, but some rules still await confirmation. */
+  beta?: boolean;
 }
 
 export const GAME_CATALOG: readonly GameCatalogEntry[] = [
@@ -61,16 +63,19 @@ export const GAME_CATALOG: readonly GameCatalogEntry[] = [
   {
     slug: 'conquer',
     name: 'Conquer',
-    tagline: 'Meld your way to victory',
-    description: 'Ethiopian Conquer — a multiplayer melding card game. Rules are being finalized.',
+    tagline: 'ካርታ ኮንከር · 1v1 melding',
+    description: 'Ethiopian Conquer for two players: predict the wildcards, open with 41 points, meld every card and discard your last.',
     minPlayers: 2,
-    maxPlayers: 5,
+    maxPlayers: 2,
     solo: false,
     sortOrder: 4,
-    defaultMaintenance: true,
-    maintenanceMessage: 'Conquer is coming soon — the official ruleset is being finalized.',
+    defaultMaintenance: false,
+    beta: true,
   },
 ];
+
+/** Message seeded while Conquer had no engine; cleared automatically once it does. */
+export const LEGACY_CONQUER_MAINTENANCE_MESSAGE = 'Conquer is coming soon — the official ruleset is being finalized.';
 
 export function getCatalogEntry(slug: GameSlug): GameCatalogEntry {
   const entry = GAME_CATALOG.find((g) => g.slug === slug);
