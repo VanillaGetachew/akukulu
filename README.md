@@ -30,6 +30,8 @@ A Telegram Mini App gaming platform with exactly four games — **Ludo, Poker, B
 - Poker blinds are fixed for the whole table; no rebuys; showdown hands are always revealed (no mucking).
 - No automated browser end-to-end tests; the web UI was verified manually in a browser. Gameplay end-to-end is covered by API + Socket.IO integration tests.
 - The bot was type-checked and built but not run against the Telegram API here.
+- `npm audit` reports high-severity advisories that need major upgrades: NestJS 10 → 11/12 (`@nestjs/platform-express` pulls a vulnerable `multer`; the API exposes no upload endpoints) and Next.js 15 → 16 (bundled PostCSS, build-time). Plan these upgrades before a public launch.
+- Online presence counts can include stale entries after an API crash (Redis presence is not expired per socket).
 
 ## Repository layout
 ```
