@@ -12,7 +12,7 @@ A Telegram Mini App gaming platform with exactly four games — **Ludo, Poker, B
 | Ludo | ✅ Engine, real-time UI, server dice, timers, settlement — [rules](docs/GAMES/LUDO_RULES.md) |
 | Poker (NL Texas Hold'em) | ✅ Engine, hand evaluator, side pots, UI, private cards — [rules](docs/GAMES/POKER_RULES.md) |
 | Blackjack | ✅ Engine, S17 / 3:2, double, split, UI, hidden hole card — [rules](docs/GAMES/BLACKJACK_RULES.md) |
-| Conquer | ⏳ **Not implemented.** Listed in maintenance mode until the new official ruleset is provided — [status](docs/GAMES/CONQUER_RULES.md) |
+| Conquer (Ethiopian, 1v1) | ✅ **Playable beta** — 52 cards, 14-card hands, Up/Down/Side/Up & Down wildcards, 41-point opening, swaps, exhaustion scoring, rematches. Several house rules await confirmation — [rules](docs/GAMES/CONQUER_RULES.md#rules-awaiting-confirmation) |
 | Telegram auth (initData HMAC on the backend) | ✅ |
 | Rooms: public/private, codes, invites, ready-up, quick play | ✅ |
 | Socket.IO real-time, server-authoritative state, reconnection | ✅ |
@@ -24,7 +24,7 @@ A Telegram Mini App gaming platform with exactly four games — **Ludo, Poker, B
 | Docker Compose | ✅ |
 
 ### Known limitations
-- Conquer has no engine yet (by design, pending rules).
+- Conquer's wildcard prediction mapping and several wildcard/ending rules are documented defaults that still need confirmation against authoritative Ethiopian rules; the game is marked **Beta**. Only the 1v1 mode exists.
 - Schema is managed with TypeORM `synchronize`; generated migrations are a follow-up ([deployment notes](docs/DEPLOYMENT.md#4-schema)).
 - Blackjack is single-seat (one player per dealer).
 - Poker blinds are fixed for the whole table; no rebuys; showdown hands are always revealed (no mucking).
@@ -69,7 +69,7 @@ npm run test:integration       # API + Socket.IO integration tests against Postg
 ```
 `test:integration` uses `TEST_DATABASE_URL`, defaulting to `postgres://akukulu:akukulu@127.0.0.1:${POSTGRES_HOST_PORT:-5432}/akukulu_test` (created by `docker/postgres-init.sql` on first start of the compose Postgres).
 
-The integration suite covers: catalog pruning, Telegram signature verification, welcome/referral/daily rewards (including concurrent claims), negative-balance protection, a complete two-player Ludo match over Socket.IO with duplicate-action and out-of-turn checks and exactly-once payout, poker card privacy and cash-out, a blackjack session with a hidden hole card, affordability checks, and recovery of an active match after an API restart.
+The integration suite covers: catalog pruning (and lifting Conquer's old maintenance flag), Telegram signature verification, welcome/referral/daily rewards (including concurrent claims), negative-balance protection, a complete two-player Ludo match over Socket.IO with duplicate-action and out-of-turn checks and exactly-once payout, poker card privacy and cash-out, a blackjack session with a hidden hole card, a full 1v1 Conquer round (private hands, simultaneous and duplicate actions, settlement, illegal actions) and a Conquer restore after restart, affordability checks, and recovery of an active match after an API restart.
 
 ## Production build
 ```bash

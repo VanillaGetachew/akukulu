@@ -12,14 +12,20 @@ const STAKES: Record<GameSlug, { label: string; options: number[]; default: numb
   ludo: { label: 'Entry stake', options: [0, 50, 100, 250], default: 0 },
   poker: { label: 'Buy-in', options: [200, 500, 1000, 2500], default: 500 },
   blackjack: { label: 'Minimum bet', options: [10, 25, 50, 100], default: 10 },
-  conquer: { label: 'Stake', options: [0], default: 0 },
+  conquer: { label: 'Stake per round', options: [0, 25, 50, 100], default: 0 },
 };
 
 const RULES: Record<GameSlug, string[]> = {
   ludo: ['Roll a 6 to bring a token out.', 'Land on an opponent to send it home — except on star and start squares.', 'A 6, a capture or reaching home earns another roll. Three 6s in a row ends your turn.', 'Exact roll needed to finish. First to bring all four tokens home wins the pot.'],
   poker: ["No-limit Texas Hold'em. Two hole cards, five community cards.", 'Blinds rotate each hand. Check, bet, call, raise or fold.', 'All-ins create side pots. Best five-card hand wins.', 'Your buy-in becomes chips; your final stack returns to your balance.'],
   blackjack: ['Get closer to 21 than the dealer without going over.', 'Blackjack pays 3:2. Dealer stands on all 17s.', 'Double on any two cards, split pairs up to four hands.', 'Split aces get one card each.'],
-  conquer: ['A 40-card melding game.', 'The official ruleset is being finalized.'],
+  conquer: [
+    'Ethiopian Conquer (ካርታ ኮንከር), one against one, 52 cards, 14 each.',
+    'Before the deal the predictor sees a base card and calls Up (ላይ), Down (ታች), Side (ጎን) or Up & Down (ላይና ታች) to pick the wildcards.',
+    'Draw from the stock, or take the discard only if you meld it at once. Open with 41+ points of sets and runs.',
+    'Meld every card and discard your last to win. If the stock runs out, the lower penalty wins.',
+    'Beta: some house rules await confirmation — see the rules document.',
+  ],
 };
 
 export default function GameLobby() {
@@ -125,7 +131,7 @@ export default function GameLobby() {
                   {!affordable && <p className="mt-2 text-xs text-danger">You need {stake} points for this table.</p>}
                 </div>
 
-                {slug !== 'blackjack' && (
+                {slug !== 'blackjack' && slug !== 'conquer' && (
                   <div>
                     <div className="mb-2 text-xs font-bold uppercase tracking-wide text-muted">Seats (private rooms)</div>
                     <div className="flex gap-2">

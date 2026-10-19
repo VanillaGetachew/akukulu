@@ -136,7 +136,7 @@ export interface MatchStatePayload {
   status: MatchStatus;
   version: number;
   view: GameView;
-  players: { userId: string; displayName: string; photoUrl: string | null; seat: number }[];
+  players: { userId: string; displayName: string; photoUrl: string | null; seat: number; online: boolean }[];
   serverTime: number;
 }
 

@@ -13,6 +13,7 @@ import {
 import { LedgerService } from '../wallet/ledger.service';
 import { Broadcaster, roomChannel, spectatorChannel } from '../realtime/broadcaster';
 import { RoomPresenter } from '../rooms/room-presenter';
+import { PresenceService } from '../realtime/presence.service';
 import { GameError, displayName } from '../common/util';
 
 type Input =
@@ -56,6 +57,7 @@ export class MatchRuntimeService implements OnApplicationBootstrap, OnModuleDest
     private readonly ledger: LedgerService,
     private readonly broadcaster: Broadcaster,
     private readonly rooms: RoomPresenter,
+    private readonly presence: PresenceService,
   ) {}
 
   /* ---------------- lifecycle & recovery ---------------- */
@@ -376,7 +378,8 @@ export class MatchRuntimeService implements OnApplicationBootstrap, OnModuleDest
     const players = await manager.getRepository(MatchPlayerEntity).find({ where: { matchId: match.id }, order: { seat: 'ASC' } });
     const users = await manager.getRepository(UserEntity).findBy({ id: In(players.map((p) => p.userId)) });
     const room = match.roomId ? await manager.getRepository(RoomEntity).findOneBy({ id: match.roomId }) : null;
-    return this.buildPayload(match, engine, players, users, room?.code ?? null, viewerId);
+    const online = await this.presence.onlineMap(players.map((p) => p.userId));
+    return this.buildPayload(match, engine, players, users, room?.code ?? null, viewerId, online);
   }
 
   private buildPayload(
@@ -386,6 +389,7 @@ export class MatchRuntimeService implements OnApplicationBootstrap, OnModuleDest
     users: UserEntity[],
     roomCode: string | null,
     viewerId: string | null,
+    online: Record<string, boolean>,
   ): MatchStatePayload {
     const byId = new Map(users.map((u) => [u.id, u]));
     return {
@@ -400,6 +404,7 @@ export class MatchRuntimeService implements OnApplicationBootstrap, OnModuleDest
         seat: p.seat,
         displayName: byId.get(p.userId) ? displayName(byId.get(p.userId)!) : 'Player',
         photoUrl: byId.get(p.userId)?.photoUrl ?? null,
+        online: online[p.userId] ?? false,
       })),
       serverTime: this.now(),
     };
@@ -434,10 +439,11 @@ export class MatchRuntimeService implements OnApplicationBootstrap, OnModuleDest
       const engine = engineFor(match.gameSlug);
       const users = await this.dataSource.getRepository(UserEntity).findBy({ id: In(players.map((p) => p.userId)) });
       const room = match.roomId ? await this.dataSource.getRepository(RoomEntity).findOneBy({ id: match.roomId }) : null;
+      const online = await this.presence.onlineMap(players.map((p) => p.userId));
       for (const p of players) {
-        this.broadcaster.toUser(p.userId, 'match:state', this.buildPayload(match, engine, players, users, room?.code ?? null, p.userId));
+        this.broadcaster.toUser(p.userId, 'match:state', this.buildPayload(match, engine, players, users, room?.code ?? null, p.userId, online));
       }
-      this.broadcaster.emit(spectatorChannel(match.id), 'match:state', this.buildPayload(match, engine, players, users, room?.code ?? null, null));
+      this.broadcaster.emit(spectatorChannel(match.id), 'match:state', this.buildPayload(match, engine, players, users, room?.code ?? null, null, online));
       for (const u of users) {
         if (touchedUsers.has(u.id)) this.broadcaster.toUser(u.id, 'balance:update', { balance: u.balance });
       }
@@ -468,6 +474,18 @@ export class MatchRuntimeService implements OnApplicationBootstrap, OnModuleDest
 
   async isPlayer(matchId: string, userId: string): Promise<boolean> {
     return (await this.dataSource.getRepository(MatchPlayerEntity).countBy({ matchId, userId })) > 0;
+  }
+
+  /** Re-sends a user's active matches to everyone so connection badges update. */
+  async refreshPresence(userId: string): Promise<void> {
+    for (const { id } of await this.findActiveForUser(userId)) {
+      await this.serialize(id, async () => {
+        const match = await this.getMatch(id);
+        if (match?.status !== 'active') return;
+        const players = await this.dataSource.getRepository(MatchPlayerEntity).find({ where: { matchId: id }, order: { seat: 'ASC' } });
+        await this.publish({ match, players, touchedUsers: new Set(), finished: false });
+      });
+    }
   }
 
   countActive(): Promise<number> {

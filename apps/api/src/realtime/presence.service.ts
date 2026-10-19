@@ -38,6 +38,14 @@ export class PresenceService implements OnModuleDestroy {
     if (set && set.size === 0) this.localSockets.delete(userId);
   }
 
+  async onlineMap(userIds: string[]): Promise<Record<string, boolean>> {
+    const out: Record<string, boolean> = {};
+    for (const id of userIds) {
+      out[id] = this.redis ? (await this.redis.scard(`presence:${id}`)) > 0 : (this.localSockets.get(id)?.size ?? 0) > 0;
+    }
+    return out;
+  }
+
   async onlineCount(): Promise<number> {
     if (this.redis) return this.redis.scard('presence:users');
     return this.localSockets.size;

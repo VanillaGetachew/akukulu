@@ -25,6 +25,9 @@ function GameCard({ game }: { game: GameSummary }) {
         {game.maintenance && (
           <span className="absolute left-2 top-2 rounded-full bg-gold px-2 py-0.5 text-[10px] font-black uppercase text-ink">Coming soon</span>
         )}
+        {game.beta && game.playable && (
+          <span className="absolute right-2 top-2 rounded-full bg-violet px-2 py-0.5 text-[10px] font-black uppercase text-white">Beta</span>
+        )}
         {!game.maintenance && !game.enabled && (
           <span className="absolute left-2 top-2 rounded-full bg-danger px-2 py-0.5 text-[10px] font-black uppercase text-white">Paused</span>
         )}

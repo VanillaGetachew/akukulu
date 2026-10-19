@@ -5,6 +5,8 @@ import {
   DEFAULT_CONQUER_CONFIG,
   DEFAULT_CONQUER_RULES,
   HIDDEN_CARD,
+  RANK_LABEL,
+  SUIT_SYMBOL,
   isValidCard,
   standardDeck,
   type Card,
@@ -101,6 +103,7 @@ interface Out {
 }
 
 const PHYSICAL_DECK = new Set(standardDeck());
+const cardLabel = (c: Card) => `${RANK_LABEL[c[0] as Rank]}${SUIT_SYMBOL[c[1] as Suit]}`;
 
 function meldContext(state: ConquerState, excludeMeldId?: string): MeldContext {
   const taken = new Set<Card>();
@@ -182,7 +185,7 @@ function applyPrediction(state: ConquerState, choice: ConquerPrediction, ctx: En
   state.current = first;
   state.phase = 'draw';
   setDeadline(state, ctx);
-  event(state, out, state.players[state.predictor].playerId, 'predicted', `Predicted ${CONQUER_PREDICTION_LABEL[choice].en} — wild: ${sel.ranks.join(', ')}`, { choice, wildCards: sel.cards });
+  event(state, out, state.players[state.predictor].playerId, 'predicted', `Predicted ${CONQUER_PREDICTION_LABEL[choice].en} — wild: ${sel.ranks.map((r) => RANK_LABEL[r]).join(' & ')}`, { choice, wildCards: sel.cards });
 }
 
 function penaltyOf(state: ConquerState, hand: Card[]): number {
@@ -340,7 +343,7 @@ function discardCard(state: ConquerState, index: number, card: Card, ctx: Engine
   const p = state.players[index];
   p.hand.splice(p.hand.indexOf(card), 1);
   state.discard.push(card);
-  event(state, out, p.playerId, 'discard', `discarded ${card}`, { card });
+  event(state, out, p.playerId, 'discard', `discarded ${cardLabel(card)}`, { card });
   if (p.hand.length === 0) {
     endRound(state, index, 'out', ctx, out);
   } else if (state.stock.length === 0) {
@@ -482,7 +485,7 @@ export const conquerEngine: GameEngine<ConquerState, ConquerConfig, ConquerView>
         p.missedTurns = 0;
         state.phase = 'meld';
         setDeadline(state, ctx);
-        event(state, out, playerId, 'take_discard', `took ${top} and melded it`, { card: top });
+        event(state, out, playerId, 'take_discard', `took ${cardLabel(top)} and melded it`, { card: top });
         return ok(state, out.events, out.ledger);
       }
       case 'meld':
@@ -518,7 +521,7 @@ export const conquerEngine: GameEngine<ConquerState, ConquerConfig, ConquerView>
         Object.assign(slot, { card, wild: false });
         if (state.config.rules.wild.swappedMustBeUsedSameTurn) state.pendingWild = wildCard;
         p.missedTurns = 0;
-        event(state, out, playerId, 'swap_wild', `swapped ${card} for a wildcard`, { meldId: meld.id, card, wildCard });
+        event(state, out, playerId, 'swap_wild', `swapped ${cardLabel(card)} for a wildcard`, { meldId: meld.id, card, wildCard });
         return ok(state, out.events, out.ledger);
       }
       case 'discard': {

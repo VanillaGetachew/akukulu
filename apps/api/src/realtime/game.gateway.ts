@@ -61,8 +61,14 @@ export class GameGateway implements OnGatewayInit, OnGatewayConnection {
       return;
     }
     await socket.join(userChannel(userId));
-    socket.on('disconnect', () => void this.presence.disconnected(userId, socket.id));
+    socket.on('disconnect', () => {
+      void this.presence
+        .disconnected(userId, socket.id)
+        .then(() => this.runtime.refreshPresence(userId))
+        .catch(() => undefined);
+    });
     await this.presence.connected(userId, socket.id);
+    void this.runtime.refreshPresence(userId).catch(() => undefined);
   }
 
   private userId(socket: Socket): string {
