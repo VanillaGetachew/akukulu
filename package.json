@@ -1,0 +1,25 @@
+{
+  "name": "akukulu",
+  "private": true,
+  "version": "0.1.0",
+  "description": "አኩኩሉ | Akukulu — Telegram Mini App gaming platform (Ludo, Poker, Blackjack, Conquer)",
+  "workspaces": [
+    "packages/shared",
+    "packages/engines",
+    "apps/api",
+    "apps/web",
+    "apps/bot"
+  ],
+  "scripts": {
+    "build:packages": "npm run build -w @akukulu/shared && npm run build -w @akukulu/engines",
+    "build": "npm run build:packages && npm run build -w @akukulu/api && npm run build -w @akukulu/web && npm run build -w @akukulu/bot",
+    "test": "npm run build:packages && npm run test -w @akukulu/engines && npm run test -w @akukulu/api",
+    "typecheck": "npm run build:packages && npm run typecheck --workspaces --if-present",
+    "dev:api": "npm run start:dev -w @akukulu/api",
+    "dev:web": "npm run dev -w @akukulu/web",
+    "dev:bot": "npm run dev -w @akukulu/bot"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
