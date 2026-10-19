@@ -1,0 +1,140 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <title>Akukulu — አኩኩሉ</title>
+  <defs>
+    <radialGradient id="glow" cx="50%" cy="48%" r="50%">
+      <stop offset="0" stop-color="#ffcf4a" stop-opacity=".45"/>
+      <stop offset=".55" stop-color="#8b5cf6" stop-opacity=".18"/>
+      <stop offset="1" stop-color="#07071a" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fff2b0"/>
+      <stop offset=".35" stop-color="#f7c948"/>
+      <stop offset=".7" stop-color="#d48a12"/>
+      <stop offset="1" stop-color="#8a4b06"/>
+    </linearGradient>
+    <linearGradient id="goldSide" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#9c5a0a"/>
+      <stop offset=".5" stop-color="#ffe27a"/>
+      <stop offset="1" stop-color="#9c5a0a"/>
+    </linearGradient>
+    <radialGradient id="core" cx="50%" cy="40%" r="65%">
+      <stop offset="0" stop-color="#2a1f6b"/>
+      <stop offset=".6" stop-color="#15103f"/>
+      <stop offset="1" stop-color="#090722"/>
+    </radialGradient>
+    <linearGradient id="ribbon" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ff7a1a"/>
+      <stop offset=".5" stop-color="#d9340f"/>
+      <stop offset="1" stop-color="#8f1d0a"/>
+    </linearGradient>
+    <linearGradient id="ribbonTail" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#a3260c"/>
+      <stop offset="1" stop-color="#5c1206"/>
+    </linearGradient>
+    <linearGradient id="word" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fff7c2"/>
+      <stop offset=".45" stop-color="#ffd23f"/>
+      <stop offset="1" stop-color="#f08a0c"/>
+    </linearGradient>
+    <!-- Tibeb-style woven border: diamonds and chevrons in green, gold, red and blue. -->
+    <pattern id="tibeb" width="32" height="32" patternUnits="userSpaceOnUse">
+      <rect width="32" height="32" fill="#7c1424"/>
+      <path d="M16 2 L30 16 L16 30 L2 16 Z" fill="#1e9e57"/>
+      <path d="M16 8 L24 16 L16 24 L8 16 Z" fill="#ffd23f"/>
+      <path d="M16 12 L20 16 L16 20 L12 16 Z" fill="#c81e2e"/>
+      <path d="M0 0 L6 0 L0 6 Z M32 0 L26 0 L32 6 Z M0 32 L6 32 L0 26 Z M32 32 L26 32 L32 26 Z" fill="#2f6fe0"/>
+    </pattern>
+    <path id="shield" d="M256 78 C300 96 356 104 404 98 C412 204 398 300 356 368 C324 420 290 448 256 466 C222 448 188 420 156 368 C114 300 100 204 108 98 C156 104 212 96 256 78 Z"/>
+    <path id="wordArc" d="M78 382 Q256 338 434 382"/>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="6" stdDeviation="6" flood-color="#000" flood-opacity=".55"/>
+    </filter>
+  </defs>
+
+  <circle cx="256" cy="250" r="250" fill="url(#glow)"/>
+
+  <!-- Shield: gold rim, tibeb band, navy core -->
+  <g filter="url(#shadow)">
+    <use href="#shield" fill="url(#gold)" stroke="#5a3204" stroke-width="4"/>
+    <use href="#shield" fill="url(#tibeb)" transform="translate(256 272) scale(.9) translate(-256 -272)"/>
+    <use href="#shield" fill="none" stroke="#ffe27a" stroke-width="3" transform="translate(256 272) scale(.9) translate(-256 -272)"/>
+    <use href="#shield" fill="url(#core)" stroke="url(#goldSide)" stroke-width="5" transform="translate(256 276) scale(.76) translate(-256 -276)"/>
+  </g>
+
+  <!-- Crown -->
+  <g filter="url(#shadow)">
+    <path d="M188 104 L196 50 L226 80 L256 36 L286 80 L316 50 L324 104 Z" fill="url(#gold)" stroke="#5a3204" stroke-width="4" stroke-linejoin="round"/>
+    <rect x="184" y="98" width="144" height="20" rx="6" fill="url(#goldSide)" stroke="#5a3204" stroke-width="4"/>
+    <circle cx="196" cy="48" r="7" fill="#c81e2e" stroke="#5a3204" stroke-width="2"/>
+    <circle cx="256" cy="34" r="9" fill="#1e9e57" stroke="#5a3204" stroke-width="2"/>
+    <circle cx="316" cy="48" r="7" fill="#c81e2e" stroke="#5a3204" stroke-width="2"/>
+    <circle cx="226" cy="108" r="4.5" fill="#2f6fe0"/>
+    <circle cx="256" cy="108" r="5.5" fill="#c81e2e"/>
+    <circle cx="286" cy="108" r="4.5" fill="#2f6fe0"/>
+  </g>
+
+  <!-- Playing cards -->
+  <g font-family="Arial Black, Segoe UI Black, Arial, sans-serif" font-weight="900" filter="url(#shadow)">
+    <g transform="rotate(-20 256 300)">
+      <rect x="222" y="168" width="68" height="98" rx="8" fill="#fbfaff" stroke="#2b2240" stroke-width="2"/>
+      <text x="230" y="192" font-size="20" fill="#16161f">A</text>
+      <text x="256" y="236" font-size="34" fill="#16161f" text-anchor="middle">♠</text>
+    </g>
+    <g transform="rotate(20 256 300)">
+      <rect x="222" y="168" width="68" height="98" rx="8" fill="#fbfaff" stroke="#2b2240" stroke-width="2"/>
+      <text x="230" y="192" font-size="20" fill="#e0284f">Q</text>
+      <text x="256" y="236" font-size="34" fill="#e0284f" text-anchor="middle">♦</text>
+    </g>
+    <g>
+      <rect x="222" y="160" width="68" height="98" rx="8" fill="#fbfaff" stroke="#2b2240" stroke-width="2"/>
+      <text x="230" y="184" font-size="20" fill="#e0284f">K</text>
+      <text x="256" y="228" font-size="34" fill="#e0284f" text-anchor="middle">♥</text>
+    </g>
+  </g>
+
+  <!-- Chip stack -->
+  <g filter="url(#shadow)">
+    <ellipse cx="184" cy="300" rx="30" ry="11" fill="#0f6b3a"/>
+    <rect x="154" y="272" width="60" height="28" fill="#0f6b3a"/>
+    <ellipse cx="184" cy="296" rx="30" ry="11" fill="#1e9e57" stroke="#0b4d2a" stroke-width="2"/>
+    <ellipse cx="184" cy="284" rx="30" ry="11" fill="#c81e2e" stroke="#7c1424" stroke-width="2"/>
+    <ellipse cx="184" cy="272" rx="30" ry="11" fill="url(#gold)" stroke="#8a4b06" stroke-width="2"/>
+    <ellipse cx="184" cy="272" rx="18" ry="6" fill="none" stroke="#fff6cf" stroke-width="2.5" stroke-dasharray="5 4"/>
+  </g>
+
+  <!-- Die -->
+  <g transform="rotate(14 330 282)" filter="url(#shadow)">
+    <rect x="306" y="258" width="48" height="48" rx="10" fill="#fbfaff" stroke="#2b2240" stroke-width="2.5"/>
+    <circle cx="318" cy="270" r="4.5" fill="#c81e2e"/>
+    <circle cx="342" cy="270" r="4.5" fill="#16161f"/>
+    <circle cx="330" cy="282" r="4.5" fill="#16161f"/>
+    <circle cx="318" cy="294" r="4.5" fill="#16161f"/>
+    <circle cx="342" cy="294" r="4.5" fill="#c81e2e"/>
+  </g>
+
+  <!-- Main ribbon -->
+  <g filter="url(#shadow)">
+    <path d="M44 352 L14 372 L40 386 L18 410 L70 404 Z" fill="url(#ribbonTail)" stroke="#2b1405" stroke-width="4" stroke-linejoin="round"/>
+    <path d="M468 352 L498 372 L472 386 L494 410 L442 404 Z" fill="url(#ribbonTail)" stroke="#2b1405" stroke-width="4" stroke-linejoin="round"/>
+    <path d="M40 342 Q256 296 472 342 L462 408 Q256 364 50 408 Z" fill="url(#ribbon)" stroke="#2b1405" stroke-width="5" stroke-linejoin="round"/>
+    <path d="M52 352 Q256 308 460 352" fill="none" stroke="#ffb067" stroke-width="2" opacity=".7"/>
+  </g>
+  <text font-family="Arial Black, Segoe UI Black, Impact, sans-serif" font-weight="900" font-size="62" letter-spacing="3" fill="url(#word)" stroke="#2b1405" stroke-width="7" stroke-linejoin="round" paint-order="stroke">
+    <textPath href="#wordArc" startOffset="50%" text-anchor="middle">AKUKULU</textPath>
+  </text>
+
+  <!-- Sub ribbon -->
+  <g filter="url(#shadow)">
+    <path d="M150 414 L362 414 L350 452 L162 452 Z" fill="#10183f" stroke="url(#goldSide)" stroke-width="4" stroke-linejoin="round"/>
+    <text x="256" y="441" font-family="Arial Black, Segoe UI Black, Arial, sans-serif" font-weight="900" font-size="21" letter-spacing="5" fill="#ffffff" text-anchor="middle">GAMING BOT</text>
+  </g>
+  <text x="256" y="490" font-family="Nyala, Ebrima, Noto Sans Ethiopic, sans-serif" font-weight="700" font-size="28" fill="url(#word)" stroke="#2b1405" stroke-width="4" paint-order="stroke" text-anchor="middle">አኩኩሉ</text>
+
+  <!-- Sparkles -->
+  <g fill="#fff3b0">
+    <path d="M86 150 l4 10 l10 4 l-10 4 l-4 10 l-4 -10 l-10 -4 l10 -4 z"/>
+    <path d="M430 170 l3 8 l8 3 l-8 3 l-3 8 l-3 -8 l-8 -3 l8 -3 z"/>
+    <path d="M118 74 l2.5 6 l6 2.5 l-6 2.5 l-2.5 6 l-2.5 -6 l-6 -2.5 l6 -2.5 z"/>
+    <path d="M404 66 l2.5 6 l6 2.5 l-6 2.5 l-2.5 6 l-2.5 -6 l-6 -2.5 l6 -2.5 z"/>
+  </g>
+</svg>

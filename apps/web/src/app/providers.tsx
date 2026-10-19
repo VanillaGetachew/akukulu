@@ -3,7 +3,7 @@
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { SessionProvider, useSession } from '@/lib/session';
-import { LogoMark } from '@/components/art';
+import { Emblem, LogoMark } from '@/components/art';
 import { LoadingState } from '@/components/ui';
 
 function Gate({ children }: { children: ReactNode }) {
@@ -25,8 +25,8 @@ function Gate({ children }: { children: ReactNode }) {
   if (status === 'loading') {
     return (
       <div className="grid min-h-dvh place-items-center">
-        <div className="grid place-items-center gap-3">
-          <LogoMark size={64} />
+        <div className="grid place-items-center gap-1">
+          <Emblem size={240} className="animate-[pulse_2.4s_ease-in-out_infinite] drop-shadow-[0_0_40px_rgba(255,201,74,.35)]" />
           <LoadingState label="Signing you in…" />
         </div>
       </div>
@@ -37,8 +37,7 @@ function Gate({ children }: { children: ReactNode }) {
     return (
       <div className="grid min-h-dvh place-items-center px-6 text-center">
         <div className="grid max-w-sm place-items-center gap-4">
-          <LogoMark size={64} />
-          <h1 className="font-display text-xl font-extrabold">Akukulu</h1>
+          <Emblem size={200} />
           <p className="text-sm text-muted">{error ?? 'Unable to sign in.'}</p>
           <button className="btn-ghost" onClick={() => window.location.reload()}>
             Retry

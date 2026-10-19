@@ -1,30 +1,20 @@
 import type { GameSlug } from '@akukulu/shared';
 
-/** Akukulu mark: a rounded die whose pips form a four-colour race track. */
+/** Compact brand mark (shield, crown, cards) for small sizes: header, favicon. */
 export function LogoMark({ size = 36 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 48 48" aria-hidden="true">
-      <defs>
-        <linearGradient id="lm-bg" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stopColor="#3a2d7a" />
-          <stop offset="1" stopColor="#140f33" />
-        </linearGradient>
-      </defs>
-      <rect x="3" y="3" width="42" height="42" rx="12" fill="url(#lm-bg)" stroke="#2ee67a" strokeWidth="2" />
-      <path d="M14 34 L24 12 L34 34" fill="none" stroke="#2ee67a" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
-      <circle cx="13" cy="13" r="3.2" fill="#ff5a7a" />
-      <circle cx="35" cy="13" r="3.2" fill="#2ee67a" />
-      <circle cx="35" cy="35" r="3.2" fill="#ffc94a" />
-      <circle cx="13" cy="35" r="3.2" fill="#5aa8ff" />
-      <path d="M19 27 H29" stroke="#f3f1ff" strokeWidth="3" strokeLinecap="round" />
-    </svg>
-  );
+  // eslint-disable-next-line @next/next/no-img-element
+  return <img src="/brand/akukulu-mark.svg" alt="" width={Math.round(size * 0.75)} height={size} style={{ height: size, width: 'auto' }} draggable={false} />;
 }
 
+/** Full Akukulu emblem with the ribbon and wordmark, for splash and feature spots. */
+export function Emblem({ size = 220, className = '' }: { size?: number; className?: string }) {
+  // eslint-disable-next-line @next/next/no-img-element
+  return <img src="/brand/akukulu-emblem.svg" alt="Akukulu — አኩኩሉ gaming bot" width={size} height={size} className={className} draggable={false} />;
+}
 export function Logo() {
   return (
     <div className="flex items-center gap-2.5">
-      <LogoMark />
+      <LogoMark size={40} />
       <div className="leading-none">
         <div className="font-display text-lg font-extrabold tracking-tight text-fg">
           Akukulu<span className="text-lime">.</span>
@@ -34,40 +24,6 @@ export function Logo() {
         </div>
       </div>
     </div>
-  );
-}
-
-export function PromoArt() {
-  return (
-    <svg viewBox="0 0 240 140" className="h-full w-full" aria-hidden="true">
-      <defs>
-        <radialGradient id="pa-glow" cx="0.6" cy="0.5" r="0.6">
-          <stop offset="0" stopColor="#2ee67a" stopOpacity=".55" />
-          <stop offset="1" stopColor="#2ee67a" stopOpacity="0" />
-        </radialGradient>
-      </defs>
-      <circle cx="150" cy="70" r="70" fill="url(#pa-glow)" />
-      <g transform="translate(118 30) rotate(-14)">
-        <rect width="54" height="76" rx="8" fill="#f8f7ff" />
-        <text x="9" y="22" fontSize="18" fontWeight="800" fill="#1b1b26">A</text>
-        <text x="27" y="54" fontSize="26" textAnchor="middle" fill="#ff5a7a">♥</text>
-      </g>
-      <g transform="translate(150 26) rotate(10)">
-        <rect width="54" height="76" rx="8" fill="#f8f7ff" />
-        <text x="9" y="22" fontSize="18" fontWeight="800" fill="#1b1b26">K</text>
-        <text x="27" y="54" fontSize="26" textAnchor="middle" fill="#1b1b26">♠</text>
-      </g>
-      <g transform="translate(196 88) rotate(18)">
-        <rect x="-18" y="-18" width="36" height="36" rx="9" fill="#2ee67a" />
-        <circle cx="-8" cy="-8" r="3.5" fill="#07071a" />
-        <circle cx="8" cy="8" r="3.5" fill="#07071a" />
-        <circle cx="0" cy="0" r="3.5" fill="#07071a" />
-      </g>
-      <g transform="translate(108 104)">
-        <circle r="14" fill="#ffc94a" />
-        <circle r="9" fill="none" stroke="#07071a" strokeWidth="2" strokeDasharray="3 3" />
-      </g>
-    </svg>
   );
 }
 

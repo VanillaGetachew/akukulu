@@ -5,7 +5,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { GameSlug, GameSummary, RoomSummary } from '@akukulu/shared';
 import { api } from '@/lib/api';
 import { useSession } from '@/lib/session';
-import { GameThumb, PromoArt } from '@/components/art';
+import { Emblem, GameThumb } from '@/components/art';
 import { Coin, EmptyState, ErrorState, Page } from '@/components/ui';
 
 interface Active {
@@ -115,9 +115,7 @@ export default function Lobby() {
               <Coin /> {dailyAvailable ? 'Claim free reward' : 'Free rewards'}
             </Link>
           </div>
-          <div className="h-28 w-40 sm:h-36 sm:w-52">
-            <PromoArt />
-          </div>
+          <Emblem size={150} className="h-32 w-32 sm:h-40 sm:w-40" />
         </div>
       </section>
 

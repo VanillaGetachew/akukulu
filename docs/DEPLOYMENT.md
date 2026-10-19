@@ -5,6 +5,10 @@
 2. Host the web app on a public **HTTPS** URL (Telegram requires HTTPS) → `WEBAPP_URL`.
 3. In BotFather: `/newapp` (or *Bot Settings → Configure Mini App*) pointing at that URL. The resulting direct link (e.g. `https://t.me/akukulu_bot/play`) → `TELEGRAM_WEBAPP_LINK`; room invites use `?startapp=room_<CODE>`.
 4. The bot sets its menu button to the Mini App on start.
+5. Branding (files in `apps/web/public/brand/`):
+   - Bot profile picture: BotFather `/setuserpic` → `akukulu-avatar-640.png`.
+   - Mini App photo (640×360): BotFather `/editapp` → *Edit photo* → `akukulu-miniapp-640x360.png`.
+   - `akukulu-emblem.svg` / `akukulu-emblem-512.png` (full emblem, transparent) and `akukulu-mark.svg` (compact shield for small sizes) for anything else.
 
 ## 2. Configuration
 Copy `.env.example` to `.env` and set at least:

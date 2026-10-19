@@ -37,18 +37,49 @@ function useWidth<T extends HTMLElement>() {
   return [ref, width] as const;
 }
 
-/** Cards laid out on an arc. `flip` curves it the other way (opponent at the top). */
-function Fan({ cards, width, flip, selected, wild, onTap, cardWidth = 52 }: { cards: Card[]; width: number; flip?: boolean; selected?: Card[]; wild?: Set<Card>; onTap?: (c: Card) => void; cardWidth?: number }) {
-  const n = cards.length;
-  // Leave room for the outer cards' width and tilt so the fan never overflows.
-  const spacing = n > 1 ? Math.min(cardWidth * 0.62, (width - cardWidth * 2.4) / (n - 1)) : 0;
-  const mid = (n - 1) / 2;
+const HAND_W = 54;
+const HAND_H = 78;
+
+/**
+ * A card face for a tight fan: rank, suit and joker star are stacked in the
+ * top-left corner, the only part of each card that stays visible.
+ */
+function FanCard({ card, selected, joker }: { card: Card; selected?: boolean; joker?: boolean }) {
+  const rank = RANK_LABEL[card[0] as Rank];
+  const suit = SUIT_SYMBOL[card[1] as 's'];
+  const red = card[1] === 'h' || card[1] === 'd';
   return (
-    <div className="relative mx-auto h-full w-full">
+    <div
+      className={`relative rounded-lg bg-[#fbfaff] shadow-[0_2px_6px_rgba(0,0,0,.45)] ${selected ? 'ring-[3px] ring-lime' : 'ring-1 ring-black/10'} ${red ? 'text-[#e0284f]' : 'text-[#16161f]'}`}
+      style={{ width: HAND_W, height: HAND_H }}
+    >
+      <div className="absolute left-[3px] top-[3px] flex w-[17px] flex-col items-center leading-none">
+        <span className={`font-black ${rank === '10' ? 'text-[13px] tracking-tighter' : 'text-[16px]'}`}>{rank}</span>
+        <span className="text-[14px]">{suit}</span>
+        {joker && <span className="mt-0.5 text-[12px] text-[#e3a008]">★</span>}
+      </div>
+      <span className="absolute bottom-1 right-1.5 text-[26px] leading-none">{suit}</span>
+    </div>
+  );
+}
+
+/** Cards on a shallow arc that always fits its box. `flip` is the opponent's fan at the top. */
+function Fan({ cards, width, flip, selected, wild, onTap }: { cards: Card[]; width: number; flip?: boolean; selected?: Card[]; wild?: Set<Card>; onTap?: (c: Card) => void }) {
+  const n = cards.length;
+  const cw = flip ? 36 : HAND_W;
+  const ch = flip ? 48 : HAND_H;
+  const mid = (n - 1) / 2;
+  const spacing = n > 1 ? Math.max(8, Math.min(cw * 0.62, (width - cw - 32) / (n - 1))) : 0;
+  const angleStep = n > 1 ? Math.min(2, 16 / (n - 1)) : 0;
+  const curve = flip ? 0.5 : 0.45;
+  const maxDrop = mid * mid * curve;
+  const lift = 18;
+  const height = flip ? ch + 8 : ch + maxDrop + lift + 6;
+  return (
+    <div className="relative mx-auto w-full overflow-visible" style={{ height }}>
       {cards.map((c, i) => {
         const d = i - mid;
-        const angle = Math.max(-18, Math.min(18, d * (flip ? -2.4 : 2.4)));
-        const drop = d * d * (flip ? -0.9 : 0.9);
+        const drop = d * d * curve;
         const lifted = selected?.includes(c);
         return (
           <button
@@ -58,24 +89,22 @@ function Fan({ cards, width, flip, selected, wild, onTap, cardWidth = 52 }: { ca
             onClick={() => onTap?.(c)}
             aria-pressed={lifted}
             aria-label={c === '??' ? 'Hidden card' : `${label(c)}${wild?.has(c) ? ' (joker)' : ''}`}
-            className={`absolute left-1/2 transition-transform duration-150 ${flip ? 'top-0' : 'bottom-0'}`}
+            className="absolute left-1/2 transition-transform duration-150"
             style={{
-              transform: `translateX(calc(-50% + ${d * spacing}px)) translateY(${drop + (lifted ? -20 : 0)}px) rotate(${angle}deg)`,
+              // Hand: anchored above the bottom by the arc depth, so the outer cards dip without leaving the box.
+              ...(flip ? { top: -maxDrop * 0.4 } : { bottom: 6 + maxDrop }),
+              transform: `translateX(calc(-50% + ${d * spacing}px)) translateY(${flip ? -drop * 0.4 : drop - (lifted ? lift : 0)}px) rotate(${d * angleStep * (flip ? -1 : 1)}deg)`,
               transformOrigin: flip ? 'top center' : 'bottom center',
               zIndex: i,
             }}
           >
-            <div className="relative">
-              <PlayingCard card={c} highlight={lifted} />
-              {wild?.has(c) && <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-2xl text-gold drop-shadow">★</span>}
-            </div>
+            {c === '??' ? <PlayingCard card="??" size="sm" /> : <FanCard card={c} selected={lifted} joker={wild?.has(c)} />}
           </button>
         );
       })}
     </div>
   );
 }
-
 function MeldRow({ meld, onTap }: { meld: ConquerMeldView; onTap?: () => void }) {
   return (
     <button
@@ -130,7 +159,7 @@ function TurnBar({ view, serverNow, state, mine }: { view: ConquerView; serverNo
 function ActionButton({ am, en, onClick, disabled, tone = 'teal' }: { am: string; en: string; onClick: () => void; disabled?: boolean; tone?: 'teal' | 'gold' | 'red' }) {
   const tones = { teal: 'bg-[#1d6b5c]/90 border-[#3fb79c]/50', gold: 'bg-[#6b5a1d]/90 border-[#d8b84a]/50', red: 'bg-[#6b2a1d]/90 border-[#e0705a]/50' };
   return (
-    <button type="button" onClick={onClick} disabled={disabled} className={`flex flex-col items-center rounded-lg border px-3 py-1 text-white shadow transition active:scale-95 disabled:opacity-35 ${tones[tone]}`}>
+    <button type="button" onClick={onClick} disabled={disabled} className={`flex min-w-[4.5rem] flex-col items-center rounded-lg border px-2.5 py-1 text-white shadow transition active:scale-95 disabled:opacity-35 ${tones[tone]}`}>
       <span className="font-ethiopic text-sm font-bold leading-tight">{am}</span>
       <span className="text-[9px] font-semibold uppercase tracking-wide text-white/70">{en}</span>
     </button>
@@ -249,15 +278,15 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
     <>
       {/* Opponent */}
       <div className="flex flex-col items-center pt-2">
-        <div ref={oppRef} className="h-20 w-full max-w-md">
-          <Fan cards={Array.from({ length: opp?.handCount ?? 0 }, () => '??')} width={oppWidth} flip cardWidth={44} />
+        <div ref={oppRef} className="w-full max-w-md">
+          <Fan cards={Array.from({ length: opp?.handCount ?? 0 }, () => '??')} width={oppWidth} flip />
         </div>
         <div className="mt-1 flex items-center gap-1.5 text-xs font-bold">
           <span className={`h-2 w-2 rounded-full ${oppInfo?.online ? 'bg-lime' : 'bg-white/40'}`} title={oppInfo?.online ? 'Online' : 'Offline'} />
           {oppInfo?.displayName ?? 'Opponent'}
           <span className="font-normal text-white/60">· {opp?.handCount} · {opp?.opened ? 'ገብቷል' : 'አልገባም'}</span>
         </div>
-        <div className="mt-1 flex max-w-full flex-wrap justify-center gap-1 px-2">
+        <div className="mt-1 flex max-h-24 max-w-full flex-wrap justify-center gap-1 overflow-y-auto px-2">
           {oppMelds.map((m) => (
             <MeldRow key={m.id} meld={m} onTap={meldTap(m)} />
           ))}
@@ -265,7 +294,7 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
       </div>
 
       {/* Deck and discard */}
-      <div className="flex flex-1 items-center justify-center gap-10">
+      <div className="flex min-h-0 flex-1 items-center justify-center gap-10">
         <div className="flex flex-col items-center gap-1">
           <button
             type="button"
@@ -317,7 +346,7 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
       </div>
 
       {/* My melds, turn bar */}
-      <div className="flex flex-wrap justify-center gap-1 px-2">
+      <div className="flex max-h-24 flex-wrap justify-center gap-1 overflow-y-auto px-2">
         {myMelds.map((m) => (
           <MeldRow key={m.id} meld={m} onTap={meldTap(m)} />
         ))}
@@ -335,10 +364,10 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
       {/* My hand and actions */}
       {me && view.phase !== 'roundOver' && view.phase !== 'finished' && (
         <div className="pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-          <div ref={handRef} className="h-32 w-full max-w-xl self-center sm:mx-auto">
+          <div ref={handRef} className="mx-auto w-full max-w-xl">
             <Fan cards={order} width={handWidth} selected={selected} wild={wild} onTap={myTurn ? toggle : undefined} />
           </div>
-          <div className="mt-2 flex flex-wrap justify-center gap-2 px-2">
+          <div className="mt-1 flex flex-wrap justify-center gap-1.5 px-2">
             <ActionButton am="ገቢ" en={pickup ? 'take & meld' : me.opened ? 'meld' : 'open'} onClick={enter} disabled={!myTurn || pending || !(view.phase === 'meld' || pickup) || selected.length + (pickup ? 1 : 0) < 3} />
             <ActionButton am="ጆከር መተካት" en="swap joker" tone="gold" onClick={() => swapTarget && void act({ type: 'swapWild', meldId: swapTarget.id, card: selected[0] })} disabled={!view.legal.swapWild || !swapTarget || pending} />
             <ActionButton am="ጣል" en="discard" tone="red" onClick={() => void act({ type: 'discard', card: selected[0] })} disabled={!view.legal.discard || selected.length !== 1 || pickup || pending} />
