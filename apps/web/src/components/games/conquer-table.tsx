@@ -1,393 +1,392 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { arrangeHand, partitionIntoMelds, type MeldContext } from '@akukulu/engines/dist/conquer/rules';
 import {
-  CONQUER_PREDICTIONS,
   CONQUER_PREDICTION_LABEL,
   RANK_LABEL,
   SUIT_SYMBOL,
   type Card,
-  type ConquerLayoffSpec,
-  type ConquerMeldSpec,
   type ConquerMeldView,
   type ConquerPrediction,
   type ConquerView,
   type Rank,
 } from '@akukulu/shared';
 import { useSession } from '@/lib/session';
-import { Avatar, Countdown, PlayingCard } from '@/components/ui';
+import { PlayingCard } from '@/components/ui';
 import { nameOf, type TableProps } from './types';
 
-const RUN_ORDER = 'A23456789TJQK';
-const SUIT_ORDER = 'shdc';
-const sortHand = (cards: Card[]) =>
-  [...cards].sort((a, b) => SUIT_ORDER.indexOf(a[1]) - SUIT_ORDER.indexOf(b[1]) || RUN_ORDER.indexOf(a[0]) - RUN_ORDER.indexOf(b[0]));
-
+/** Order of the prediction buttons, as players know them. */
+const PREDICTION_ORDER: ConquerPrediction[] = ['upDown', 'up', 'down', 'side'];
 const label = (c: Card) => `${RANK_LABEL[c[0] as Rank]}${SUIT_SYMBOL[c[1] as 's']}`;
+const RUN_ORDER = 'A23456789TJQK';
+const bySuitRank = (a: Card, b: Card) => 'shdc'.indexOf(a[1]) - 'shdc'.indexOf(b[1]) || RUN_ORDER.indexOf(a[0]) - RUN_ORDER.indexOf(b[0]);
 
-/** Client-side preview of what a prediction selects (the server is authoritative). */
-function previewRanks(base: Card, choice: ConquerPrediction, view: ConquerView): string {
-  const p = view.config.rules.prediction;
-  const i = RUN_ORDER.indexOf(base[0]);
-  const step = (d: number) => {
-    const n = i + d;
-    if (n >= 0 && n < 13) return RUN_ORDER[n];
-    return p.boundary === 'wrap' ? RUN_ORDER[(n + 13) % 13] : base[0];
-  };
-  const r = (x: string) => RANK_LABEL[x as Rank];
-  if (choice === 'up') return `${r(step(1))}s wild`;
-  if (choice === 'down') return `${r(step(-1))}s wild`;
-  if (choice === 'upDown') return `${r(step(1))}s and ${r(step(-1))}s wild`;
-  const colour = p.side === 'sameRank' ? '' : p.side === 'sameRankSameColor' ? ' (same colour)' : ' (other colour)';
-  return `${r(base[0])}s${colour} wild`;
+/** Tracks an element's width; the callback ref re-attaches whenever the element mounts. */
+function useWidth<T extends HTMLElement>() {
+  const [width, setWidth] = useState(360);
+  const observer = useRef<ResizeObserver | null>(null);
+  const ref = useCallback((el: T | null) => {
+    observer.current?.disconnect();
+    if (!el) return;
+    setWidth(el.getBoundingClientRect().width);
+    observer.current = new ResizeObserver(([e]) => setWidth(e.contentRect.width));
+    observer.current.observe(el);
+  }, []);
+  return [ref, width] as const;
 }
 
-function PredictionPanel({ view, predicting, onPredict, predictorName, pending }: { view: ConquerView; predicting: boolean; onPredict: (c: ConquerPrediction) => void; predictorName: string; pending: boolean }) {
+/** Cards laid out on an arc. `flip` curves it the other way (opponent at the top). */
+function Fan({ cards, width, flip, selected, wild, onTap, cardWidth = 52 }: { cards: Card[]; width: number; flip?: boolean; selected?: Card[]; wild?: Set<Card>; onTap?: (c: Card) => void; cardWidth?: number }) {
+  const n = cards.length;
+  // Leave room for the outer cards' width and tilt so the fan never overflows.
+  const spacing = n > 1 ? Math.min(cardWidth * 0.62, (width - cardWidth * 2.4) / (n - 1)) : 0;
+  const mid = (n - 1) / 2;
   return (
-    <section className="card grid place-items-center gap-4 p-5 text-center">
-      <div className="text-xs font-bold uppercase tracking-widest text-muted">Round {view.round} · wildcard prediction</div>
-      <div className="flex items-center gap-4">
-        {view.baseCard && <PlayingCard card={view.baseCard} size="lg" />}
-        <div className="max-w-[12rem] text-left text-sm text-muted">
-          {predicting ? 'This is the base card. Choose which cards become wild for the round.' : `${predictorName} is looking at the base card and choosing the wildcards.`}
-        </div>
-      </div>
-      {predicting && view.baseCard && (
-        <div className="grid w-full grid-cols-2 gap-2">
-          {CONQUER_PREDICTIONS.map((c) => (
-            <button key={c} disabled={pending} onClick={() => onPredict(c)} className="btn-ghost flex-col gap-0.5 py-3">
-              <span className="font-ethiopic text-lg font-bold">{CONQUER_PREDICTION_LABEL[c].am}</span>
-              <span className="text-xs font-bold">{CONQUER_PREDICTION_LABEL[c].en}</span>
-              <span className="text-[10px] font-medium text-muted">{previewRanks(view.baseCard!, c, view)}</span>
-            </button>
-          ))}
-        </div>
-      )}
-      <p className="text-[10px] text-muted">The base card then returns to the deck, all 52 cards are reshuffled and 14 are dealt to each player.</p>
-    </section>
+    <div className="relative mx-auto h-full w-full">
+      {cards.map((c, i) => {
+        const d = i - mid;
+        const angle = Math.max(-18, Math.min(18, d * (flip ? -2.4 : 2.4)));
+        const drop = d * d * (flip ? -0.9 : 0.9);
+        const lifted = selected?.includes(c);
+        return (
+          <button
+            key={`${c}-${i}`}
+            type="button"
+            disabled={!onTap}
+            onClick={() => onTap?.(c)}
+            aria-pressed={lifted}
+            aria-label={c === '??' ? 'Hidden card' : `${label(c)}${wild?.has(c) ? ' (joker)' : ''}`}
+            className={`absolute left-1/2 transition-transform duration-150 ${flip ? 'top-0' : 'bottom-0'}`}
+            style={{
+              transform: `translateX(calc(-50% + ${d * spacing}px)) translateY(${drop + (lifted ? -20 : 0)}px) rotate(${angle}deg)`,
+              transformOrigin: flip ? 'top center' : 'bottom center',
+              zIndex: i,
+            }}
+          >
+            <div className="relative">
+              <PlayingCard card={c} highlight={lifted} />
+              {wild?.has(c) && <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-2xl text-gold drop-shadow">★</span>}
+            </div>
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
-function MeldRow({ meld, mine, onTap, active }: { meld: ConquerMeldView; mine: boolean; onTap?: () => void; active: boolean }) {
+function MeldRow({ meld, onTap }: { meld: ConquerMeldView; onTap?: () => void }) {
   return (
     <button
       type="button"
       onClick={onTap}
       disabled={!onTap}
-      className={`flex items-center gap-1 rounded-xl border p-1.5 text-left transition ${active ? 'border-lime/60 bg-lime/10' : 'border-white/10 bg-black/25'} ${onTap ? 'cursor-pointer hover:border-lime/50' : 'cursor-default'}`}
-      aria-label={`${mine ? 'Your' : 'Opponent'} ${meld.kind}, ${meld.points} points`}
+      className={`flex items-center rounded-xl p-1 transition ${onTap ? 'bg-lime/15 ring-1 ring-lime/60' : 'bg-black/20'}`}
+      aria-label={`${meld.kind}, ${meld.points} points${onTap ? ' — tap to lay off here' : ''}`}
     >
-      <div className="flex -space-x-5">
+      <div className="flex -space-x-6">
         {meld.cards.map((c) => (
           <div key={c.card} className="relative">
             <PlayingCard card={c.card} size="sm" />
             {c.wild && (
-              <span className="absolute -bottom-1 left-0 rounded bg-gold px-0.5 text-[8px] font-black text-ink" title={`Wildcard playing as ${label(c.as)}`}>
+              <span className="absolute -bottom-1.5 left-0 rounded bg-gold px-0.5 text-[8px] font-black text-ink" title={`Joker playing as ${label(c.as)}`}>
                 ★{label(c.as)}
               </span>
             )}
           </div>
         ))}
       </div>
-      <span className="ml-1 text-[10px] font-bold text-muted">{meld.points}</span>
+      <span className="ml-1 px-1 text-[10px] font-bold text-white/70">{meld.points}</span>
+    </button>
+  );
+}
+
+function TurnBar({ view, serverNow, state, mine }: { view: ConquerView; serverNow: () => number; state: TableProps<ConquerView>['state']; mine: boolean }) {
+  const [now, setNow] = useState(serverNow());
+  useEffect(() => {
+    const t = setInterval(() => setNow(serverNow()), 250);
+    return () => clearInterval(t);
+  }, [serverNow]);
+  const total = (view.phase === 'predict' ? view.config.predictSeconds : view.config.turnSeconds) * 1000;
+  const left = view.turnDeadline ? Math.max(0, view.turnDeadline - now) : 0;
+  const pct = Math.min(100, (left / total) * 100);
+  const secs = Math.ceil(left / 1000);
+  return (
+    <div className="mx-auto w-full max-w-md px-4">
+      <div className="mb-1 flex items-center justify-between text-xs font-bold">
+        <span className="font-ethiopic text-lime">{mine ? 'የእርስዎ ተራ' : `የ${nameOf(state, view.currentPlayerId)} ተራ`}</span>
+        <span className="tabular-nums text-white">
+          {Math.floor(secs / 60)}:{String(secs % 60).padStart(2, '0')}
+        </span>
+      </div>
+      <div className="h-1.5 overflow-hidden rounded-full bg-black/30">
+        <div className="h-full rounded-full bg-[linear-gradient(90deg,#2ee67a,#f5c542,#ff6b5a)] transition-[width] duration-200" style={{ width: `${pct}%` }} />
+      </div>
+    </div>
+  );
+}
+
+function ActionButton({ am, en, onClick, disabled, tone = 'teal' }: { am: string; en: string; onClick: () => void; disabled?: boolean; tone?: 'teal' | 'gold' | 'red' }) {
+  const tones = { teal: 'bg-[#1d6b5c]/90 border-[#3fb79c]/50', gold: 'bg-[#6b5a1d]/90 border-[#d8b84a]/50', red: 'bg-[#6b2a1d]/90 border-[#e0705a]/50' };
+  return (
+    <button type="button" onClick={onClick} disabled={disabled} className={`flex flex-col items-center rounded-lg border px-3 py-1 text-white shadow transition active:scale-95 disabled:opacity-35 ${tones[tone]}`}>
+      <span className="font-ethiopic text-sm font-bold leading-tight">{am}</span>
+      <span className="text-[9px] font-semibold uppercase tracking-wide text-white/70">{en}</span>
     </button>
   );
 }
 
 export function ConquerTable({ state, view, act, pending, serverNow }: TableProps<ConquerView>) {
   const { user } = useSession();
-  const meIndex = view.players.findIndex((p) => p.playerId === user?.id);
-  const me = meIndex >= 0 ? view.players[meIndex] : null;
+  const me = view.players.find((p) => p.playerId === user?.id) ?? null;
   const opp = view.players.find((p) => p.playerId !== user?.id) ?? null;
   const oppInfo = state.players.find((p) => p.userId === opp?.playerId);
   const myTurn = view.currentPlayerId === user?.id;
   const wild = useMemo(() => new Set(view.wildCards), [view.wildCards]);
+  const meldCtx: MeldContext = useMemo(
+    () => ({ wild, rules: view.config.rules, taken: new Set(view.melds.flatMap((m) => m.cards.map((c) => c.as))) }),
+    [wild, view.config.rules, view.melds],
+  );
 
+  const [order, setOrder] = useState<Card[]>([]);
   const [selected, setSelected] = useState<Card[]>([]);
-  const [staged, setStaged] = useState<ConquerMeldSpec[]>([]);
-  const [stagedLayoffs, setStagedLayoffs] = useState<ConquerLayoffSpec[]>([]);
   const [pickup, setPickup] = useState(false);
+  const [hint, setHint] = useState<string | null>(null);
+  const [handRef, handWidth] = useWidth<HTMLDivElement>();
+  const [oppRef, oppWidth] = useWidth<HTMLDivElement>();
 
-  // Reset local staging whenever the authoritative turn state moves on.
+  // Keep the player's own arrangement; newly drawn cards are added on the right.
   useEffect(() => {
-    setSelected([]);
-    setStaged([]);
-    setStagedLayoffs([]);
-    setPickup(false);
-  }, [view.phase, view.currentPlayerId, view.round, view.hand.length]);
+    setOrder((prev) => {
+      const kept = prev.filter((c) => view.hand.includes(c));
+      const added = view.hand.filter((c) => !kept.includes(c));
+      return kept.length ? [...kept, ...added] : [...view.hand].sort(bySuitRank);
+    });
+    setSelected((s) => s.filter((c) => view.hand.includes(c)));
+  }, [view.hand]);
 
-  const stagedCards = new Set([...staged.flatMap((m) => m.cards), ...stagedLayoffs.map((l) => l.card)]);
-  const pool = sortHand([...view.hand, ...(pickup && view.discardTop ? [view.discardTop] : [])]).filter((c) => !stagedCards.has(c));
+  useEffect(() => setPickup(false), [view.phase, view.currentPlayerId, view.discardTop]);
+  useEffect(() => {
+    if (!hint) return;
+    const t = setTimeout(() => setHint(null), 3500);
+    return () => clearTimeout(t);
+  }, [hint]);
+
   const toggle = (c: Card) => setSelected((s) => (s.includes(c) ? s.filter((x) => x !== c) : [...s, c]));
+  const swapTarget = selected.length === 1 ? view.melds.find((m) => m.cards.some((c) => c.wild && c.as === selected[0])) : undefined;
+  const canLayOff = myTurn && me?.opened && ((view.phase === 'meld' && selected.length === 1) || (pickup && selected.length <= 1));
 
-  const tapMeld = (meld: ConquerMeldView) => {
-    if (selected.length !== 1) return;
-    const card = selected[0];
-    if (!pickup && view.legal.swapWild && meld.cards.some((c) => c.wild && c.as === card)) {
-      void act({ type: 'swapWild', meldId: meld.id, card });
+  const enter = () => {
+    const cards = pickup && view.discardTop ? [...selected, view.discardTop] : selected;
+    const melds = partitionIntoMelds(cards, meldCtx);
+    if (!melds) {
+      setHint(pickup ? 'Select cards that form melds together with the discard' : 'The selected cards do not form valid sets or runs');
       return;
     }
-    if (pickup) {
-      setStagedLayoffs((l) => [...l, { meldId: meld.id, card }]);
-      setSelected([]);
-    } else {
-      void act({ type: 'layoff', layoffs: [{ meldId: meld.id, card }] });
+    const specs = melds.map((m) => ({ cards: m }));
+    void act(pickup ? { type: 'takeDiscard', melds: specs } : { type: 'meld', melds: specs }).then((r) => r.ok && setSelected([]));
+  };
+
+  const layOff = (meld: ConquerMeldView) => {
+    if (pickup && view.discardTop) {
+      const layoffs = [...selected, view.discardTop].map((card) => ({ meldId: meld.id, card }));
+      void act({ type: 'takeDiscard', layoffs });
+    } else if (selected.length === 1) {
+      void act({ type: 'layoff', layoffs: [{ meldId: meld.id, card: selected[0] }] }).then((r) => r.ok && setSelected([]));
     }
   };
 
-  const canTapMelds = myTurn && selected.length === 1 && (view.phase === 'meld' || pickup) && !!me?.opened;
-  const myMelds = view.melds.filter((m) => m.ownerId === user?.id);
-  const oppMelds = view.melds.filter((m) => m.ownerId !== user?.id);
-  const wildText = view.wildRanks.length
-    ? `${view.wildRanks.map((r) => RANK_LABEL[r]).join(' & ')}${view.wildSuits ? ` (${view.wildSuits.map((s) => SUIT_SYMBOL[s]).join('')})` : ''}`
-    : '—';
+  const shell = (children: React.ReactNode) => (
+    <div className="felt-pattern fixed inset-0 z-[35] flex flex-col overflow-hidden text-white">
+      <Link href="/games/conquer" className="absolute left-3 top-3 z-[36] flex items-center gap-1.5 rounded-full bg-black/40 px-3 py-1.5 text-xs font-bold">
+        ← Lobby
+      </Link>
+      {children}
+      {hint && (
+        <div className="pointer-events-none absolute inset-x-0 bottom-32 z-40 flex justify-center px-4">
+          <div className="animate-pop rounded-xl bg-danger px-4 py-2 text-sm font-semibold">{hint}</div>
+        </div>
+      )}
+    </div>
+  );
 
+  /* ---------------- prediction (blind) ---------------- */
   if (view.phase === 'predict') {
-    return (
-      <div className="grid gap-3">
-        <PredictionPanel
-          view={view}
-          predicting={view.legal.predict}
-          pending={pending}
-          predictorName={nameOf(state, view.predictorId)}
-          onPredict={(choice) => void act({ type: 'predict', choice })}
-        />
-        <Countdown deadline={view.turnDeadline} serverNow={serverNow} total={view.config.predictSeconds} />
-      </div>
+    const choosing = view.legal.predict;
+    return shell(
+      <div className="flex flex-1 flex-col items-center justify-center gap-6 px-4">
+        <h1 className="font-ethiopic text-2xl font-bold">{choosing ? 'የጨዋታ ሁኔታ ይምረጡ' : `${nameOf(state, view.predictorId)} የጨዋታ ሁኔታ እየመረጡ ነው…`}</h1>
+        <p className="-mt-4 text-xs text-white/70">{choosing ? 'Choose the game mode — the joker card stays hidden until you pick.' : 'Waiting for the joker prediction.'}</p>
+        {choosing && (
+          <div className="flex flex-wrap justify-center gap-3">
+            {PREDICTION_ORDER.map((c) => (
+              <button
+                key={c}
+                disabled={pending}
+                onClick={() => void act({ type: 'predict', choice: c })}
+                className="rounded-lg border border-[#3fb79c]/50 bg-[#1d6b5c]/80 px-5 py-2.5 font-ethiopic text-base font-bold shadow transition hover:bg-[#23806d] active:scale-95"
+              >
+                {CONQUER_PREDICTION_LABEL[c].am}
+              </button>
+            ))}
+          </div>
+        )}
+        <div className="w-full max-w-xs">
+          <TurnBar view={view} serverNow={serverNow} state={state} mine={choosing} />
+        </div>
+      </div>,
     );
   }
 
   const result = view.roundResult;
+  const oppMelds = view.melds.filter((m) => m.ownerId !== user?.id);
+  const myMelds = view.melds.filter((m) => m.ownerId === user?.id);
+  const meldTap = (m: ConquerMeldView) =>
+    canLayOff && (m.ownerId === user?.id || view.config.rules.layoffOnOpponentMelds) ? () => layOff(m) : undefined;
 
-  return (
-    <div className="grid gap-3">
+  return shell(
+    <>
       {/* Opponent */}
-      {opp && (
-        <section className={`card flex items-center gap-3 px-3 py-2.5 ${view.currentPlayerId === opp.playerId ? 'border-lime/60' : ''}`}>
-          <div className="relative">
-            <Avatar name={oppInfo?.displayName ?? '?'} photoUrl={oppInfo?.photoUrl} size={36} />
-            <span className={`absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-panel ${oppInfo?.online ? 'bg-lime' : 'bg-muted'}`} title={oppInfo?.online ? 'Online' : 'Offline'} />
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="truncate text-sm font-bold">{oppInfo?.displayName}</div>
-            <div className="text-[11px] text-muted">
-              {opp.status === 'left' ? 'Left the table' : oppInfo?.online ? 'Online' : 'Disconnected'} · {opp.opened ? 'Opened' : 'Not opened'} · {opp.roundsWon} round{opp.roundsWon === 1 ? '' : 's'} won
-            </div>
-          </div>
-          <div className="flex -space-x-6" aria-label={`${opp.handCount} cards in hand`}>
-            {Array.from({ length: Math.min(opp.handCount, 8) }, (_, i) => (
-              <PlayingCard key={i} card="??" size="sm" />
-            ))}
-          </div>
-          <span className="chip">{opp.handCount}</span>
-        </section>
-      )}
-
-      {/* Round info */}
-      <section className="flex flex-wrap items-center gap-1.5 text-[11px]">
-        <span className="chip">Round {view.round}</span>
-        <span className="chip border-gold/40 text-gold">★ Wild: {wildText}</span>
-        {view.baseCard && view.prediction && (
-          <span className="chip">
-            Base {label(view.baseCard)} · {CONQUER_PREDICTION_LABEL[view.prediction].en} (<span className="font-ethiopic">{CONQUER_PREDICTION_LABEL[view.prediction].am}</span>)
-          </span>
-        )}
-        <span className="chip border-violet/40" title="Some rules await confirmation">Beta rules</span>
-      </section>
-
-      {/* Table */}
-      <section className="felt grid gap-3 rounded-[2rem] border-4 border-[#3a2a12] p-3">
-        <div className="grid gap-1.5">
-          <div className="text-[10px] font-bold uppercase tracking-widest text-white/50">Opponent melds</div>
-          <div className="flex flex-wrap gap-1.5">
-            {oppMelds.length === 0 && <span className="text-xs text-white/40">None yet</span>}
-            {oppMelds.map((m) => (
-              <MeldRow key={m.id} meld={m} mine={false} active={canTapMelds} onTap={canTapMelds && view.config.rules.layoffOnOpponentMelds ? () => tapMeld(m) : undefined} />
-            ))}
-          </div>
+      <div className="flex flex-col items-center pt-2">
+        <div ref={oppRef} className="h-20 w-full max-w-md">
+          <Fan cards={Array.from({ length: opp?.handCount ?? 0 }, () => '??')} width={oppWidth} flip cardWidth={44} />
         </div>
+        <div className="mt-1 flex items-center gap-1.5 text-xs font-bold">
+          <span className={`h-2 w-2 rounded-full ${oppInfo?.online ? 'bg-lime' : 'bg-white/40'}`} title={oppInfo?.online ? 'Online' : 'Offline'} />
+          {oppInfo?.displayName ?? 'Opponent'}
+          <span className="font-normal text-white/60">· {opp?.handCount} · {opp?.opened ? 'ገብቷል' : 'አልገባም'}</span>
+        </div>
+        <div className="mt-1 flex max-w-full flex-wrap justify-center gap-1 px-2">
+          {oppMelds.map((m) => (
+            <MeldRow key={m.id} meld={m} onTap={meldTap(m)} />
+          ))}
+        </div>
+      </div>
 
-        <div className="flex items-center justify-center gap-6 py-1">
+      {/* Deck and discard */}
+      <div className="flex flex-1 items-center justify-center gap-10">
+        <div className="flex flex-col items-center gap-1">
           <button
             type="button"
             disabled={!view.legal.drawStock || pending}
             onClick={() => void act({ type: 'drawStock' })}
-            className="grid place-items-center gap-1 disabled:cursor-default"
-            aria-label="Draw from the stock"
+            className="relative pt-7 disabled:cursor-default"
+            aria-label={`Draw from the deck (${view.stockCount} left)`}
           >
-            <div className={view.legal.drawStock ? 'animate-pulseRing rounded-lg' : ''}>
+            {view.baseInStock && view.baseCard && (
+              <div className="absolute left-0 top-0" title="Joker indicator card (bottom of the deck)">
+                <PlayingCard card={view.baseCard} />
+              </div>
+            )}
+            <div className={`relative rounded-lg ${view.legal.drawStock ? 'animate-pulseRing' : ''}`}>
+              <div className="absolute left-0.5 top-0.5 h-full w-full rounded-lg bg-black/30" />
               <PlayingCard card="??" />
+              <span className="absolute right-1 top-1 rounded-full bg-black/70 px-1.5 text-[10px] font-bold">{view.stockCount}</span>
             </div>
-            <span className="text-[10px] font-bold text-white/70">Stock {view.stockCount}</span>
           </button>
+          <span className="text-[10px] font-bold uppercase tracking-widest text-white/70">Deck</span>
+          {view.prediction && (
+            <span className="rounded-full bg-black/50 px-2 py-0.5 font-ethiopic text-[11px] font-bold" title={`Jokers: ${view.wildCards.map(label).join(' ')}`}>
+              {CONQUER_PREDICTION_LABEL[view.prediction].am} · ★{view.wildCards.map(label).join(' ')}
+            </span>
+          )}
+        </div>
+        <div className="flex flex-col items-center gap-1 pt-7">
           <button
             type="button"
             disabled={!view.legal.takeDiscard || pending}
-            onClick={() => setPickup((p) => !p)}
-            className="grid place-items-center gap-1 disabled:cursor-default"
+            onClick={() => {
+              setPickup((p) => !p);
+              setHint(pickup ? null : 'Select the cards to meld with it and tap ገቢ — or tap a meld to lay it off');
+            }}
+            className="relative disabled:cursor-default"
             aria-label="Take the top discard"
           >
-            {view.discardTop ? <PlayingCard card={view.discardTop} highlight={pickup} /> : <div className="h-[4.5rem] w-[3.25rem] rounded-lg border border-dashed border-white/20" />}
-            <span className="text-[10px] font-bold text-white/70">Discard {view.discardCount}</span>
+            {view.discardCount > 1 && <div className="absolute left-1 top-1 h-[4.5rem] w-[3.25rem] rounded-lg bg-white/30" />}
+            {view.discardTop ? (
+              <div className={`relative rounded-lg ${pickup ? 'ring-4 ring-gold' : ''}`}>
+                <PlayingCard card={view.discardTop} />
+              </div>
+            ) : (
+              <div className="h-[4.5rem] w-[3.25rem] rounded-lg bg-white/10" />
+            )}
           </button>
+          <span className="text-[10px] font-bold uppercase tracking-widest text-white/70">Discard {view.discardCount || ''}</span>
         </div>
+      </div>
 
-        <div className="grid gap-1.5">
-          <div className="text-[10px] font-bold uppercase tracking-widest text-white/50">Your melds</div>
-          <div className="flex flex-wrap gap-1.5">
-            {myMelds.length === 0 && <span className="text-xs text-white/40">None yet</span>}
-            {myMelds.map((m) => (
-              <MeldRow key={m.id} meld={m} mine active={canTapMelds} onTap={canTapMelds ? () => tapMeld(m) : undefined} />
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* Status */}
+      {/* My melds, turn bar */}
+      <div className="flex flex-wrap justify-center gap-1 px-2">
+        {myMelds.map((m) => (
+          <MeldRow key={m.id} meld={m} onTap={meldTap(m)} />
+        ))}
+      </div>
       {view.phase !== 'roundOver' && view.phase !== 'finished' && (
-        <section className="flex items-center justify-between gap-2 text-xs">
-          <div className="font-bold">
-            {myTurn
-              ? view.phase === 'draw'
-                ? pickup
-                  ? 'Build melds that use the discard, then tap “Take & meld”'
-                  : 'Your turn — draw from the stock or take the discard'
-                : view.pendingWild
-                  ? `Meld the wildcard ${label(view.pendingWild)} before discarding`
-                  : me?.opened
-                    ? 'Meld, lay off (select a card, tap a meld) or discard'
-                    : `Open with ${view.config.rules.openingThreshold}+ points, or discard`
-              : `${nameOf(state, view.currentPlayerId)} is playing`}
+        <div className="py-2">
+          <TurnBar view={view} serverNow={serverNow} state={state} mine={myTurn} />
+          <div className="mt-1 text-center text-[11px] text-white/70">
+            You · {me?.opened ? <span className="text-lime">ገብተዋል (opened)</span> : `${view.config.rules.openingThreshold} ነጥብ ለመግባት (to open)`}
+            {view.pendingWild && <span className="text-gold"> · use your joker {label(view.pendingWild)} before discarding</span>}
           </div>
-          <Countdown deadline={view.turnDeadline} serverNow={serverNow} total={view.config.turnSeconds} />
-        </section>
+        </div>
       )}
 
-      {/* Staging */}
-      {myTurn && (staged.length > 0 || stagedLayoffs.length > 0) && (
-        <section className="card grid gap-2 p-3">
-          <div className="flex flex-wrap gap-2">
-            {staged.map((m, i) => (
-              <button key={i} className="flex -space-x-5 rounded-lg border border-lime/40 p-1" onClick={() => setStaged((s) => s.filter((_, j) => j !== i))} title="Tap to unstage">
-                {m.cards.map((c) => (
-                  <PlayingCard key={c} card={c} size="sm" />
-                ))}
-              </button>
-            ))}
-            {stagedLayoffs.map((l) => (
-              <button key={l.card} className="chip" onClick={() => setStagedLayoffs((s) => s.filter((x) => x.card !== l.card))}>
-                lay off {label(l.card)}
-              </button>
-            ))}
+      {/* My hand and actions */}
+      {me && view.phase !== 'roundOver' && view.phase !== 'finished' && (
+        <div className="pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+          <div ref={handRef} className="h-32 w-full max-w-xl self-center sm:mx-auto">
+            <Fan cards={order} width={handWidth} selected={selected} wild={wild} onTap={myTurn ? toggle : undefined} />
           </div>
-          {pickup ? (
-            <button
-              className="btn-primary"
-              disabled={pending}
-              onClick={() => void act({ type: 'takeDiscard', melds: staged, layoffs: stagedLayoffs })}
-            >
-              Take {view.discardTop ? label(view.discardTop) : ''} &amp; meld
-            </button>
-          ) : (
-            <button className="btn-primary" disabled={pending || staged.length === 0} onClick={() => void act({ type: 'meld', melds: staged })}>
-              {me?.opened ? 'Lay down melds' : `Open (${view.config.rules.openingThreshold}+ points)`}
-            </button>
-          )}
-        </section>
+          <div className="mt-2 flex flex-wrap justify-center gap-2 px-2">
+            <ActionButton am="ገቢ" en={pickup ? 'take & meld' : me.opened ? 'meld' : 'open'} onClick={enter} disabled={!myTurn || pending || !(view.phase === 'meld' || pickup) || selected.length + (pickup ? 1 : 0) < 3} />
+            <ActionButton am="ጆከር መተካት" en="swap joker" tone="gold" onClick={() => swapTarget && void act({ type: 'swapWild', meldId: swapTarget.id, card: selected[0] })} disabled={!view.legal.swapWild || !swapTarget || pending} />
+            <ActionButton am="ጣል" en="discard" tone="red" onClick={() => void act({ type: 'discard', card: selected[0] })} disabled={!view.legal.discard || selected.length !== 1 || pickup || pending} />
+            <ActionButton am="ደርድር" en="best order" onClick={() => setOrder(arrangeHand(view.hand, meldCtx).order)} disabled={view.hand.length === 0} />
+          </div>
+        </div>
       )}
 
       {/* Round result */}
       {result && (view.phase === 'roundOver' || view.phase === 'finished') && (
-        <section className="card grid gap-3 p-4">
-          <div className="font-display text-lg font-extrabold">
-            {result.winnerId === null ? 'Round drawn' : result.winnerId === user?.id ? 'You won the round!' : `${nameOf(state, result.winnerId)} won the round`}
-          </div>
-          <div className="text-xs text-muted">
-            {result.reason === 'out' ? 'Went out by melding every card and discarding the last.' : result.reason === 'forfeit' ? 'Won by forfeit.' : 'The stock ran out — lower penalty wins.'}
-          </div>
-          {view.players.map((p) => (
-            <div key={p.playerId} className="grid gap-1">
-              <div className="flex justify-between text-xs font-bold">
-                <span>{nameOf(state, p.playerId)}</span>
-                <span>Penalty {result.penalties[p.playerId] ?? 0}</span>
-              </div>
-              <div className="flex flex-wrap -space-x-4">
-                {sortHand(p.revealedHand ?? []).map((c) => (
-                  <PlayingCard key={c} card={c} size="sm" />
-                ))}
-              </div>
+        <div className="absolute inset-0 z-30 grid place-items-center bg-black/55 p-4">
+          <div className="card grid w-full max-w-md gap-3 p-5 text-fg">
+            <div className="font-display text-xl font-extrabold">
+              {result.winnerId === null ? 'Round drawn' : result.winnerId === user?.id ? 'You won the round!' : `${nameOf(state, result.winnerId)} won the round`}
             </div>
-          ))}
-          {view.phase === 'roundOver' && (
-            <div className="grid grid-cols-2 gap-2">
-              <button className="btn-primary" disabled={pending || !view.legal.rematch} onClick={() => void act({ type: 'rematch' })}>
-                {me?.wantsRematch ? 'Waiting for opponent…' : opp?.wantsRematch ? 'Accept rematch' : 'Rematch'}
-              </button>
-              <button className="btn-ghost" disabled={pending} onClick={() => void act({ type: 'leave' })}>
-                Leave table
-              </button>
+            <div className="text-xs text-muted">
+              {result.reason === 'out' ? 'Went out by melding every card and discarding the last.' : result.reason === 'forfeit' ? 'Won by forfeit.' : 'The deck ran out — lower penalty wins.'}
             </div>
-          )}
-          {view.phase === 'roundOver' && <Countdown deadline={view.turnDeadline} serverNow={serverNow} total={view.config.rematchSeconds} />}
-        </section>
-      )}
-
-      {/* Hand */}
-      {me && view.phase !== 'roundOver' && view.phase !== 'finished' && (
-        <section className="card grid gap-2 p-3">
-          <div className="flex items-center justify-between text-xs font-bold text-muted">
-            <span>
-              Your hand · {view.hand.length} card{view.hand.length === 1 ? '' : 's'} · {me.opened ? <span className="text-lime">Opened</span> : 'Not opened'}
-            </span>
-            <span>{selected.length} selected</span>
-          </div>
-          <div className="flex flex-wrap gap-1 pt-2">
-            {pool.map((c) => {
-              const on = selected.includes(c);
-              const fromDiscard = pickup && c === view.discardTop;
-              return (
-                <button
-                  key={c}
-                  type="button"
-                  onClick={() => myTurn && toggle(c)}
-                  className={`relative transition-transform ${on ? '-translate-y-2' : ''} ${fromDiscard ? 'rounded-lg ring-2 ring-gold' : ''}`}
-                  aria-pressed={on}
-                  aria-label={`${label(c)}${wild.has(c) ? ' (wild)' : ''}`}
-                >
-                  <PlayingCard card={c} highlight={on} />
-                  {wild.has(c) && <span className="absolute right-0.5 top-0.5 text-xs text-gold">★</span>}
+            {view.players.map((p) => (
+              <div key={p.playerId} className="grid gap-1">
+                <div className="flex justify-between text-xs font-bold">
+                  <span>{nameOf(state, p.playerId)}</span>
+                  <span>Penalty {result.penalties[p.playerId] ?? 0}</span>
+                </div>
+                <div className="flex flex-wrap -space-x-5">
+                  {[...(p.revealedHand ?? [])].sort(bySuitRank).map((c) => (
+                    <PlayingCard key={c} card={c} size="sm" />
+                  ))}
+                </div>
+              </div>
+            ))}
+            {view.phase === 'roundOver' ? (
+              <div className="grid grid-cols-2 gap-2">
+                <button className="btn-primary" disabled={pending || !view.legal.rematch} onClick={() => void act({ type: 'rematch' })}>
+                  {me?.wantsRematch ? 'Waiting…' : opp?.wantsRematch ? 'Accept rematch' : 'Rematch'}
                 </button>
-              );
-            })}
+                <button className="btn-ghost" disabled={pending} onClick={() => void act({ type: 'leave' })}>
+                  Leave
+                </button>
+              </div>
+            ) : (
+              <Link href="/games/conquer" className="btn-primary">
+                Back to lobby
+              </Link>
+            )}
           </div>
-          {myTurn && (
-            <div className="grid grid-cols-3 gap-2">
-              <button
-                className="btn-ghost"
-                disabled={selected.length < 3 || !(view.phase === 'meld' || pickup)}
-                onClick={() => {
-                  setStaged((s) => [...s, { cards: selected }]);
-                  setSelected([]);
-                }}
-              >
-                Group meld
-              </button>
-              <button className="btn-ghost" disabled={selected.length === 0} onClick={() => setSelected([])}>
-                Clear
-              </button>
-              <button
-                className="btn-danger"
-                disabled={pending || selected.length !== 1 || !view.legal.discard || pickup || staged.length > 0}
-                onClick={() => void act({ type: 'discard', card: selected[0] })}
-              >
-                Discard
-              </button>
-            </div>
-          )}
-        </section>
+        </div>
       )}
-
-      {view.lastEvent && <p className="text-center text-[11px] text-muted">{view.lastEvent.playerId ? `${nameOf(state, view.lastEvent.playerId)} ` : ''}{view.lastEvent.text}</p>}
-    </div>
+    </>,
   );
 }

@@ -8,7 +8,7 @@ export const CONQUER_PREDICTION_LABEL: Record<ConquerPrediction, { en: string; a
   up: { en: 'Up', am: 'ላይ' },
   down: { en: 'Down', am: 'ታች' },
   side: { en: 'Side', am: 'ጎን' },
-  upDown: { en: 'Up & Down', am: 'ላይና ታች' },
+  upDown: { en: 'Up & Down', am: 'ላይ እና ታች' },
 };
 
 /**
@@ -16,17 +16,17 @@ export const CONQUER_PREDICTION_LABEL: Record<ConquerPrediction, { en: string; a
  * Defaults are documented in docs/GAMES/CONQUER_RULES.md and marked
  * "requires confirmation" until verified against the Ethiopian rules.
  */
+/** Suits of the selected rank(s) that become wild, relative to the base card. */
+export type ConquerWildSuits = 'sameSuit' | 'sameColor' | 'otherColor' | 'all';
+
 export interface ConquerRules {
-  /** Cards dealt to each player. */
+  /** Cards dealt to the starting player; the predictor receives one fewer and the starter opens by discarding. */
   handSize: number;
   openingThreshold: number;
   prediction: {
-    /** Rank step for Up / Down (rank order A,2…10,J,Q,K). */
-    up: 1;
-    down: -1;
-    /** What Side selects. */
-    side: 'sameRank' | 'sameRankSameColor' | 'sameRankOtherColor';
-    /** Up/Down at K/A: wrap around the rank cycle, or fall back to the base rank. */
+    /** For each choice: rank steps from the base card (A,2…10,J,Q,K order) and which suits become wild. */
+    mapping: Record<ConquerPrediction, { steps: number[]; suits: ConquerWildSuits }>;
+    /** A step past K or A: wrap around the rank cycle, or fall back to the base rank. */
     boundary: 'wrap' | 'clamp';
   };
   wild: {
@@ -62,7 +62,16 @@ export interface ConquerRules {
 export const DEFAULT_CONQUER_RULES: ConquerRules = {
   handSize: 14,
   openingThreshold: 41,
-  prediction: { up: 1, down: -1, side: 'sameRank', boundary: 'wrap' },
+  prediction: {
+    // Confirmed by the project owner (base 5♣): Up → 6♣ 6♠, Down → 4♣ 4♠, Side → 5♦ 5♥, Up & Down → 4♣ 6♣.
+    mapping: {
+      up: { steps: [1], suits: 'sameColor' },
+      down: { steps: [-1], suits: 'sameColor' },
+      side: { steps: [0], suits: 'otherColor' },
+      upDown: { steps: [1, -1], suits: 'sameSuit' },
+    },
+    boundary: 'wrap',
+  },
   wild: { minNaturalPerMeld: 2, openingValue: 'represented', allowSwap: true, swappedMustBeUsedSameTurn: true, penalty: 'natural' },
   runs: { aceHigh: true },
   discardPickup: 'mustMeldImmediately',
@@ -75,9 +84,6 @@ export const DEFAULT_CONQUER_RULES: ConquerRules = {
 
 /** Rule options not yet verified against authoritative Ethiopian rules. */
 export const CONQUER_UNVERIFIED_RULES: readonly string[] = [
-  'prediction.up',
-  'prediction.down',
-  'prediction.side',
   'prediction.boundary',
   'wild.minNaturalPerMeld',
   'wild.openingValue',
@@ -193,8 +199,10 @@ export interface ConquerView {
   round: number;
   phase: ConquerPhase;
   predictorId: string | null;
-  /** Visible to the predictor during prediction and to everyone afterwards. */
+  /** Hidden from everyone until the prediction (the choice is blind); then shown face-up under the stock. */
   baseCard: Card | null;
+  /** True while the base card still lies face-up at the bottom of the stock. */
+  baseInStock: boolean;
   prediction: ConquerPrediction | null;
   wildCards: Card[];
   wildRanks: Rank[];

@@ -9,3 +9,4 @@ coverage/
 .env.*.local
 npm-debug.log*
 .DS_Store
+.next-dev/

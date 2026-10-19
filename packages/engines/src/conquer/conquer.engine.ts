@@ -163,11 +163,16 @@ function beginRound(state: ConquerState, predictor: number, ctx: EngineContext, 
   state.current = predictor;
   state.phase = 'predict';
   setDeadline(state, ctx);
-  event(state, out, state.players[predictor].playerId, 'round_started', `Round ${state.round}: base card revealed`, { round: state.round, baseCard: state.baseCard });
+  event(state, out, state.players[predictor].playerId, 'round_started', `Round ${state.round}: choose the wildcards`, { round: state.round });
   return null;
 }
 
-/** Applies the prediction, returns the base card, reshuffles all 52 cards and deals. */
+/**
+ * Applies the (blind) prediction and deals: the starter (non-predictor) gets
+ * handSize cards, the predictor one fewer. The base card is placed face-up at
+ * the bottom of the stock so both players can see what set the wildcards. The
+ * starter opens the game by discarding, so the discard pile starts empty.
+ */
 function applyPrediction(state: ConquerState, choice: ConquerPrediction, ctx: EngineContext, out: Out) {
   const sel = selectWildcards(state.baseCard!, choice, state.config.rules);
   state.prediction = choice;
@@ -175,15 +180,16 @@ function applyPrediction(state: ConquerState, choice: ConquerPrediction, ctx: En
   state.wildRanks = sel.ranks;
   state.wildSuits = sel.suits;
   state.baseSetAside = false;
-  const deck = shuffle([...state.stock, state.baseCard!], ctx.rng);
+  const deck = shuffle(state.stock, ctx.rng);
   const first = 1 - state.predictor;
-  for (let i = 0; i < state.config.rules.handSize * 2; i++) {
+  const size = state.config.rules.handSize;
+  for (let i = 0; i < size * 2 - 1; i++) {
     state.players[(first + i) % 2].hand.push(deck.pop()!);
   }
-  state.stock = deck;
-  state.discard = [state.stock.pop()!];
+  state.stock = [state.baseCard!, ...deck];
+  state.discard = [];
   state.current = first;
-  state.phase = 'draw';
+  state.phase = 'meld';
   setDeadline(state, ctx);
   event(state, out, state.players[state.predictor].playerId, 'predicted', `Predicted ${CONQUER_PREDICTION_LABEL[choice].en} — wild: ${sel.ranks.map((r) => RANK_LABEL[r]).join(' & ')}`, { choice, wildCards: sel.cards });
 }
@@ -583,7 +589,6 @@ export const conquerEngine: GameEngine<ConquerState, ConquerConfig, ConquerView>
     const viewer = s.players.findIndex((p) => p.playerId === viewerId);
     const me = viewer >= 0 ? s.players[viewer] : null;
     const myTurn = me !== null && viewer === s.current && me.status === 'active';
-    const showBase = s.phase !== 'predict' || viewer === s.predictor;
     return {
       game: 'conquer',
       config: s.config,
@@ -591,7 +596,9 @@ export const conquerEngine: GameEngine<ConquerState, ConquerConfig, ConquerView>
       round: s.round,
       phase: s.phase,
       predictorId: s.players[s.predictor]?.playerId ?? null,
-      baseCard: s.baseCard && showBase ? s.baseCard : s.baseCard ? HIDDEN_CARD : null,
+      // The prediction is blind: nobody sees the base card until it is made.
+      baseCard: s.phase === 'predict' ? null : s.baseCard,
+      baseInStock: s.phase !== 'predict' && !!s.baseCard && s.stock[0] === s.baseCard,
       prediction: s.prediction,
       wildCards: [...s.wildCards],
       wildRanks: [...s.wildRanks],

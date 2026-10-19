@@ -9,12 +9,12 @@ COPY apps/web/package.json apps/web/
 COPY apps/bot/package.json apps/bot/
 RUN npm ci --ignore-scripts
 COPY tsconfig.base.json ./
-COPY packages/shared packages/shared
+COPY packages packages
 COPY apps/web apps/web
 ARG NEXT_PUBLIC_API_URL
 ARG NEXT_PUBLIC_DEV_AUTH=false
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL NEXT_PUBLIC_DEV_AUTH=$NEXT_PUBLIC_DEV_AUTH NEXT_TELEMETRY_DISABLED=1
-RUN npm run build -w @akukulu/shared && npm run build -w @akukulu/web
+RUN npm run build:packages && npm run build -w @akukulu/web
 
 FROM node:22-alpine
 ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 PORT=3000 HOSTNAME=0.0.0.0

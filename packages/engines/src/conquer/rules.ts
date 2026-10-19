@@ -67,24 +67,22 @@ function stepRank(base: Rank, delta: number, boundary: ConquerRules['prediction'
 export function selectWildcards(base: Card, choice: ConquerPrediction, rules: ConquerRules): WildSelection {
   const rank = cardRank(base);
   const suit = cardSuit(base);
-  const p = rules.prediction;
-  let ranks: Rank[];
-  let suits: Suit[] | null = null;
-  switch (choice) {
-    case 'up':
-      ranks = [stepRank(rank, p.up, p.boundary)];
+  const { mapping, boundary } = rules.prediction;
+  const rule = mapping[choice];
+  const ranks = [...new Set(rule.steps.map((step) => stepRank(rank, step, boundary)))];
+  let suits: Suit[] | null;
+  switch (rule.suits) {
+    case 'sameSuit':
+      suits = [suit];
       break;
-    case 'down':
-      ranks = [stepRank(rank, p.down, p.boundary)];
+    case 'sameColor':
+      suits = SUITS.filter((s) => isRed(s) === isRed(suit));
       break;
-    case 'upDown':
-      ranks = [...new Set([stepRank(rank, p.up, p.boundary), stepRank(rank, p.down, p.boundary)])];
+    case 'otherColor':
+      suits = SUITS.filter((s) => isRed(s) !== isRed(suit));
       break;
-    case 'side':
-      ranks = [rank];
-      if (p.side === 'sameRankSameColor') suits = SUITS.filter((s) => isRed(s) === isRed(suit));
-      if (p.side === 'sameRankOtherColor') suits = SUITS.filter((s) => isRed(s) !== isRed(suit));
-      break;
+    default:
+      suits = null;
   }
   const cards = ranks.flatMap((r) => (suits ?? SUITS).map((s) => `${r}${s}`));
   return { ranks, suits, cards };
@@ -345,4 +343,144 @@ export function suggestNaturalMelds(hand: Card[], ctx: MeldContext): Interpretat
   for (const c of left) if (!ctx.wild.has(c)) byRank.set(cardRank(c), [...(byRank.get(cardRank(c)) ?? []), c]);
   for (const cards of byRank.values()) if (cards.length >= 3) take(cards.slice(0, 4));
   return found;
+}
+
+/* ------------------------------------------------------------------ */
+/* Optimal grouping: hand arrangement and meld partitioning            */
+/* ------------------------------------------------------------------ */
+
+interface Candidate {
+  /** Natural (non-wild) cards used. */
+  naturals: Card[];
+  /** Wildcards needed to complete it. */
+  wilds: number;
+  points: number;
+}
+
+/** Every set and run (with up to the available wildcards filling gaps) that could be made from `cards`. */
+function candidates(cards: Card[], ctx: MeldContext): Candidate[] {
+  const natural = cards.filter((c) => !ctx.wild.has(c));
+  const wildCount = cards.length - natural.length;
+  const minNat = Math.max(1, ctx.rules.wild.minNaturalPerMeld);
+  const out: Candidate[] = [];
+
+  // Sets: any 1–4 naturals of a rank plus wildcards, 3–4 cards in total.
+  const byRank = new Map<Rank, Card[]>();
+  for (const c of natural) byRank.set(cardRank(c), [...(byRank.get(cardRank(c)) ?? []), c]);
+  for (const [rank, group] of byRank) {
+    const n = group.length;
+    for (let mask = 1; mask < 1 << n; mask++) {
+      const picked = group.filter((_, i) => mask & (1 << i));
+      if (picked.length < minNat) continue;
+      for (let w = Math.max(0, 3 - picked.length); picked.length + w <= 4 && w <= wildCount; w++) {
+        out.push({ naturals: picked, wilds: w, points: naturalValue(rank) * (picked.length + w) });
+      }
+    }
+  }
+
+  // Runs: every window of positions in a suit, filled by the naturals present and wildcards.
+  const maxPos = ctx.rules.runs.aceHigh ? 14 : 13;
+  for (const suit of SUITS) {
+    const at = new Map<number, Card>();
+    for (const c of natural) {
+      if (cardSuit(c) !== suit) continue;
+      const pos = lowPosition(cardRank(c));
+      at.set(pos, c);
+      if (pos === 1 && maxPos === 14) at.set(14, c);
+    }
+    for (let start = 1; start <= maxPos - 2; start++) {
+      for (let end = start + 2; end <= maxPos && end - start < 13; end++) {
+        const present: Card[] = [];
+        let points = 0;
+        for (let p = start; p <= end; p++) {
+          points += runPoints(p);
+          const c = at.get(p);
+          if (c && !present.includes(c)) present.push(c);
+        }
+        const len = end - start + 1;
+        const missing = len - present.length;
+        // Widening a window never closes a gap, so stop once there are too many.
+        if (missing > wildCount) break;
+        if (present.length >= minNat) out.push({ naturals: present, wilds: missing, points });
+      }
+    }
+  }
+  return out;
+}
+
+interface Choice {
+  picks: Candidate[];
+  covered: number;
+  points: number;
+}
+
+/**
+ * Exhaustive (bounded) search for non-overlapping candidates. With `exact`,
+ * only selections that use every card are returned.
+ */
+function bestCover(cards: Card[], ctx: MeldContext, exact: boolean): Choice | null {
+  const all = candidates(cards, ctx);
+  const naturalCount = cards.filter((c) => !ctx.wild.has(c)).length;
+  const wildCount = cards.length - naturalCount;
+  let best: Choice | null = exact ? null : { picks: [], covered: 0, points: 0 };
+  let nodes = 0;
+  const used = new Set<Card>();
+  const picks: Candidate[] = [];
+  const better = (covered: number, points: number) =>
+    !best || covered > best.covered || (covered === best.covered && points > best.points);
+
+  const dfs = (from: number, wildsLeft: number, covered: number, points: number) => {
+    if (++nodes > 60_000) return;
+    const isExact = covered === cards.length;
+    if ((!exact || isExact) && better(covered, points)) best = { picks: [...picks], covered, points };
+    for (let i = from; i < all.length; i++) {
+      const c = all[i];
+      if (c.wilds > wildsLeft || c.naturals.some((n) => used.has(n))) continue;
+      for (const n of c.naturals) used.add(n);
+      picks.push(c);
+      dfs(i + 1, wildsLeft - c.wilds, covered + c.naturals.length + c.wilds, points + c.points);
+      picks.pop();
+      for (const n of c.naturals) used.delete(n);
+    }
+  };
+  dfs(0, wildCount, 0, 0);
+  return best;
+}
+
+/** Turns chosen candidates into concrete melds, assigning the actual wildcards. */
+function materialise(choice: Choice, cards: Card[], ctx: MeldContext): Card[][] {
+  const wilds = cards.filter((c) => ctx.wild.has(c));
+  return choice.picks.map((p) => [...p.naturals, ...wilds.splice(0, p.wilds)]);
+}
+
+/**
+ * Splits `cards` into valid melds that use every card, or returns null.
+ * Lets a player simply select the cards to lay down.
+ */
+export function partitionIntoMelds(cards: Card[], ctx: MeldContext): Card[][] | null {
+  if (cards.length < 3) return null;
+  const choice = bestCover(cards, ctx, true);
+  if (!choice) return null;
+  const melds = materialise(choice, cards, ctx);
+  return melds.every((m) => interpretMeld(m, ctx).ok) ? melds : null;
+}
+
+/**
+ * The "optimum order" for a hand: the best combination of melds first (each in
+ * playing order, wildcards in the gap they fill), then the remaining cards by
+ * suit and rank, wildcards last.
+ */
+export function arrangeHand(hand: Card[], ctx: MeldContext): { order: Card[]; melds: Card[][] } {
+  const choice = bestCover(hand, ctx, false)!;
+  const melds: Card[][] = [];
+  for (const cards of materialise(choice, hand, ctx)) {
+    const res = interpretMeld(cards, ctx);
+    if (res.ok) melds.push(res.meld.placed.map((p) => p.card));
+  }
+  const inMelds = new Set(melds.flat());
+  const suitOrder = (c: Card) => SUITS.indexOf(cardSuit(c));
+  const rest = hand
+    .filter((c) => !inMelds.has(c))
+    .sort((a, b) => Number(ctx.wild.has(a)) - Number(ctx.wild.has(b)) || suitOrder(a) - suitOrder(b) || lowPosition(cardRank(a)) - lowPosition(cardRank(b)));
+  return { order: [...melds.flat(), ...rest], melds };
 }

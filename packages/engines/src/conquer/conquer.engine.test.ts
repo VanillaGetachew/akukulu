@@ -61,39 +61,70 @@ describe('Conquer setup and prediction', () => {
     expect(state.players.every((p) => p.hand.length === 0)).toBe(true);
   });
 
-  it('shows the base card only to the predictor until the prediction', () => {
+  it('keeps the prediction blind: nobody sees the base card before choosing', () => {
     const { state } = started();
     const predictor = state.players[state.predictor].playerId;
     const other = state.players[1 - state.predictor].playerId;
-    expect(conquerEngine.view(state, predictor).baseCard).toBe(state.baseCard);
-    expect(conquerEngine.view(state, other).baseCard).toBe(HIDDEN_CARD);
+    expect(conquerEngine.view(state, predictor).baseCard).toBeNull();
+    expect(conquerEngine.view(state, other).baseCard).toBeNull();
+    expect(JSON.stringify(conquerEngine.view(state, predictor))).not.toContain(`"${state.baseCard}"`);
     expect(conquerEngine.view(state, other).legal.predict).toBe(false);
     expect(act(state, other, { type: 'predict', choice: 'up' })).toMatchObject({ ok: false, code: 'NOT_YOUR_TURN' });
     expect(act(state, predictor, { type: 'predict', choice: 'sideways' })).toMatchObject({ ok: false, code: 'BAD_CHOICE' });
   });
 
   for (const choice of CONQUER_PREDICTIONS) {
-    it(`"${choice}" sets the wildcards, returns the base card, reshuffles and deals 14 each`, () => {
+    it(`"${choice}" sets the wildcards, deals 14 to the starter and 13 to the predictor, and shows the base card under the stock`, () => {
       const { state } = started();
       const base = state.baseCard!;
       const s = run(state, state.players[state.predictor].playerId, { type: 'predict', choice });
       expect(s.wildCards).toEqual(selectWildcards(base, choice, s.config.rules).cards);
-      expect(s.baseSetAside).toBe(false);
-      expect(conquerInventory(s)).toContain(base);
-      expect(s.players.map((p) => p.hand.length)).toEqual([14, 14]);
-      expect(s.stock).toHaveLength(52 - 28 - 1);
-      expect(s.discard).toHaveLength(1);
-      expect(s.phase).toBe('draw');
+      expect(s.players[1 - s.predictor].hand).toHaveLength(14);
+      expect(s.players[s.predictor].hand).toHaveLength(13);
+      expect(s.stock).toHaveLength(52 - 27);
+      expect(s.stock[0]).toBe(base); // bottom of the stock, face up
+      expect(s.discard).toHaveLength(0);
       expect(s.current).toBe(1 - s.predictor);
-      expect(conquerEngine.view(s, 'a').baseCard).toBe(base);
+      expect(s.phase).toBe('meld'); // the starter opens by discarding
+      for (const id of ['a', 'b']) expect(conquerEngine.view(s, id)).toMatchObject({ baseCard: base, baseInStock: true });
     });
   }
 
+  it('the starter opens with a discard (no draw); the predictor then draws', () => {
+    let s = started().state;
+    s = run(s, s.players[s.predictor].playerId, { type: 'predict', choice: 'side' });
+    const starter = s.players[s.current];
+    const predictor = s.players[1 - s.current];
+    expect(act(s, starter.playerId, { type: 'drawStock' })).toMatchObject({ ok: false, code: 'WRONG_PHASE' });
+    s = run(s, starter.playerId, { type: 'discard', card: starter.hand[0] });
+    expect(s.discard).toEqual([starter.hand[0]]);
+    expect(s.players.map((p) => p.hand.length)).toEqual([13, 13]);
+    expect(s.phase).toBe('draw');
+    s = run(s, predictor.playerId, { type: 'drawStock' });
+    expect(s.players[s.predictor].hand).toHaveLength(14);
+  });
+
+  it('draws the base card last when the stock runs down', () => {
+    let s = started().state;
+    s = run(s, s.players[s.predictor].playerId, { type: 'predict', choice: 'up' });
+    const base = s.baseCard!;
+    s = run(s, s.players[s.current].playerId, { type: 'discard', card: s.players[s.current].hand[0] });
+    while (s.stock.length > 1) {
+      const id = s.players[s.current].playerId;
+      s = run(s, id, { type: 'drawStock' });
+      s = run(s, id, { type: 'discard', card: s.players[s.current].hand[0] });
+    }
+    expect(conquerEngine.view(s, 'a').baseInStock).toBe(true);
+    const id = s.players[s.current].playerId;
+    s = run(s, id, { type: 'drawStock' });
+    expect(s.players[s.current].hand).toContain(base);
+    expect(conquerEngine.view(s, 'a').baseInStock).toBe(false);
+  });
   it('deals from a freshly shuffled deck rather than the pre-prediction order', () => {
     const { state } = started();
     const before = [...state.stock];
     const s = run(state, state.players[state.predictor].playerId, { type: 'predict', choice: 'down' });
-    const dealtOrder = [...s.stock, ...s.discard, ...s.players[0].hand, ...s.players[1].hand];
+    const dealtOrder = [...s.stock.slice(1), ...s.players[0].hand, ...s.players[1].hand];
     expect(dealtOrder.slice(0, 20)).not.toEqual(before.slice(0, 20));
   });
 });
@@ -114,13 +145,13 @@ describe('Conquer turn sequence', () => {
     expect(s.phase).toBe('draw');
   });
 
-  it('keeps hand + own table cards at 14 after every completed turn', () => {
-    let s = rigged({ a: WINNING_HAND, b: FILLER_B, stockTop: '7c' });
+  it('keeps hand + own table cards at 13 after every completed turn', () => {
+    let s = rigged({ a: WINNING_HAND.replace(' Qc', ''), b: FILLER_B.replace(' 8s', ''), stockTop: '7c' });
     s = run(s, 'a', { type: 'drawStock' });
     s = run(s, 'a', { type: 'meld', melds: [{ cards: h('Kh Kd Kc') }, { cards: h('9h 9d 9c') }] });
-    s = run(s, 'a', { type: 'discard', card: 'Qc' });
+    s = run(s, 'a', { type: 'discard', card: '7c' });
     const view = conquerEngine.view(s, 'a');
-    expect(view.hand.length + view.players[0].tableCount).toBe(14);
+    expect(view.hand.length + view.players[0].tableCount).toBe(13);
   });
 });
 
@@ -386,10 +417,12 @@ describe('Conquer simulated matches', () => {
           if (++steps > 5000) throw new Error('round did not terminate');
           const me = s.players[s.current];
           const id = me.playerId;
-          // Completed turn invariant: hand + own table cards = 14.
-          const v = conquerEngine.view(s, id);
-          expect(v.hand.length + v.players[s.current].tableCount).toBe(14);
-          expect(step(id, { type: 'drawStock' })).toBe(true);
+          if (s.phase === 'draw') {
+            // Completed-turn invariant: hand + own table cards = 13.
+            const v = conquerEngine.view(s, id);
+            expect(v.hand.length + v.players[s.current].tableCount).toBe(13);
+            expect(step(id, { type: 'drawStock' })).toBe(true);
+          }
           const meldCtx: MeldContext = { wild: new Set(s.wildCards), rules: s.config.rules, taken: new Set(s.melds.flatMap((m) => m.placed.map((p) => p.as))) };
           const melds = bestOpening(s.players[s.current].hand, meldCtx, me.opened ? 0 : s.config.rules.openingThreshold, 1);
           if (melds.length) expect(step(id, { type: 'meld', melds: melds.map((m) => ({ cards: m.placed.map((p) => p.card) })) })).toBe(true);

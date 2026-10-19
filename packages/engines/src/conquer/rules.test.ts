@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_CONQUER_RULES, type ConquerRules } from '@akukulu/shared';
-import { extendMeld, interpretMeld, naturalValue, openingPoints, penaltyValue, selectWildcards, type MeldContext } from './rules';
+import { arrangeHand, extendMeld, interpretMeld, naturalValue, openingPoints, partitionIntoMelds, penaltyValue, selectWildcards, type MeldContext } from './rules';
 
 const h = (s: string) => s.split(' ');
 const rules = (patch: Partial<ConquerRules> = {}): ConquerRules => ({ ...DEFAULT_CONQUER_RULES, ...patch });
@@ -12,30 +12,25 @@ const okMeld = (cards: string, c = ctx(), hint: Record<string, string> = {}) => 
   return res.meld;
 };
 
-describe('wildcard prediction', () => {
-  it('Up selects the next rank in every suit', () => {
-    expect(selectWildcards('7h', 'up', rules())).toEqual({ ranks: ['8'], suits: null, cards: ['8s', '8h', '8d', '8c'] });
+describe('wildcard prediction (owner-confirmed mapping, base 5♣)', () => {
+  it('Up (ላይ): one rank up in both suits of the base colour', () => {
+    expect(selectWildcards('5c', 'up', rules())).toEqual({ ranks: ['6'], suits: ['s', 'c'], cards: ['6s', '6c'] });
   });
-  it('Down selects the previous rank', () => {
-    expect(selectWildcards('7h', 'down', rules()).ranks).toEqual(['6']);
+  it('Down (ታች): one rank down in both suits of the base colour', () => {
+    expect(selectWildcards('5c', 'down', rules()).cards).toEqual(['4s', '4c']);
+    expect(selectWildcards('9h', 'down', rules()).cards).toEqual(['8h', '8d']);
   });
-  it('Up & Down selects both neighbours (eight cards)', () => {
-    const sel = selectWildcards('7h', 'upDown', rules());
-    expect(sel.ranks).toEqual(['8', '6']);
-    expect(sel.cards).toHaveLength(8);
+  it('Side (ጎን): the same rank in the opposite colour', () => {
+    expect(selectWildcards('5c', 'side', rules()).cards).toEqual(['5h', '5d']);
+    expect(selectWildcards('Qd', 'side', rules()).cards).toEqual(['Qs', 'Qc']);
   });
-  it('Side selects the base rank, optionally filtered by colour', () => {
-    expect(selectWildcards('7h', 'side', rules()).cards).toEqual(['7s', '7h', '7d', '7c']);
-    const same = rules({ prediction: { ...DEFAULT_CONQUER_RULES.prediction, side: 'sameRankSameColor' } });
-    expect(selectWildcards('7h', 'side', same).cards).toEqual(['7h', '7d']);
-    const other = rules({ prediction: { ...DEFAULT_CONQUER_RULES.prediction, side: 'sameRankOtherColor' } });
-    expect(selectWildcards('7h', 'side', other).cards).toEqual(['7s', '7c']);
+  it('Up & Down (ላይና ታች): the same suit, one rank up and one down', () => {
+    expect(selectWildcards('5c', 'upDown', rules()).cards).toEqual(['6c', '4c']);
   });
   it('wraps at the K/A boundary by default', () => {
-    expect(selectWildcards('Kd', 'up', rules()).ranks).toEqual(['A']);
-    expect(selectWildcards('As', 'down', rules()).ranks).toEqual(['K']);
-    expect(selectWildcards('Kd', 'upDown', rules()).ranks).toEqual(['A', 'Q']);
-    expect(selectWildcards('Td', 'up', rules()).ranks).toEqual(['J']);
+    expect(selectWildcards('Kd', 'up', rules()).cards).toEqual(['Ah', 'Ad']);
+    expect(selectWildcards('As', 'down', rules()).cards).toEqual(['Ks', 'Kc']);
+    expect(selectWildcards('Kd', 'upDown', rules()).cards).toEqual(['Ad', 'Qd']);
   });
   it('falls back to the base rank at a boundary when configured to clamp', () => {
     const clamp = rules({ prediction: { ...DEFAULT_CONQUER_RULES.prediction, boundary: 'clamp' } });
@@ -43,7 +38,6 @@ describe('wildcard prediction', () => {
     expect(selectWildcards('As', 'upDown', clamp).ranks).toEqual(['2', 'A']);
   });
 });
-
 describe('card values and Aces', () => {
   it('values cards', () => {
     expect([naturalValue('A'), naturalValue('7'), naturalValue('T'), naturalValue('K')]).toEqual([11, 7, 10, 10]);
@@ -153,5 +147,36 @@ describe('penalties', () => {
     const w = new Set(['8c']);
     expect(['Ah', 'Kd', '5s', '8c'].map((c) => penaltyValue(c, w, rules()))).toEqual([11, 10, 5, 8]);
     expect(penaltyValue('8c', w, rules({ wild: { ...DEFAULT_CONQUER_RULES.wild, penalty: 25 } }))).toBe(25);
+  });
+});
+
+describe('meld partitioning (lay down the selected cards)', () => {
+  const norm = (melds: string[][] | null) => melds?.map((m) => [...m].sort()).sort() ?? null;
+  it('splits a selection into valid melds', () => {
+    expect(norm(partitionIntoMelds(h('3s 4s 5s Kh Kd Kc'), ctx()))).toEqual([['3s', '4s', '5s'], ['Kc', 'Kd', 'Kh']]);
+  });
+  it('uses wildcards to fill gaps', () => {
+    expect(partitionIntoMelds(h('5h 6h 8c'), ctx(['8c']))).toEqual([['5h', '6h', '8c']]);
+    expect(partitionIntoMelds(h('5h 6h 8c 9s 9d 9h'), ctx(['8c']))).toHaveLength(2);
+  });
+  it('returns null when some card cannot be melded', () => {
+    expect(partitionIntoMelds(h('3s 4s 5s Kh'), ctx())).toBeNull();
+    expect(partitionIntoMelds(h('3s 4s'), ctx())).toBeNull();
+  });
+});
+
+describe('optimum hand order', () => {
+  it('puts the best melds first, then the rest by suit and rank', () => {
+    const hand = h('Kc 9d 5s Kh 3s 8c 4s Qd Kd 2h');
+    const { order, melds } = arrangeHand(hand, ctx(['8c']));
+    expect(melds.map((m) => [...m].sort()).sort()).toEqual([['3s', '4s', '5s'], ['8c', 'Kc', 'Kd', 'Kh']]);
+    expect(order.slice(-3)).toEqual(['2h', '9d', 'Qd']);
+    expect([...order].sort()).toEqual([...hand].sort());
+  });
+  it('places a wildcard in the gap it fills', () => {
+    expect(arrangeHand(h('7d 5h 8c 6h'), ctx(['8c'])).order).toEqual(['5h', '6h', '8c', '7d']);
+  });
+  it('keeps unmatched wildcards last', () => {
+    expect(arrangeHand(h('8c Kd 2h'), ctx(['8c'])).order).toEqual(['2h', 'Kd', '8c']);
   });
 });

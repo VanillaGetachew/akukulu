@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@akukulu/engines": "0.1.0",
     "@akukulu/shared": "0.1.0",
     "next": "^15.5.7",
     "react": "^19.1.2",

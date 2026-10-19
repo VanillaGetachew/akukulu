@@ -131,19 +131,23 @@ suite('API integration', () => {
     expect(await balance(a)).toBe(980);
     const ds = t.app.get(DataSource);
     const internal = async () => (await ds.query(`SELECT state FROM matches WHERE id = $1`, [matchId]))[0].state;
+    const handLengths = (st: { players: { playerId: string; hand: string[] }[] }) => Object.fromEntries(st.players.map((p) => [p.playerId, p.hand.length]));
 
     let s = await state<ConquerView>(matchId, a);
     expect(s.view.phase).toBe('predict');
     const predictor = s.view.predictorId === a.id ? a : b;
     const other = predictor === a ? b : a;
-    expect((await state<ConquerView>(matchId, other)).view.baseCard).toBe('??');
+    // The prediction is blind.
+    expect((await state<ConquerView>(matchId, predictor)).view.baseCard).toBeNull();
+    expect((await state<ConquerView>(matchId, other)).view.baseCard).toBeNull();
     expect(await act(other, matchId, { type: 'predict', choice: 'up' })).toMatchObject({ ok: false, code: 'NOT_YOUR_TURN' });
     expect(await act(predictor, matchId, { type: 'predict', choice: 'upDown' })).toEqual({ ok: true });
 
     const st = await internal();
-    expect(st.players.map((p: { hand: string[] }) => p.hand.length)).toEqual([14, 14]);
-    expect(st.stock).toHaveLength(23);
-    expect(st.wildCards).toHaveLength(8);
+    expect(handLengths(st)).toEqual({ [predictor.id]: 13, [other.id]: 14 });
+    expect(st.stock).toHaveLength(25);
+    expect(st.stock[0]).toBe(st.baseCard);
+    expect(st.wildCards).toHaveLength(2);
     const handOf = (id: string): string[] => st.players.find((p: { playerId: string }) => p.playerId === id).hand;
     const viewA = (await state<ConquerView>(matchId, a)).view;
     expect(viewA.hand.sort()).toEqual([...handOf(a.id)].sort());
@@ -151,17 +155,18 @@ suite('API integration', () => {
     const secretFromA = [...handOf(b.id), ...st.stock].filter((c: string) => c !== st.baseCard && !st.wildCards.includes(c));
     expect(leaks(a.states, secretFromA)).toBe(false);
 
-    // Simultaneous conflicting submissions: exactly one draw is accepted.
-    const first = other; // the non-predictor plays first
-    const racing = await Promise.all([act(first, matchId, { type: 'drawStock' }), act(first, matchId, { type: 'drawStock' })]);
-    expect(racing.filter((r) => r.ok)).toHaveLength(1);
-    expect(racing.find((r) => !r.ok)).toMatchObject({ code: 'WRONG_PHASE' });
-    // Duplicate submission of the same discard is applied once.
+    // The starter (14 cards) opens by discarding. Simultaneous conflicting discards: exactly one is accepted.
+    const first = other;
     const hand = (await state<ConquerView>(matchId, first)).view.hand;
+    const racing = await Promise.all([act(first, matchId, { type: 'discard', card: hand[0] }), act(first, matchId, { type: 'discard', card: hand[1] })]);
+    expect(racing.filter((r) => r.ok)).toHaveLength(1);
+    expect(racing.find((r) => !r.ok)).toMatchObject({ code: 'NOT_YOUR_TURN' });
+    // Duplicate submission of the predictor's draw is applied once.
     const dup = randomUUID();
     const before = (await state(matchId, a)).version;
-    expect(await Promise.all([act(first, matchId, { type: 'discard', card: hand[0] }, dup), act(first, matchId, { type: 'discard', card: hand[0] }, dup)])).toEqual([{ ok: true }, { ok: true }]);
+    expect(await Promise.all([act(predictor, matchId, { type: 'drawStock' }, dup), act(predictor, matchId, { type: 'drawStock' }, dup)])).toEqual([{ ok: true }, { ok: true }]);
     expect((await state(matchId, a)).version).toBe(before + 1);
+    expect(handLengths(await internal())).toEqual({ [predictor.id]: 14, [other.id]: 13 });
 
     // Both players draw and discard until the stock runs out.
     for (let i = 0; i < 60; i++) {
@@ -196,12 +201,15 @@ suite('API integration', () => {
     await act(predictor, matchId, { type: 'predict', choice: 'side' });
     const first = predictor === a ? b : a;
     const view = (await state<ConquerView>(matchId, first)).view;
-    expect(await act(first, matchId, { type: 'discard', card: view.hand[0] })).toMatchObject({ ok: false, code: 'WRONG_PHASE' });
-    expect(await act(first, matchId, { type: 'takeDiscard' })).toMatchObject({ ok: false, code: 'ILLEGAL_PICKUP' });
-    await act(first, matchId, { type: 'drawStock' });
-    expect(await act(first, matchId, { type: 'meld', melds: [{ cards: view.hand.slice(0, 3) }], claimedPoints: 99 })).toMatchObject({ ok: false });
-    const notMine = (await state<ConquerView>(matchId, predictor)).view.hand[0];
-    expect(await act(first, matchId, { type: 'discard', card: notMine })).toMatchObject({ ok: false, code: 'ILLEGAL_DISCARD' });
+    // The starter may not draw on the opening turn.
+    expect(await act(first, matchId, { type: 'drawStock' })).toMatchObject({ ok: false, code: 'WRONG_PHASE' });
+    expect(await act(first, matchId, { type: 'discard', card: view.hand[0] })).toEqual({ ok: true });
+    const pv = (await state<ConquerView>(matchId, predictor)).view;
+    expect(await act(predictor, matchId, { type: 'discard', card: pv.hand[0] })).toMatchObject({ ok: false, code: 'WRONG_PHASE' });
+    expect(await act(predictor, matchId, { type: 'takeDiscard' })).toMatchObject({ ok: false, code: 'ILLEGAL_PICKUP' });
+    await act(predictor, matchId, { type: 'drawStock' });
+    expect(await act(predictor, matchId, { type: 'meld', melds: [{ cards: pv.hand.slice(0, 3) }], claimedPoints: 99 })).toMatchObject({ ok: false });
+    expect(await act(predictor, matchId, { type: 'discard', card: view.hand[1] })).toMatchObject({ ok: false, code: 'ILLEGAL_DISCARD' });
   });
 
   it('two independent players finish a Ludo match over Socket.IO with exactly-once settlement', async () => {
@@ -344,9 +352,10 @@ suite('API integration', () => {
     let s = await state<ConquerView>(matchId, a);
     const predictor = s.view.predictorId === a.id ? a : b;
     await act(predictor, matchId, { type: 'predict', choice: 'down' });
+    // The starter's opening turn (14 cards, must discard) is in progress when the server restarts.
     const first = predictor === a ? b : a;
-    await act(first, matchId, { type: 'drawStock' });
     const before = await state<ConquerView>(matchId, first);
+    expect(before.view.hand).toHaveLength(14);
     expect(before.view.phase).toBe('meld');
     for (const sock of sockets) sock.disconnect();
     await t.close();
