@@ -1,6 +1,6 @@
 'use client';
 
-/** Player-facing Conquer rules, shown in the lobby and from the Rules button at the table. */
+/** Player-facing Conquer rules, shown in the game lobby (How to play). */
 export const CONQUER_RULES: { am: string; en: string; items: string[] }[] = [
   {
     am: 'ጨዋታው',
@@ -49,7 +49,7 @@ export const CONQUER_RULES: { am: string; en: string; items: string[] }[] = [
       'Before you are in, taking the discard means you must reach 41 that same turn. After you are in, you can take it freely.',
       'The base card under the deck can also be taken, but then you must go out that turn.',
       'You then meld (optional) and discard one card to end your turn. When the deck runs out, the discards are shuffled back in, except the top card.',
-      'You have 1:30 per turn. If your time runs out, you lose the round.',
+      'You have 1 minute per turn. When it runs out, a "time is up" popup gives you 30 more seconds to return and finish; after that you lose the round.',
     ],
   },
   {
@@ -102,26 +102,6 @@ export function ConquerRulesList({ dense }: { dense?: boolean }) {
           </ul>
         </section>
       ))}
-    </div>
-  );
-}
-
-export function ConquerRulesSheet({ onClose }: { onClose: () => void }) {
-  return (
-    <div className="absolute inset-0 z-[45] grid place-items-center bg-black/60 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Conquer rules" onClick={onClose}>
-      <div className="card flex max-h-full w-full max-w-md flex-col p-0 text-fg" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between border-b border-line px-5 py-3">
-          <div className="font-display text-lg font-extrabold">
-            <span className="font-ethiopic">ህጎች</span> · Rules
-          </div>
-          <button className="btn-ghost px-3 py-1 text-xs" onClick={onClose}>
-            Close
-          </button>
-        </div>
-        <div className="overflow-y-auto px-5 py-4">
-          <ConquerRulesList dense />
-        </div>
-      </div>
     </div>
   );
 }

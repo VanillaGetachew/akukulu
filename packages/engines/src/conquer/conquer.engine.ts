@@ -107,6 +107,7 @@ export interface ConquerState {
   mustFinish: boolean;
   mustFinishReason: 'base' | 'fill' | null;
   turnDeadline: number | null;
+  graceAt?: number | null;
   lastEvent: ConquerLastEvent | null;
   roundResult: ConquerRoundResult | null;
   history: ConquerRoundResult[];
@@ -137,9 +138,13 @@ const toInterp = (m: MeldState): Interpretation => ({
 
 function setDeadline(state: ConquerState, ctx: EngineContext) {
   const c = state.config;
+  state.graceAt = null;
   if (state.phase === 'predict') state.turnDeadline = ctx.now + c.predictSeconds * 1000;
-  else if (state.phase === 'draw' || state.phase === 'meld') state.turnDeadline = ctx.now + c.turnSeconds * 1000;
-  else if (state.phase === 'roundOver') state.turnDeadline = ctx.now + c.rematchSeconds * 1000;
+  else if (state.phase === 'draw' || state.phase === 'meld') {
+    // The turn timer, then a grace popup; the round is lost only when the grace runs out too.
+    state.graceAt = ctx.now + c.turnSeconds * 1000;
+    state.turnDeadline = state.graceAt + (c.graceSeconds ?? 0) * 1000;
+  } else if (state.phase === 'roundOver') state.turnDeadline = ctx.now + c.rematchSeconds * 1000;
   else state.turnDeadline = null;
 }
 
@@ -253,6 +258,7 @@ function endRound(state: ConquerState, winner: number | null, reason: ConquerRou
 function finishMatch(state: ConquerState, out: Out) {
   state.phase = 'finished';
   state.turnDeadline = null;
+  state.graceAt = null;
   out.events.push({ type: 'match_finished', data: { history: state.history } });
 }
 
@@ -442,6 +448,7 @@ export const conquerEngine: GameEngine<ConquerState, ConquerConfig, ConquerView>
     const raw = asRecord(input);
     const config: ConquerConfig = { ...DEFAULT_CONQUER_CONFIG, rules: validateConquerRules(raw.rules), stake: intInRange(stake, 0, 1_000_000, 'stake') };
     if (raw.turnSeconds !== undefined) config.turnSeconds = intInRange(raw.turnSeconds, 20, 300, 'turnSeconds');
+    if (raw.graceSeconds !== undefined) config.graceSeconds = intInRange(raw.graceSeconds, 0, 120, 'graceSeconds');
     return config;
   },
 
@@ -487,6 +494,7 @@ export const conquerEngine: GameEngine<ConquerState, ConquerConfig, ConquerView>
       mustFinish: false,
       mustFinishReason: null,
       turnDeadline: null,
+      graceAt: null,
       lastEvent: null,
       roundResult: null,
       history: [],
@@ -749,6 +757,7 @@ export const conquerEngine: GameEngine<ConquerState, ConquerConfig, ConquerView>
       discardCount: s.discard.length,
       currentPlayerId: s.phase === 'roundOver' || s.phase === 'finished' ? null : s.players[s.current].playerId,
       turnDeadline: s.turnDeadline,
+      graceAt: s.graceAt ?? null,
       lastEvent: s.lastEvent,
       roundResult: s.roundResult,
       legal: {

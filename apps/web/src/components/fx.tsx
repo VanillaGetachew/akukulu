@@ -46,46 +46,58 @@ export function CardRain({ count = 28 }: { count?: number }) {
   );
 }
 
+/** Timing of the deal, so a table can reveal each card as it lands. */
+export const DEAL_TIMING = { shuffleMs: 1300, stepMs: 110, flightMs: 450 };
+
+/** Cards that have landed `elapsed` ms after the deal started. */
+export const dealtCount = (elapsed: number, total: number) =>
+  Math.max(0, Math.min(total, Math.floor((elapsed - DEAL_TIMING.shuffleMs - DEAL_TIMING.flightMs) / DEAL_TIMING.stepMs) + 1));
+
 /**
- * Start-of-round animation: the deck is riffle-shuffled, then cards fly out to
- * the opponent (top) and the player (bottom). Calls `onDone` when finished.
+ * Start-of-round animation: the deck is riffle-shuffled, then cards fly out one
+ * at a time to the opponent (top) and the player (bottom), in `sequence` order.
+ * Calls `onDone` when the last card has landed.
  */
-export function ShuffleAndDeal({ onDone, cardsEach = 7 }: { onDone: () => void; cardsEach?: number }) {
-  const SHUFFLE_MS = 1300;
-  const DEAL_STEP_MS = 90;
-  const total = cardsEach * 2;
+export function ShuffleAndDeal({ onDone, sequence }: { onDone: () => void; sequence: ('me' | 'opp')[] }) {
+  const { shuffleMs, stepMs, flightMs } = DEAL_TIMING;
+  const total = sequence.length;
+  const doneMs = shuffleMs + Math.max(0, total - 1) * stepMs + flightMs + 150;
   useEffect(() => {
-    const t = setTimeout(onDone, SHUFFLE_MS + total * DEAL_STEP_MS + 700);
+    const t = setTimeout(onDone, doneMs);
     return () => clearTimeout(t);
-  }, [onDone, total]);
+  }, [onDone, doneMs]);
+  const counts = { me: sequence.filter((x) => x === 'me').length, opp: sequence.filter((x) => x === 'opp').length };
+  const seen = { me: 0, opp: 0 };
   return (
     <div className="pointer-events-none absolute inset-0 z-[39]" aria-hidden="true">
-      <div className="absolute inset-0 bg-black/25" style={{ animation: `fx-fade-out ${(SHUFFLE_MS + total * DEAL_STEP_MS + 700) / 1000}s both` }} />
       {/* Riffle shuffle: two half-decks sweep together twice. */}
       {Array.from({ length: 6 }, (_, i) => (
-        <div key={`l${i}`} className="absolute left-1/2 top-1/2" style={{ animation: `fx-riffle-left ${SHUFFLE_MS / 2000}s ease-in-out ${i * 0.03}s 2 both`, marginTop: -i * 1.5 }}>
+        <div key={`l${i}`} className="absolute left-1/2 top-1/2" style={{ animation: `fx-riffle-left ${shuffleMs / 2000}s ease-in-out ${i * 0.03}s 2 both`, marginTop: -i * 1.5 }}>
           <PlayingCard card="??" />
         </div>
       ))}
       {Array.from({ length: 6 }, (_, i) => (
-        <div key={`r${i}`} className="absolute left-1/2 top-1/2" style={{ animation: `fx-riffle-right ${SHUFFLE_MS / 2000}s ease-in-out ${i * 0.03 + 0.015}s 2 both`, marginTop: -i * 1.5 }}>
+        <div key={`r${i}`} className="absolute left-1/2 top-1/2" style={{ animation: `fx-riffle-right ${shuffleMs / 2000}s ease-in-out ${i * 0.03 + 0.015}s 2 both`, marginTop: -i * 1.5 }}>
           <PlayingCard card="??" />
         </div>
       ))}
-      {/* Deal: alternate cards to the opponent (top) and to you (bottom). */}
-      {Array.from({ length: total }, (_, i) => {
-        const toMe = i % 2 === 0;
-        const spread = ((i >> 1) - (cardsEach - 1) / 2) * 22;
+      {/* The rest of the deck waits in the middle while the cards go out. */}
+      <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2" style={{ animation: `fx-deck-wait ${doneMs / 1000}s both` }}>
+        <PlayingCard card="??" />
+      </div>
+      {sequence.map((to, i) => {
+        const k = seen[to]++;
+        const spread = (k - (counts[to] - 1) / 2) * (to === 'me' ? 20 : 14);
         return (
           <div
             key={`d${i}`}
             className="absolute left-1/2 top-1/2 opacity-0"
             style={
               {
-                animation: `fx-deal .5s cubic-bezier(.2,.8,.2,1) ${(SHUFFLE_MS + i * DEAL_STEP_MS) / 1000}s both`,
+                animation: `fx-deal ${flightMs / 1000}s cubic-bezier(.2,.8,.2,1) ${(shuffleMs + i * stepMs) / 1000}s both`,
                 '--tx': `${spread}px`,
-                '--ty': toMe ? '38vh' : '-38vh',
-                '--rot': `${spread / 6}deg`,
+                '--ty': to === 'me' ? '36vh' : '-40vh',
+                '--rot': `${spread / 8}deg`,
               } as React.CSSProperties
             }
           >
@@ -93,9 +105,6 @@ export function ShuffleAndDeal({ onDone, cardsEach = 7 }: { onDone: () => void; 
           </div>
         );
       })}
-      <div className="absolute inset-x-0 top-[58%] text-center font-ethiopic text-sm font-bold text-white drop-shadow" style={{ animation: `fx-fade-out ${(SHUFFLE_MS + total * DEAL_STEP_MS + 700) / 1000}s both` }}>
-        ካርታ እየተቀላቀለ ነው… · Shuffling and dealing
-      </div>
     </div>
   );
 }

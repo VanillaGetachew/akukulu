@@ -121,6 +121,8 @@ export interface ConquerConfig {
   /** Entry stake per player per round; the round winner takes both. */
   stake: number;
   turnSeconds: number;
+  /** Extra time after the turn timer runs out, shown as a "time's up" popup, before the round is lost. */
+  graceSeconds: number;
   predictSeconds: number;
   /** Time to agree on a rematch before the match closes. */
   rematchSeconds: number;
@@ -130,7 +132,8 @@ export interface ConquerConfig {
 export const DEFAULT_CONQUER_CONFIG: ConquerConfig = {
   rules: DEFAULT_CONQUER_RULES,
   stake: 0,
-  turnSeconds: 90,
+  turnSeconds: 60,
+  graceSeconds: 30,
   predictSeconds: 30,
   rematchSeconds: 60,
   maxMissedTurns: 3,
@@ -254,6 +257,8 @@ export interface ConquerView {
   discardCount: number;
   currentPlayerId: string | null;
   turnDeadline: number | null;
+  /** When the turn timer runs out and the grace popup appears (the round is lost at 	urnDeadline). */
+  graceAt: number | null;
   lastEvent: ConquerLastEvent | null;
   roundResult: ConquerRoundResult | null;
   legal: {

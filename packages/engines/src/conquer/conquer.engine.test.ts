@@ -457,6 +457,17 @@ describe('Conquer round end', () => {
 });
 
 describe('Conquer timeouts, leaving and privacy', () => {
+  it('gives a 1-minute turn, then a 30-second grace before the round is lost', () => {
+    let s = started().state;
+    s = run(s, s.players[s.predictor].playerId, { type: 'predict', choice: 'up' });
+    expect(s.graceAt).toBe(NOW + 60_000);
+    expect(s.turnDeadline).toBe(NOW + 90_000);
+    expect(conquerEngine.view(s, 'a').graceAt).toBe(NOW + 60_000);
+    expect(conquerEngine.tick(s, ctx(s.graceAt!))).toBeNull();
+    const lost = expectOk(conquerEngine.tick(s, ctx(s.turnDeadline!))).state;
+    expect(lost.roundResult?.reason).toBe('timeout');
+  });
+
   it('the predictor loses the round if the prediction timer runs out', () => {
     const { state } = started();
     const s = expectOk(conquerEngine.tick(state, ctx(state.turnDeadline!))).state;

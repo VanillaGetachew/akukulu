@@ -25,9 +25,8 @@ import {
 } from '@akukulu/shared';
 import { useSession } from '@/lib/session';
 import { Coin, PlayingCard } from '@/components/ui';
-import { CardRain, ShuffleAndDeal } from '@/components/fx';
+import { CardRain, ShuffleAndDeal, dealtCount } from '@/components/fx';
 import { CardBack, CardFace } from '@/components/card-face';
-import { ConquerRulesSheet } from './conquer-rules';
 import { nameOf, type TableProps } from './types';
 
 /** Order of the prediction buttons, as players know them. */
@@ -51,17 +50,30 @@ function useWidth<T extends HTMLElement>() {
   return [ref, width] as const;
 }
 
-const HAND_W = 54;
-const HAND_H = Math.round(HAND_W * 1.4);
+/** Tracks the window height, so the hand and table shrink on short screens instead of scrolling. */
+function useViewportHeight() {
+  const [h, setH] = useState(700);
+  useEffect(() => {
+    const update = () => setH(window.visualViewport?.height ?? window.innerHeight);
+    update();
+    window.addEventListener('resize', update);
+    window.visualViewport?.addEventListener('resize', update);
+    return () => {
+      window.removeEventListener('resize', update);
+      window.visualViewport?.removeEventListener('resize', update);
+    };
+  }, []);
+  return h;
+}
 
-/** A hand card: the realistic face, with selection / picked-up rings and a joker star in the corner. */
-function FanCard({ card, selected, joker, marked }: { card: Card; selected?: boolean; joker?: boolean; marked?: boolean }) {
+/** A hand card: the card face, with selection / picked-up rings and a joker star in the corner. */
+function FanCard({ card, selected, joker, marked, width = 54 }: { card: Card; selected?: boolean; joker?: boolean; marked?: boolean; width?: number }) {
   return (
     <div
       className={`rounded-[9px] shadow-[0_1px_4px_rgba(0,0,0,.3)] ${selected ? 'outline outline-[3px] outline-lime' : marked ? 'outline outline-[3px] outline-gold' : ''}`}
-      style={{ width: HAND_W, height: HAND_H }}
+      style={{ width, height: Math.round(width * 1.4) }}
     >
-      <CardFace card={card} width={HAND_W} star={joker} />
+      <CardFace card={card} width={width} star={joker} />
     </div>
   );
 }
@@ -83,9 +95,11 @@ function Fan({
   marked,
   onTap,
   faces,
+  cardWidth = 54,
 }: {
   cards: Card[];
   width: number;
+  cardWidth?: number;
   flip?: boolean;
   selected?: Card[];
   wild?: Set<Card>;
@@ -94,15 +108,15 @@ function Fan({
   faces?: Map<Card, FanFace>;
 }) {
   const n = cards.length;
-  const cw = flip ? 36 : HAND_W;
+  const cw = flip ? 36 : cardWidth;
   const ch = Math.round(cw * 1.4);
   const mid = (n - 1) / 2;
-  const spacing = n > 1 ? Math.max(8, Math.min(cw * 0.62, (width - cw - 32) / (n - 1))) : 0;
+  const spacing = n > 1 ? Math.max(8, Math.min(cw * 0.62, (width - cw - 24) / (n - 1))) : 0;
   const angleStep = n > 1 ? Math.min(2, 16 / (n - 1)) : 0;
-  const curve = flip ? 0.5 : 0.45;
+  const curve = flip ? 0.5 : 0.3;
   const maxDrop = mid * mid * curve;
-  const lift = 18;
-  const height = flip ? ch + 8 : ch + maxDrop + lift + 6;
+  const lift = 14;
+  const height = flip ? ch + 8 : ch + maxDrop + lift + 2;
   return (
     <div className="relative mx-auto w-full overflow-visible" style={{ height }}>
       {cards.map((c, i) => {
@@ -122,7 +136,7 @@ function Fan({
             className="absolute left-1/2 transition-transform duration-150"
             style={{
               // Hand: anchored above the bottom by the arc depth, so the outer cards dip without leaving the box.
-              ...(flip ? { top: -maxDrop * 0.4 } : { bottom: 6 + maxDrop }),
+              ...(flip ? { top: -maxDrop * 0.4 } : { bottom: 2 + maxDrop }),
               transform: `translateX(calc(-50% + ${d * spacing}px)) translateY(${flip ? -drop * 0.4 : drop - (lifted ? lift : 0)}px) rotate(${d * angleStep * (flip ? -1 : 1)}deg)`,
               transformOrigin: flip ? 'top center' : 'bottom center',
               zIndex: i,
@@ -133,7 +147,7 @@ function Fan({
             ) : face ? (
               <MiniCard placed={face.placed} highlight={face.active} width={cw} />
             ) : (
-              <FanCard card={c} selected={lifted} joker={wild?.has(c)} marked={c === marked} />
+              <FanCard card={c} selected={lifted} joker={wild?.has(c)} marked={c === marked} width={cw} />
             )}
           </button>
         );
@@ -288,20 +302,58 @@ function TurnBar({ view, serverNow, state, mine }: { view: ConquerView; serverNo
     const t = setInterval(() => setNow(serverNow()), 250);
     return () => clearInterval(t);
   }, [serverNow]);
-  const total = (view.phase === 'predict' ? view.config.predictSeconds : view.config.turnSeconds) * 1000;
-  const left = view.turnDeadline ? Math.max(0, view.turnDeadline - now) : 0;
+  // After the turn timer, a grace period (the "time's up" popup) counts down to the hard deadline.
+  const grace = view.phase !== 'predict' && view.graceAt !== null && now >= view.graceAt;
+  const total = (view.phase === 'predict' ? view.config.predictSeconds : grace ? view.config.graceSeconds : view.config.turnSeconds) * 1000;
+  const end = view.phase === 'predict' || grace ? view.turnDeadline : (view.graceAt ?? view.turnDeadline);
+  const left = end ? Math.max(0, end - now) : 0;
   const pct = Math.min(100, (left / total) * 100);
   const secs = Math.ceil(left / 1000);
   return (
     <div className="mx-auto w-full max-w-md px-4">
       <div className="mb-1 flex items-center justify-between text-xs font-bold">
-        <span className="font-ethiopic text-lime">{mine ? 'የእርስዎ ተራ' : `የ${nameOf(state, view.currentPlayerId)} ተራ`}</span>
-        <span className="tabular-nums text-white">
+        <span className={`font-ethiopic ${grace ? 'text-[#ff9aa9]' : 'text-lime'}`}>
+          {grace ? (mine ? 'ጊዜዎ አልቋል · time is up' : `የ${nameOf(state, view.currentPlayerId)} ጊዜ አልቋል · time is up`) : mine ? 'የእርስዎ ተራ' : `የ${nameOf(state, view.currentPlayerId)} ተራ`}
+        </span>
+        <span className={`tabular-nums ${grace ? 'text-[#ff9aa9]' : 'text-white'}`}>
           {Math.floor(secs / 60)}:{String(secs % 60).padStart(2, '0')}
         </span>
       </div>
       <div className="h-1.5 overflow-hidden rounded-full bg-black/30">
-        <div className="h-full rounded-full bg-[linear-gradient(90deg,#2ee67a,#f5c542,#ff6b5a)] transition-[width] duration-200" style={{ width: `${pct}%` }} />
+        <div
+          className={`h-full rounded-full transition-[width] duration-200 ${grace ? 'bg-danger' : 'bg-[linear-gradient(90deg,#2ee67a,#f5c542,#ff6b5a)]'}`}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+/** Shown to the player whose turn timer ran out: return within the grace period or lose the round. */
+function GracePopup({ view, serverNow }: { view: ConquerView; serverNow: () => number }) {
+  const [now, setNow] = useState(serverNow());
+  const [dismissed, setDismissed] = useState<number | null>(null);
+  useEffect(() => {
+    const t = setInterval(() => setNow(serverNow()), 250);
+    return () => clearInterval(t);
+  }, [serverNow]);
+  const { graceAt, turnDeadline } = view;
+  if (graceAt === null || turnDeadline === null || now < graceAt || now >= turnDeadline || dismissed === graceAt) return null;
+  const secs = Math.ceil((turnDeadline - now) / 1000);
+  return (
+    <div className="absolute inset-0 z-[41] grid place-items-center bg-black/65 p-6 backdrop-blur-sm" role="alertdialog" aria-modal="true" aria-label="Time is up">
+      <div className="card grid w-full max-w-sm gap-4 p-5 text-center text-fg">
+        <div>
+          <div className="font-ethiopic text-xl font-extrabold">ጊዜዎ አልቋል</div>
+          <div className="text-sm font-bold">Your time is up</div>
+        </div>
+        <div className="mx-auto grid h-20 w-20 place-items-center rounded-full border-4 border-danger text-3xl font-black tabular-nums text-danger">{secs}</div>
+        <p className="text-sm text-muted">
+          Return to the game within <b className="text-fg">{secs} s</b> and finish your turn, or you lose the round.
+        </p>
+        <button className="btn-primary py-3" onClick={() => setDismissed(graceAt)}>
+          <span className="font-ethiopic">ወደ ጨዋታው ተመለስ</span> · Return to game
+        </button>
       </div>
     </div>
   );
@@ -310,9 +362,9 @@ function TurnBar({ view, serverNow, state, mine }: { view: ConquerView; serverNo
 function ActionButton({ am, en, onClick, disabled, tone = 'teal' }: { am: string; en: string; onClick: () => void; disabled?: boolean; tone?: 'teal' | 'gold' | 'red' }) {
   const tones = { teal: 'bg-[#1d6b5c]/90 border-[#3fb79c]/50', gold: 'bg-[#6b5a1d]/90 border-[#d8b84a]/50', red: 'bg-[#6b2a1d]/90 border-[#e0705a]/50' };
   return (
-    <button type="button" onClick={onClick} disabled={disabled} className={`flex min-w-[3.9rem] flex-col items-center rounded-lg border px-2 py-1 text-white shadow transition active:scale-95 disabled:opacity-35 ${tones[tone]}`}>
-      <span className="font-ethiopic text-sm font-bold leading-tight">{am}</span>
-      <span className="text-[9px] font-semibold uppercase tracking-wide text-white/70">{en}</span>
+    <button type="button" onClick={onClick} disabled={disabled} className={`flex min-w-0 flex-col items-center rounded-lg border px-1 py-1 text-white shadow transition active:scale-95 disabled:opacity-35 ${tones[tone]}`}>
+      <span className="max-w-full truncate font-ethiopic text-[13px] font-bold leading-tight">{am}</span>
+      <span className="max-w-full truncate text-[8px] font-semibold uppercase tracking-wide text-white/70">{en}</span>
     </button>
   );
 }
@@ -333,15 +385,40 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
   const [selected, setSelected] = useState<Card[]>([]);
   const [choice, setChoice] = useState<JokerChoice | null>(null);
   const [confirmBase, setConfirmBase] = useState(false);
-  const [showRules, setShowRules] = useState(false);
   // Shuffle-and-deal plays when this client sees the prediction end (not on a mid-round reconnect).
-  const [dealing, setDealing] = useState(false);
+  // Cards are dealt one at a time, starting with the starter, and appear in each fan as they land.
+  const [deal, setDeal] = useState<{ seq: ('me' | 'opp')[]; start: number } | null>(null);
+  const [dealElapsed, setDealElapsed] = useState(0);
   const prevPhase = useRef(view.phase);
   useEffect(() => {
-    if (prevPhase.current === 'predict' && (view.phase === 'meld' || view.phase === 'draw')) setDealing(true);
+    if (prevPhase.current === 'predict' && (view.phase === 'meld' || view.phase === 'draw')) {
+      const left = { me: view.hand.length, opp: opp?.handCount ?? 0 };
+      let turn: 'me' | 'opp' = view.currentPlayerId === user?.id ? 'me' : 'opp';
+      const seq: ('me' | 'opp')[] = [];
+      while (left.me + left.opp > 0) {
+        if (left[turn] > 0) {
+          seq.push(turn);
+          left[turn]--;
+        }
+        turn = turn === 'me' ? 'opp' : 'me';
+      }
+      setDealElapsed(0);
+      setDeal({ seq, start: performance.now() });
+    }
     prevPhase.current = view.phase;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view.phase]);
-  const endDeal = useCallback(() => setDealing(false), []);
+  useEffect(() => {
+    if (!deal) return;
+    const t = setInterval(() => setDealElapsed(performance.now() - deal.start), 40);
+    return () => clearInterval(t);
+  }, [deal]);
+  const endDeal = useCallback(() => setDeal(null), []);
+  const landed = deal ? deal.seq.slice(0, dealtCount(dealElapsed, deal.seq.length)) : null;
+  const dealtMine = landed ? landed.filter((x) => x === 'me').length : Infinity;
+  const dealtOpp = landed ? landed.filter((x) => x === 'opp').length : Infinity;
+  const vh = useViewportHeight();
+  const handCardW = vh < 560 ? 42 : vh < 660 ? 48 : vh < 780 ? 54 : 60;
   const [hint, setHint] = useState<string | null>(null);
   const [handRef, handWidth] = useWidth<HTMLDivElement>();
   const [oppRef, oppWidth] = useWidth<HTMLDivElement>();
@@ -453,17 +530,12 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
 
   const shell = (children: React.ReactNode) => (
     <div className="felt-pattern fixed inset-0 z-[35] flex flex-col overflow-hidden text-white">
-      <div className="absolute left-3 top-3 z-[36] flex gap-1.5">
-        <Link href="/games/conquer" className="flex items-center gap-1.5 rounded-full bg-black/40 px-3 py-1.5 text-xs font-bold">
-          ← Lobby
-        </Link>
-        <button type="button" onClick={() => setShowRules(true)} className="rounded-full bg-black/40 px-3 py-1.5 text-xs font-bold">
-          <span className="font-ethiopic">ህጎች</span> · Rules
-        </button>
-      </div>
+      <Link href="/games/conquer" aria-label="Back to the lobby" className="absolute left-2 top-2 z-[36] grid h-8 w-8 place-items-center rounded-full bg-black/40 text-sm font-bold">
+        ←
+      </Link>
       {children}
-      {showRules && <ConquerRulesSheet onClose={() => setShowRules(false)} />}
-      {dealing && <ShuffleAndDeal onDone={endDeal} />}
+      {deal && <ShuffleAndDeal onDone={endDeal} sequence={deal.seq} />}
+      {myTurn && (view.phase === 'draw' || view.phase === 'meld') && <GracePopup view={view} serverNow={serverNow} />}
       {choice && <JokerChooser choice={choice} onPick={pick} onCancel={() => setChoice(null)} />}
       {confirmBase && (
         <div className="absolute inset-0 z-40 grid place-items-center bg-black/60 p-6 backdrop-blur-sm" role="dialog" aria-modal="true">
@@ -545,15 +617,15 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
   return shell(
     <>
       {/* Opponent */}
-      <div className="flex flex-col items-center pt-2">
+      <div className="flex shrink-0 flex-col items-center pt-2">
         <div className="mb-1 flex items-center gap-1.5 text-xs font-bold">
           <span className={`h-2 w-2 rounded-full ${oppInfo?.online ? 'bg-lime' : 'bg-white/40'}`} title={oppInfo?.online ? 'Online' : 'Offline'} />
           {oppInfo?.displayName ?? 'Opponent'}
-          <span className="font-normal text-white/60">· {opp?.handCount}</span>
+          <span className="font-normal text-white/60">· {Math.min(opp?.handCount ?? 0, dealtOpp)}</span>
         </div>
-        <div ref={oppRef} className="w-full max-w-md pt-3">
+        <div ref={oppRef} className="w-full max-w-md px-8 pt-3">
           <Fan
-            cards={oppCards}
+            cards={oppCards.slice(0, dealtOpp)}
             width={oppWidth}
             flip
             faces={oppFaces}
@@ -570,7 +642,7 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
         <div className="my-auto flex w-full flex-col items-center gap-2 py-1">
       <div className="flex shrink-0 items-center justify-center gap-10">
         <div className="flex flex-col items-center gap-1">
-          <div className="relative pt-11">
+          <div className="relative pt-10">
             {/* The base card lies face-up under the deck; its corner (rank and suit) stays visible. */}
             {view.baseInStock && view.baseCard && (
               <button
@@ -580,7 +652,7 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
                 className={`absolute left-1/2 top-0 -translate-x-1/2 rounded-lg disabled:cursor-default ${view.legal.takeBase ? 'ring-2 ring-gold/70' : ''}`}
                 aria-label={`Base card ${label(view.baseCard)} — draw it (you must then go out this turn)`}
               >
-                <FanCard card={view.baseCard} />
+                <FanCard card={view.baseCard} width={48} />
               </button>
             )}
             <button
@@ -600,7 +672,7 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
             </span>
           )}
         </div>
-        <div className="flex flex-col items-center gap-1 pt-11">
+        <div className="flex flex-col items-center gap-1 pt-10">
           <button
             type="button"
             disabled={!view.legal.takeDiscard || pending}
@@ -625,7 +697,7 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
 
       {/* Turn bar */}
       {view.phase !== 'roundOver' && view.phase !== 'finished' && (
-        <div className="py-2">
+        <div className="shrink-0 py-1">
           {myTurn && !me?.opened && (view.mustOpen || view.openingProgress > 0) && (
             <div className="mx-auto mb-1 w-fit rounded-full border border-gold/60 bg-black/40 px-3 py-1 text-center font-ethiopic text-[11px] font-bold text-gold">
               {view.mustOpen ? 'ከመሬት ካርታ ወስደዋል — ' : ''}
@@ -644,7 +716,7 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
             </div>
           )}
           <TurnBar view={view} serverNow={serverNow} state={state} mine={myTurn} />
-          <div className="mt-1 text-center text-[11px] text-white/70">
+          <div className="mt-0.5 text-center text-[11px] text-white/70">
             You · {me?.opened ? <span className="text-lime">ገብተዋል (in)</span> : `ለመግባት ${view.config.rules.openingThreshold} ነጥብ (${view.config.rules.openingThreshold} to go in)`}
             {view.pendingWild && <span className="text-gold"> · use your joker {label(view.pendingWild)} before discarding</span>}
             {view.pendingPickup && !myTurn && (
@@ -659,18 +731,19 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
 
       {/* My hand and actions */}
       {me && view.phase !== 'roundOver' && view.phase !== 'finished' && (
-        <div className="pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+        <div className="shrink-0 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
           <div ref={handRef} className="mx-auto w-full max-w-xl">
             <Fan
-              cards={order}
+              cards={order.slice(0, dealtMine)}
               width={handWidth}
+              cardWidth={handCardW}
               selected={selected}
               wild={wild}
               marked={myTurn ? view.pendingPickup : null}
               onTap={myTurn ? toggle : undefined}
             />
           </div>
-          <div className="mt-1 flex flex-wrap justify-center gap-1.5 px-2">
+          <div className="mx-auto mt-1 grid w-full max-w-md grid-cols-5 gap-1 px-2">
             <ActionButton am="ውረድ" en="meld" onClick={enter} disabled={!myTurn || pending || view.phase !== 'meld' || selected.length < 3} />
             <ActionButton am="ጨምር" en="open" onClick={addToMeld} disabled={!canLayOff || pending} />
             <ActionButton am="ጆከር መተካት" en="swap joker" tone="gold" onClick={() => swapTarget && void act({ type: 'swapWild', meldId: swapTarget.id, card: selected[0] })} disabled={!view.legal.swapWild || !swapTarget || pending} />
