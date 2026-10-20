@@ -4,6 +4,7 @@ import { ludoEngine } from './ludo/ludo.engine';
 import { pokerEngine } from './poker/poker.engine';
 import { blackjackEngine } from './blackjack/blackjack.engine';
 import { conquerEngine } from './conquer/conquer.engine';
+import { crazyEngine } from './crazy/crazy.engine';
 
 export * from './core';
 export * from './ludo/ludo.engine';
@@ -12,6 +13,7 @@ export * from './poker/hand-evaluator';
 export * from './blackjack/blackjack.engine';
 export * from './conquer/conquer.engine';
 export * as conquerRules from './conquer/rules';
+export * from './crazy/crazy.engine';
 
 /** Engines that are implemented and playable. */
 
@@ -20,6 +22,7 @@ export const ENGINES: Partial<Record<GameSlug, GameEngine<any, any>>> = {
   poker: pokerEngine,
   blackjack: blackjackEngine,
   conquer: conquerEngine,
+  crazy: crazyEngine,
 };
 
 export function getEngine(slug: GameSlug): GameEngine<any, any> | null {

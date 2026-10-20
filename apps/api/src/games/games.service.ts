@@ -17,7 +17,7 @@ export class GamesService implements OnApplicationBootstrap {
 
   /**
    * Makes the `games` table match the catalog exactly: inserts missing games,
-   * refreshes copy, and deletes anything that is not one of the four games.
+   * refreshes copy, and deletes anything that is not in the catalog.
    * Admin toggles (enabled / maintenance) are preserved for existing rows.
    */
   async syncCatalog() {

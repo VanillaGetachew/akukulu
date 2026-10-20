@@ -1,6 +1,6 @@
 # አኩኩሉ | Akukulu
 
-A Telegram Mini App gaming platform with exactly four games — **Ludo, Poker, Blackjack and Conquer** — played with free, non-redeemable virtual points.
+A Telegram Mini App gaming platform with five games — **Ludo, Poker, Blackjack, Conquer and Crazy** — played with free, non-redeemable virtual points.
 
 > Points are free in-game credits. They cannot be purchased, transferred between users, or exchanged for money. There is no cash wagering.
 
@@ -8,11 +8,12 @@ A Telegram Mini App gaming platform with exactly four games — **Ludo, Poker, B
 
 | Area | State |
 |---|---|
-| Game catalog (`ludo`, `poker`, `blackjack`, `conquer`) | ✅ Single source in `packages/shared`; API prunes any other game on boot |
+| Game catalog (`ludo`, `poker`, `blackjack`, `conquer`, `crazy`) | ✅ Single source in `packages/shared`; API prunes any other game on boot |
 | Ludo | ✅ Engine, real-time UI, server dice, timers, settlement — [rules](docs/GAMES/LUDO_RULES.md) |
 | Poker (NL Texas Hold'em) | ✅ Engine, hand evaluator, side pots, UI, private cards — [rules](docs/GAMES/POKER_RULES.md) |
 | Blackjack | ✅ Engine, S17 / 3:2, double, split, UI, hidden hole card — [rules](docs/GAMES/BLACKJACK_RULES.md) |
-| Conquer (Ethiopian, 1v1) | ✅ **Playable beta** — 52 cards, 14-card hands, Up/Down/Side/Up & Down wildcards, 41-point opening, swaps, exhaustion scoring, rematches. Several house rules await confirmation — [rules](docs/GAMES/CONQUER_RULES.md#rules-awaiting-confirmation) |
+| Conquer (Ethiopian, 1v1) | ✅ 54 cards with printed jokers, 14/13-card hands, Up/Down/Side/Up & Down jokers, 41-point opening, swaps, protected discards, rematches — [rules](docs/GAMES/CONQUER_RULES.md) |
+| Crazy (Crazy Eights, 2–5 players) | ✅ 8s wild, stacking draw-twos, draw up to 3 then pass, reshuffle, blocked-game scoring, pot to the winner — [rules](docs/GAMES/CRAZY_RULES.md) |
 | Telegram auth (initData HMAC on the backend) | ✅ |
 | Rooms: public/private, codes, invites, ready-up, quick play | ✅ |
 | Socket.IO real-time, server-authoritative state, reconnection | ✅ |
@@ -24,7 +25,8 @@ A Telegram Mini App gaming platform with exactly four games — **Ludo, Poker, B
 | Docker Compose | ✅ |
 
 ### Known limitations
-- Conquer's wildcard prediction mapping and several wildcard/ending rules are documented defaults that still need confirmation against authoritative Ethiopian rules; the game is marked **Beta**. Only the 1v1 mode exists.
+- Conquer is 1v1 only. A few optional Conquer rules are listed under [awaiting confirmation](docs/GAMES/CONQUER_RULES.md#rules-awaiting-confirmation).
+- Crazy plays one game per table (no multi-round score race to 100); use Play again for another game.
 - Schema is managed with TypeORM `synchronize`; generated migrations are a follow-up ([deployment notes](docs/DEPLOYMENT.md#4-schema)).
 - Blackjack is single-seat (one player per dealer).
 - Poker blinds are fixed for the whole table; no rebuys; showdown hands are always revealed (no mucking).

@@ -21,14 +21,14 @@ export interface CreateRoomInput {
 type StartResult = Awaited<ReturnType<MatchRuntimeService['startFromRoom']>>;
 
 /** Default room stake per game: Ludo entry, Poker buy-in, Blackjack minimum bet. */
-const DEFAULT_STAKE: Record<GameSlug, number> = { ludo: 0, poker: 500, blackjack: 10, conquer: 0 };
+const DEFAULT_STAKE: Record<GameSlug, number> = { ludo: 0, poker: 500, blackjack: 10, conquer: 0, crazy: 0 };
 
 /** Points a player must hold to sit down. */
 function requiredBalance(slug: GameSlug, config: Record<string, unknown>): number {
   if (slug === 'ludo') return Number(config.stake ?? 0);
   if (slug === 'poker') return Number(config.buyIn ?? 0);
   if (slug === 'blackjack') return Number(config.minBet ?? 0);
-  if (slug === 'conquer') return Number(config.stake ?? 0);
+  if (slug === 'conquer' || slug === 'crazy') return Number(config.stake ?? 0);
   return 0;
 }
 

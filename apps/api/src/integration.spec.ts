@@ -11,6 +11,7 @@ import {
   LEGACY_CONQUER_MAINTENANCE_MESSAGE,
   type BlackjackView,
   type ConquerView,
+  type CrazyView,
   type LudoView,
   type MatchStatePayload,
   type PokerView,
@@ -78,7 +79,7 @@ suite('API integration', () => {
     await t?.close();
   });
 
-  it('serves exactly the four-game catalog and prunes legacy games', async () => {
+  it('serves exactly the five-game catalog and prunes legacy games', async () => {
     const ds = t.app.get(DataSource);
     await ds.query(`INSERT INTO games (slug, name, tagline, description, "minPlayers", "maxPlayers") VALUES ('bingo','Bingo','x','x',1,1)`);
     // A database seeded before Conquer had an engine carries the automatic "rules pending" maintenance.
@@ -89,6 +90,7 @@ suite('API integration', () => {
     const bySlug = Object.fromEntries(res.body.map((g: { slug: string }) => [g.slug, g]));
     expect(bySlug.ludo.playable).toBe(true);
     expect(bySlug.conquer).toMatchObject({ playable: true, maintenance: false, beta: false, minPlayers: 2, maxPlayers: 2 });
+    expect(bySlug.crazy).toMatchObject({ playable: true, maintenance: false, minPlayers: 2, maxPlayers: 5 });
   });
 
   it('verifies Telegram initData on the backend and grants the welcome bonus once', async () => {
@@ -308,6 +310,44 @@ suite('API integration', () => {
     expect(board[0]).toMatchObject({ userId: winner.id, won: 1 });
     const events = (await api('GET', `/matches/${matchId}/events`, a.token)).body;
     expect(events[0].seq).toBe(1);
+  });
+
+  it('three players finish a Crazy game over Socket.IO: private hands, server-checked plays, one payout', async () => {
+    const players = [await login('Chaltu'), await login('Dawit'), await login('Eden')];
+    const matchId = await startRoom('crazy', 40, players);
+    for (const p of players) expect(await balance(p)).toBe(960);
+    const byId = new Map(players.map((p) => [p.id, p]));
+
+    let s = await state<CrazyView>(matchId, players[0]);
+    expect(s.view.hand).toHaveLength(5);
+    expect(s.view.players.every((p) => p.handCount === 5 && p.revealedHand === null)).toBe(true);
+    const first = byId.get(s.view.currentPlayerId!)!;
+    const firstView = (await state<CrazyView>(matchId, first)).view;
+    const illegal = firstView.hand.find((c) => !firstView.legal.play.includes(c));
+    if (illegal) expect(await act(first, matchId, { type: 'play', card: illegal, suit: 'h' })).toMatchObject({ ok: false });
+    const idle = players.find((p) => p !== first)!;
+    expect(await act(idle, matchId, { type: 'draw' })).toMatchObject({ ok: false, code: 'NOT_YOUR_TURN' });
+
+    for (let i = 0; i < 3000; i++) {
+      s = await state<CrazyView>(matchId, players[0]);
+      if (s.status !== 'active') break;
+      const current = byId.get(s.view.currentPlayerId!)!;
+      const v = (await state<CrazyView>(matchId, current)).view;
+      const action = v.legal.play.length
+        ? { type: 'play', card: v.legal.play[0], suit: v.hand.find((c) => c !== v.legal.play[0])?.[1] ?? 'h' }
+        : v.legal.draw
+          ? { type: 'draw' }
+          : { type: 'pass' };
+      expect(await act(current, matchId, action)).toEqual({ ok: true });
+    }
+    expect(s.status).toBe('finished');
+    const winner = byId.get(s.view.winnerId!)!;
+    expect(await balance(winner)).toBe(960 + 120);
+    for (const p of players) if (p !== winner) expect(await balance(p)).toBe(960);
+    const payouts = await t.app.get(DataSource).query(`SELECT COUNT(*)::int AS n FROM ledger_entries WHERE "matchId" = $1 AND type = 'payout'`, [matchId]);
+    expect(payouts[0].n).toBe(1);
+    const summary = (await api('GET', `/matches/${matchId}`, winner.token)).body;
+    expect(summary.players.find((p: { userId: string }) => p.userId === winner.id)).toMatchObject({ placement: 1, outcome: 'win', pointsDelta: 80 });
   });
 
   it('keeps poker hole cards private and settles chips back to points', async () => {

@@ -147,7 +147,7 @@ bot.action('refer', async (ctx) => {
   await ctx.editMessageText(
     `🤝 Invite friends and get ${ECONOMY.referralReward} pts when they join.\nFriends joined: ${rewards.referralsCount}\n\nYour link:\n${link}`,
     Markup.inlineKeyboard([
-      [Markup.button.url('📤 Share', `https://t.me/share/url?url=${encodeURIComponent(link)}&text=${encodeURIComponent('Play Ludo, Poker, Blackjack and Conquer with me on Akukulu!')}`)],
+      [Markup.button.url('📤 Share', `https://t.me/share/url?url=${encodeURIComponent(link)}&text=${encodeURIComponent('Play Ludo, Poker, Blackjack, Conquer and Crazy with me on Akukulu!')}`)],
       [Markup.button.callback('⬅️ Menu', 'menu')],
     ]),
   );

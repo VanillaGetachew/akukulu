@@ -7,6 +7,7 @@ import { api } from '@/lib/api';
 import { useSession } from '@/lib/session';
 import { GameThumb } from '@/components/art';
 import { ConquerRulesList } from '@/components/games/conquer-rules';
+import { CrazyRulesList } from '@/components/games/crazy-rules';
 import { Avatar, Coin, EmptyState, ErrorState, LoadingState, MaintenanceState, Page, Toast } from '@/components/ui';
 
 /** Preset wagers per game; min is the smallest custom wager the server accepts. */
@@ -15,6 +16,7 @@ const STAKES: Record<GameSlug, { label: string; options: number[]; default: numb
   poker: { label: 'Buy-in', options: [200, 500, 1000, 2500, 5000, 10000, 25000, 50000], default: 500, min: 100 },
   blackjack: { label: 'Minimum bet', options: [10, 25, 50, 100, 250, 500, 1000, 5000], default: 10, min: 1 },
   conquer: { label: 'Stake per round', options: [0, 50, 100, 250, 500, 1000, 2500, 5000], default: 0, min: 0 },
+  crazy: { label: 'Entry stake', options: [0, 50, 100, 250, 500, 1000, 2500, 5000], default: 0, min: 0 },
 };
 
 const RULES: Record<GameSlug, string[]> = {
@@ -22,6 +24,7 @@ const RULES: Record<GameSlug, string[]> = {
   poker: ["No-limit Texas Hold'em. Two hole cards, five community cards.", 'Blinds rotate each hand. Check, bet, call, raise or fold.', 'All-ins create side pots. Best five-card hand wins.', 'Your buy-in becomes chips; your final stack returns to your balance.'],
   blackjack: ['Get closer to 21 than the dealer without going over.', 'Blackjack pays 3:2. Dealer stands on all 17s.', 'Double on any two cards, split pairs up to four hands.', 'Split aces get one card each.'],
   conquer: [],
+  crazy: [],
 };
 
 export default function GameLobby() {
@@ -78,7 +81,7 @@ export default function GameLobby() {
   if (!isGameSlug(slug)) {
     return (
       <Page>
-        <EmptyState title="Game not found" body="Akukulu offers Ludo, Poker, Blackjack and Conquer." />
+        <EmptyState title="Game not found" body="Akukulu offers Ludo, Poker, Blackjack, Conquer and Crazy." />
       </Page>
     );
   }
@@ -163,7 +166,7 @@ export default function GameLobby() {
                   <div>
                     <div className="mb-2 text-xs font-bold uppercase tracking-wide text-muted">Seats (private rooms)</div>
                     <div className="flex gap-2">
-                      {(slug === 'ludo' ? [2, 3, 4] : [2, 4, 6, 9]).map((n) => (
+                      {(slug === 'ludo' ? [2, 3, 4] : slug === 'crazy' ? [2, 3, 4, 5] : [2, 4, 6, 9]).map((n) => (
                         <button key={n} onClick={() => setMaxPlayers(n)} className={`rounded-xl border px-3 py-1.5 text-sm font-bold ${maxPlayers === n ? 'border-lime text-lime' : 'border-line text-muted'}`}>
                           {n}
                         </button>
@@ -243,6 +246,8 @@ export default function GameLobby() {
             <h2 className="mb-2 font-display text-base font-extrabold">How to play</h2>
             {slug === 'conquer' ? (
               <ConquerRulesList />
+            ) : slug === 'crazy' ? (
+              <CrazyRulesList />
             ) : (
               <ul className="grid gap-1.5 text-sm text-muted">
                 {RULES[slug].map((r) => (

@@ -2,7 +2,7 @@
  * The one and only game catalog. Every layer (seed data, registry, API, lobby,
  * bot, docs) derives its list of games from here.
  */
-export const GAME_SLUGS = ['ludo', 'poker', 'blackjack', 'conquer'] as const;
+export const GAME_SLUGS = ['ludo', 'poker', 'blackjack', 'conquer', 'crazy'] as const;
 export type GameSlug = (typeof GAME_SLUGS)[number];
 
 export function isGameSlug(value: unknown): value is GameSlug {
@@ -69,6 +69,17 @@ export const GAME_CATALOG: readonly GameCatalogEntry[] = [
     maxPlayers: 2,
     solo: false,
     sortOrder: 4,
+    defaultMaintenance: false,
+  },
+  {
+    slug: 'crazy',
+    name: 'Crazy',
+    tagline: 'ክሬዚ · 8s are wild',
+    description: 'Crazy Eights for 2–5 players: match the suit or rank, play an 8 to change the suit, stack 2s, and be the first to empty your hand.',
+    minPlayers: 2,
+    maxPlayers: 5,
+    solo: false,
+    sortOrder: 5,
     defaultMaintenance: false,
   },
 ];

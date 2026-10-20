@@ -110,7 +110,7 @@ export default function Lobby() {
               <br />
               <span className="text-lime">Roll in</span> and play.
             </h1>
-            <p className="mt-1.5 max-w-xs text-xs text-muted">Four classic games, real opponents, virtual points only.</p>
+            <p className="mt-1.5 max-w-xs text-xs text-muted">Five classic games, real opponents, virtual points only.</p>
             <Link href="/rewards" className="btn-primary mt-3">
               <Coin /> {dailyAvailable ? 'Claim free reward' : 'Free rewards'}
             </Link>

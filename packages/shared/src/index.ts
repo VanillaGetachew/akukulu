@@ -5,3 +5,4 @@ export * from './games/ludo';
 export * from './games/poker';
 export * from './games/blackjack';
 export * from './games/conquer';
+export * from './games/crazy';

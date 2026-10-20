@@ -106,6 +106,18 @@ function ConquerThumb() {
   );
 }
 
+function CrazyThumb() {
+  return (
+    <svg viewBox="0 0 120 120" className="h-full w-full" aria-hidden="true">
+      <rect width="120" height="120" rx="18" fill="#0d3b2e" />
+      <Card x={20} y={30} r={-14} rank="2" suit="♥" />
+      <Card x={52} y={22} r={10} rank="8" suit="♠" />
+      <circle cx="92" cy="92" r="14" fill="#ffc94a" />
+      <text x="92" y="98" fontSize="16" fontWeight="900" textAnchor="middle" fill="#07071a">★</text>
+    </svg>
+  );
+}
+
 export function GameThumb({ slug }: { slug: GameSlug }) {
   switch (slug) {
     case 'ludo':
@@ -116,5 +128,7 @@ export function GameThumb({ slug }: { slug: GameSlug }) {
       return <BlackjackThumb />;
     case 'conquer':
       return <ConquerThumb />;
+    case 'crazy':
+      return <CrazyThumb />;
   }
 }

@@ -79,7 +79,7 @@ body {
   }
 }
 
-/* Card-table felt with a faint suit pattern (Conquer table). */
+/* Card-table felt with a faint suit pattern (Conquer and Crazy tables). */
 .felt-pattern {
   background-color: #0f5a33;
   background-image:

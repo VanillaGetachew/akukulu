@@ -2,7 +2,7 @@
   "name": "akukulu",
   "private": true,
   "version": "0.1.0",
-  "description": "አኩኩሉ | Akukulu — Telegram Mini App gaming platform (Ludo, Poker, Blackjack, Conquer)",
+  "description": "አኩኩሉ | Akukulu — Telegram Mini App gaming platform (Ludo, Poker, Blackjack, Conquer, Crazy)",
   "workspaces": [
     "packages/shared",
     "packages/engines",

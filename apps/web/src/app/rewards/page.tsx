@@ -103,7 +103,7 @@ export default function RewardsPage() {
             {referralLink ? (
               <>
                 <code className="truncate rounded-lg bg-black/30 px-3 py-2 text-xs text-muted">{referralLink}</code>
-                <button className="btn-ghost" onClick={() => openShare(referralLink, 'Play Ludo, Poker, Blackjack and Conquer with me on Akukulu!')}>
+                <button className="btn-ghost" onClick={() => openShare(referralLink, 'Play Ludo, Poker, Blackjack, Conquer and Crazy with me on Akukulu!')}>
                   Share invite
                 </button>
               </>

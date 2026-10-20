@@ -3,8 +3,9 @@ import type { LudoView } from './games/ludo';
 import type { PokerView } from './games/poker';
 import type { BlackjackView } from './games/blackjack';
 import type { ConquerView } from './games/conquer';
+import type { CrazyView } from './games/crazy';
 
-export type GameView = LudoView | PokerView | BlackjackView | ConquerView;
+export type GameView = LudoView | PokerView | BlackjackView | ConquerView | CrazyView;
 
 export interface UserProfile {
   id: string;

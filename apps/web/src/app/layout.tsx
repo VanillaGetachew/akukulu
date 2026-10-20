@@ -10,7 +10,7 @@ const ethiopic = Noto_Sans_Ethiopic({ subsets: ['ethiopic'], variable: '--font-e
 
 export const metadata: Metadata = {
   title: 'Akukulu — አኩኩሉ',
-  description: 'Play Ludo, Poker, Blackjack and Conquer with friends on Telegram. Free virtual points only.',
+  description: 'Play Ludo, Poker, Blackjack, Conquer and Crazy with friends on Telegram. Free virtual points only.',
 };
 
 export const viewport: Viewport = {
