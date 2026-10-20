@@ -6,6 +6,7 @@ import { isGameSlug, type GameSlug, type GameSummary, type RoomSummary } from '@
 import { api } from '@/lib/api';
 import { useSession } from '@/lib/session';
 import { GameThumb } from '@/components/art';
+import { ConquerRulesList } from '@/components/games/conquer-rules';
 import { Avatar, Coin, EmptyState, ErrorState, LoadingState, MaintenanceState, Page, Toast } from '@/components/ui';
 
 /** Preset wagers per game; min is the smallest custom wager the server accepts. */
@@ -20,13 +21,7 @@ const RULES: Record<GameSlug, string[]> = {
   ludo: ['Roll a 6 to bring a token out.', 'Land on an opponent to send it home — except on star and start squares.', 'A 6, a capture or reaching home earns another roll. Three 6s in a row ends your turn.', 'Exact roll needed to finish. First to bring all four tokens home wins the pot.'],
   poker: ["No-limit Texas Hold'em. Two hole cards, five community cards.", 'Blinds rotate each hand. Check, bet, call, raise or fold.', 'All-ins create side pots. Best five-card hand wins.', 'Your buy-in becomes chips; your final stack returns to your balance.'],
   blackjack: ['Get closer to 21 than the dealer without going over.', 'Blackjack pays 3:2. Dealer stands on all 17s.', 'Double on any two cards, split pairs up to four hands.', 'Split aces get one card each.'],
-  conquer: [
-    'Ethiopian Conquer (ካርታ ኮንከር), one against one, 52 cards, 14 each.',
-    'Before the deal the predictor sees a base card and calls Up (ላይ), Down (ታች), Side (ጎን) or Up & Down (ላይና ታች) to pick the wildcards.',
-    'Draw from the stock, or take the discard only if you meld it at once. Open with 41+ points of sets and runs.',
-    'Meld every card and discard your last to win. If the stock runs out, the lower penalty wins.',
-    'Beta: some house rules await confirmation — see the rules document.',
-  ],
+  conquer: [],
 };
 
 export default function GameLobby() {
@@ -246,14 +241,18 @@ export default function GameLobby() {
 
           <section className="card p-4">
             <h2 className="mb-2 font-display text-base font-extrabold">How to play</h2>
-            <ul className="grid gap-1.5 text-sm text-muted">
-              {RULES[slug].map((r) => (
-                <li key={r} className="flex gap-2">
-                  <span className="text-lime">•</span>
-                  {r}
-                </li>
-              ))}
-            </ul>
+            {slug === 'conquer' ? (
+              <ConquerRulesList />
+            ) : (
+              <ul className="grid gap-1.5 text-sm text-muted">
+                {RULES[slug].map((r) => (
+                  <li key={r} className="flex gap-2">
+                    <span className="text-lime">•</span>
+                    {r}
+                  </li>
+                ))}
+              </ul>
+            )}
           </section>
         </>
       )}

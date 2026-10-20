@@ -70,7 +70,6 @@ export const GAME_CATALOG: readonly GameCatalogEntry[] = [
     solo: false,
     sortOrder: 4,
     defaultMaintenance: false,
-    beta: true,
   },
 ];
 

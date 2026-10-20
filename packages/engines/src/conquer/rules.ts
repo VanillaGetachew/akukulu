@@ -24,6 +24,21 @@ export const isRed = (s: Suit) => RED.includes(s);
 /** Sets are laid out alternating red and black, as players lay them: ♥ ♣ ♦ ♠. */
 const SET_ORDER: readonly Suit[] = ['h', 'c', 'd', 's'];
 const bySetOrder = (a: { as: Card }, b: { as: Card }) => SET_ORDER.indexOf(cardSuit(a.as)) - SET_ORDER.indexOf(cardSuit(b.as));
+const isRedSuit = (s: Suit) => s === 'h' || s === 'd';
+/** Set cards in ♥♣♦♠ order, alternating red and black wherever the suits allow (♥♠♦ rather than ♥♦♠). */
+function setOrder<T extends { as: Card }>(xs: T[]): T[] {
+  const sorted = [...xs].sort(bySetOrder);
+  const red = sorted.filter((x) => isRedSuit(cardSuit(x.as)));
+  const black = sorted.filter((x) => !isRedSuit(cardSuit(x.as)));
+  const out: T[] = [];
+  let takeRed = red.length >= black.length;
+  while (red.length || black.length) {
+    const from = (takeRed && red.length) || !black.length ? red : black;
+    out.push(from.shift()!);
+    takeRed = from === black;
+  }
+  return out;
+}
 
 /** Natural value: Ace 11, 2–10 face value, J/Q/K 10. */
 export function naturalValue(rank: Rank): number {
@@ -164,8 +179,7 @@ function setCandidate(cards: Card[], rank: Rank, ctx: MeldContext, hint: Record<
   }
   if (naturals(placed) < ctx.rules.wild.minNaturalPerMeld || tooManyJokers(placed, ctx)) return null;
   if (placed.some((p) => !p.wild && ctx.taken.has(p.as))) return null;
-  placed.sort(bySetOrder);
-  return { kind: 'set', placed, points: total(placed) };
+  return { kind: 'set', placed: setOrder(placed), points: total(placed) };
 }
 
 function runCandidates(cards: Card[], suit: Suit, ctx: MeldContext, hint: Record<Card, Card>): Interpretation[] {
@@ -283,9 +297,7 @@ function extendMeldPlain(meld: Interpretation, card: Card, ctx: MeldContext, hin
       if (!as) return fail('No free position in this set');
     }
     if (as !== card && jokersUsed(meld.placed) >= ctx.rules.wild.maxPerMeld) return fail('Only one joker may be used in a meld');
-    const placed = [...meld.placed, { card, as, wild: as !== card, points: naturalValue(rank) }].sort(
-      bySetOrder,
-    );
+    const placed = setOrder([...meld.placed, { card, as, wild: as !== card, points: naturalValue(rank) }]);
     return { ok: true, meld: { kind: 'set', placed, points: total(placed) } };
   }
 
@@ -525,7 +537,7 @@ export function nearMelds(cards: Card[], ctx: MeldContext): { groups: Card[][]; 
   for (const c of left) byRank.set(cardRank(c), [...(byRank.get(cardRank(c)) ?? []), c]);
   for (const same of byRank.values()) {
     if (same.length < 2) continue;
-    const ordered = same.map((c) => ({ as: c, c })).sort(bySetOrder).map((x) => x.c);
+    const ordered = setOrder(same.map((c) => ({ as: c, c }))).map((x) => x.c);
     groups.push(ordered);
     for (const c of ordered) left.delete(c);
   }

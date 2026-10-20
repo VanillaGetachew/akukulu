@@ -100,7 +100,7 @@ describe('wildcards in melds', () => {
   });
   it('substitutes for a missing suit in a set', () => {
     const set = okMeld('9s 9h 8c', ctx(wild));
-    expect(set.placed.map((p) => p.as)).toEqual(['9h', '9d', '9s']);
+    expect(set.placed.map((p) => p.as)).toEqual(['9h', '9s', '9d']); // red and black alternate
     expect(set.points).toBe(27);
   });
   it('requires at least two natural cards per meld', () => {
@@ -108,7 +108,7 @@ describe('wildcards in melds', () => {
     expect(res.ok).toBe(false);
   });
   it('never represents a card already on the table', () => {
-    expect(okMeld('9s 9h 8c', ctx(wild, ['9d'])).placed.map((p) => p.as)).toEqual(['9h', '9c', '9s']);
+    expect(okMeld('9s 9h 8c', ctx(wild, ['9d'])).placed.map((p) => p.as)).toEqual(['9c', '9h', '9s']);
     const res = meld('7h 7s 7d', ctx(wild, ['7h']));
     expect(res.ok === false && res.error).toMatch(/already represents 7h/);
   });

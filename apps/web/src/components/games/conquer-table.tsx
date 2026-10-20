@@ -26,7 +26,8 @@ import {
 import { useSession } from '@/lib/session';
 import { Coin, PlayingCard } from '@/components/ui';
 import { CardRain, ShuffleAndDeal } from '@/components/fx';
-import { CardFace } from '@/components/card-face';
+import { CardBack, CardFace } from '@/components/card-face';
+import { ConquerRulesSheet } from './conquer-rules';
 import { nameOf, type TableProps } from './types';
 
 /** Order of the prediction buttons, as players know them. */
@@ -57,7 +58,7 @@ const HAND_H = Math.round(HAND_W * 1.4);
 function FanCard({ card, selected, joker, marked }: { card: Card; selected?: boolean; joker?: boolean; marked?: boolean }) {
   return (
     <div
-      className={`rounded-[9px] shadow-[0_2px_6px_rgba(0,0,0,.45)] ${selected ? 'outline outline-[3px] outline-lime' : marked ? 'outline outline-[3px] outline-gold' : ''}`}
+      className={`rounded-[9px] shadow-[0_1px_4px_rgba(0,0,0,.3)] ${selected ? 'outline outline-[3px] outline-lime' : marked ? 'outline outline-[3px] outline-gold' : ''}`}
       style={{ width: HAND_W, height: HAND_H }}
     >
       <CardFace card={card} width={HAND_W} star={joker} />
@@ -142,20 +143,50 @@ function Fan({
 }
 
 /**
- * Small table card with a large corner index. A joker shows the card it stands
- * for on gold paper (so the matching card can be swapped in); a false joker shows
- * the card it copies on violet paper.
+ * Small table card with a large corner index. A joker keeps its own face (gold
+ * paper, star) and a false joker its JOKER face; a tag above the card names the
+ * card it stands for, so the matching card can be swapped in.
  */
 function MiniCard({ placed, highlight, width = 34 }: { placed: Pick<ConquerPlacedCard, 'card' | 'as' | 'wild'>; highlight?: boolean; width?: number }) {
   const copy = isPrintedJoker(placed.card) && !placed.wild;
-  const shown = placed.wild || copy ? placed.as : placed.card;
+  const stands = placed.wild || copy;
+  const red = placed.as[1] === 'h' || placed.as[1] === 'd';
   return (
     <div
-      className={`shrink-0 rounded-[7px] shadow-[0_1px_3px_rgba(0,0,0,.5)] ${highlight ? 'outline outline-2 outline-lime' : ''}`}
-      style={{ width, height: Math.round(width * 1.4) }}
+      className={`relative shrink-0 rounded-[7px] shadow-[0_1px_3px_rgba(0,0,0,.45)] ${highlight ? 'outline outline-2 outline-lime' : ''}`}
+      style={{ width, height: Math.round(width * 1.4), zIndex: stands ? 5 : undefined }}
       title={placed.wild ? `Joker (${label(placed.card)}) playing as ${label(placed.as)}` : copy ? `False joker copying ${label(placed.as)}` : label(placed.card)}
     >
-      <CardFace card={shown} width={width} compact star={placed.wild} tint={placed.wild ? 'gold' : copy ? 'violet' : undefined} />
+      <CardFace card={placed.card} width={width} compact star={placed.wild} tint={placed.wild ? 'gold' : undefined} />
+      {stands && (
+        <span
+          className={`absolute -top-3 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full border px-1 text-[10px] font-black leading-[14px] shadow ${copy ? 'border-violet bg-[#f1ebff]' : 'border-gold bg-[#fff4d1]'} ${red ? 'text-[#c8102e]' : 'text-[#17171c]'}`}
+        >
+          {label(placed.as)}
+        </span>
+      )}
+    </div>
+  );
+}
+
+/** The deck as a 3D block: card edges stacked below the top back, thicker while it holds more cards. */
+function DeckStack({ count, active }: { count: number; active: boolean }) {
+  const w = 52;
+  const h = Math.round(w * 1.4);
+  const layers = Math.max(1, Math.min(7, Math.ceil(count / 4)));
+  return (
+    <div className="relative" style={{ width: w + 4, height: h + layers * 2 + 4 }}>
+      {Array.from({ length: layers }, (_, i) => (
+        <div
+          key={i}
+          className="absolute rounded-[8px] border border-[#c9c3b3] bg-[#f4f1e8]"
+          style={{ width: w, height: h, top: (layers - i) * 2, left: (layers - i) * 0.6, boxShadow: i === 0 ? '0 6px 10px rgba(0,0,0,.45)' : undefined }}
+        />
+      ))}
+      <div className={`absolute left-0 top-0 rounded-[8px] ${active ? 'animate-pulseRing' : ''}`} style={{ width: w, height: h }}>
+        <CardBack width={w} />
+        <span className="absolute right-1 top-1 rounded-full bg-black/70 px-1.5 text-[10px] font-bold">{count}</span>
+      </div>
     </div>
   );
 }
@@ -238,7 +269,7 @@ function MeldRow({ meld, onTap }: { meld: ConquerMeldView; onTap?: () => void })
       type="button"
       onClick={onTap}
       disabled={!onTap}
-      className={`flex items-center rounded-xl p-1 transition ${onTap ? 'bg-lime/15 ring-1 ring-lime/60' : 'bg-black/20'}`}
+      className={`flex items-center rounded-xl p-1 transition ${meld.cards.some((p) => p.as !== p.card) ? 'pt-3' : ''} ${onTap ? 'bg-lime/15 ring-1 ring-lime/60' : 'bg-black/20'}`}
       aria-label={`${meld.kind}, ${meld.points} points${onTap ? ' — tap to lay off here' : ''}`}
     >
       <div className="flex -space-x-2.5">
@@ -302,6 +333,7 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
   const [selected, setSelected] = useState<Card[]>([]);
   const [choice, setChoice] = useState<JokerChoice | null>(null);
   const [confirmBase, setConfirmBase] = useState(false);
+  const [showRules, setShowRules] = useState(false);
   // Shuffle-and-deal plays when this client sees the prediction end (not on a mid-round reconnect).
   const [dealing, setDealing] = useState(false);
   const prevPhase = useRef(view.phase);
@@ -421,10 +453,16 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
 
   const shell = (children: React.ReactNode) => (
     <div className="felt-pattern fixed inset-0 z-[35] flex flex-col overflow-hidden text-white">
-      <Link href="/games/conquer" className="absolute left-3 top-3 z-[36] flex items-center gap-1.5 rounded-full bg-black/40 px-3 py-1.5 text-xs font-bold">
-        ← Lobby
-      </Link>
+      <div className="absolute left-3 top-3 z-[36] flex gap-1.5">
+        <Link href="/games/conquer" className="flex items-center gap-1.5 rounded-full bg-black/40 px-3 py-1.5 text-xs font-bold">
+          ← Lobby
+        </Link>
+        <button type="button" onClick={() => setShowRules(true)} className="rounded-full bg-black/40 px-3 py-1.5 text-xs font-bold">
+          <span className="font-ethiopic">ህጎች</span> · Rules
+        </button>
+      </div>
       {children}
+      {showRules && <ConquerRulesSheet onClose={() => setShowRules(false)} />}
       {dealing && <ShuffleAndDeal onDone={endDeal} />}
       {choice && <JokerChooser choice={choice} onPick={pick} onCancel={() => setChoice(null)} />}
       {confirmBase && (
@@ -508,7 +546,12 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
     <>
       {/* Opponent */}
       <div className="flex flex-col items-center pt-2">
-        <div ref={oppRef} className="w-full max-w-md">
+        <div className="mb-1 flex items-center gap-1.5 text-xs font-bold">
+          <span className={`h-2 w-2 rounded-full ${oppInfo?.online ? 'bg-lime' : 'bg-white/40'}`} title={oppInfo?.online ? 'Online' : 'Offline'} />
+          {oppInfo?.displayName ?? 'Opponent'}
+          <span className="font-normal text-white/60">· {opp?.handCount}</span>
+        </div>
+        <div ref={oppRef} className="w-full max-w-md pt-3">
           <Fan
             cards={oppCards}
             width={oppWidth}
@@ -519,11 +562,6 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
               if (m && openTargets.includes(m.id)) layOff(m);
             }}
           />
-        </div>
-        <div className="mt-1 flex items-center gap-1.5 text-xs font-bold">
-          <span className={`h-2 w-2 rounded-full ${oppInfo?.online ? 'bg-lime' : 'bg-white/40'}`} title={oppInfo?.online ? 'Online' : 'Offline'} />
-          {oppInfo?.displayName ?? 'Opponent'}
-          <span className="font-normal text-white/60">· {opp?.handCount} · {opp?.opened ? 'ገብቷል' : 'አልገባም'}</span>
         </div>
       </div>
 
@@ -552,11 +590,7 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
               className="relative disabled:cursor-default"
               aria-label={`Draw from the deck (${view.stockCount} left)`}
             >
-              <div className={`relative rounded-lg ${view.legal.drawStock ? 'animate-pulseRing' : ''}`}>
-                <div className="absolute left-0.5 top-0.5 h-full w-full rounded-lg bg-black/30" />
-                <PlayingCard card="??" />
-                <span className="absolute right-1 top-1 rounded-full bg-black/70 px-1.5 text-[10px] font-bold">{view.stockCount}</span>
-              </div>
+              <DeckStack count={view.stockCount} active={view.legal.drawStock} />
             </button>
           </div>
           <span className="text-[10px] font-bold uppercase tracking-widest text-white/70">Deck</span>

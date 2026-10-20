@@ -130,7 +130,7 @@ export interface ConquerConfig {
 export const DEFAULT_CONQUER_CONFIG: ConquerConfig = {
   rules: DEFAULT_CONQUER_RULES,
   stake: 0,
-  turnSeconds: 60,
+  turnSeconds: 90,
   predictSeconds: 30,
   rematchSeconds: 60,
   maxMissedTurns: 3,

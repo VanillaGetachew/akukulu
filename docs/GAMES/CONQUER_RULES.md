@@ -53,7 +53,7 @@ Boundaries (`prediction.boundary`, still unconfirmed): by default ranks **wrap**
 - **Swap** (`wild.allowSwap`): an opened player may give the natural card a table wildcard represents and take that wildcard into hand. The swap is atomic. The wildcard must be melded or laid off **before that turn's discard** (`wild.swappedMustBeUsedSameTurn`).
 
 ## 5. Melds
-- **Set:** 3–4 cards of one rank, all suits distinct, laid out alternating red and black: ♥ ♣ ♦ ♠ (owner-confirmed).
+- **Set:** 3–4 cards of one rank, all suits distinct, laid out in ♥ ♣ ♦ ♠ order with red and black alternating wherever the suits allow (♥ ♠ ♦, ♣ ♥ ♠; owner-confirmed).
 - **Run:** 3 or more consecutive cards of one suit (A low or high; no wrap).
 - Every proposed meld is validated on the server (`interpretMeld`, `extendMeld`). Claimed point totals from clients are ignored.
 
@@ -92,7 +92,7 @@ The server tracks each player's hand, every table meld (with who contributed eac
 - Match result: ranked by rounds won. Equal rounds is a draw, unless someone left (they lose).
 
 ## 11. Timeouts and disconnection
-- **Running out of time loses the round** (confirmed by the owner, `timeoutLoses`): prediction 30 s, turn 60 s. The opponent wins the round and its stakes; a rematch is still offered.
+- **Running out of time loses the round** (confirmed by the owner, `timeoutLoses`): prediction 30 s, turn **90 s** (1:30). The opponent wins the round and its stakes; a rematch is still offered.
 - Leaving mid-round forfeits the round to the opponent and ends the match.
 - (With `timeoutLoses: false` the server would instead auto-play timed-out turns and forfeit after `maxMissedTurns`.)
 - Disconnected players keep their seat. The opponent sees an online/offline badge, and on reconnect the client re-subscribes and receives its private state. All state lives in PostgreSQL, and an integration test restarts the API mid-turn and continues the round.
@@ -103,7 +103,7 @@ Each player receives only their own hand. Opponent hand sizes, the deck count an
 ## 13. Table controls
 - Tap the **deck** to draw, the **discard** to take it into your hand (it glows gold), or the **base card** peeking under the deck (rank and suit visible) to take it after confirming.
 - Progress toward 41 is shown as a pill (e.g. `ከመሬት ካርታ ወስደዋል — 30/41`).
-- Table melds show each card's rank and suit; a joker shows the card it stands for in gold, so you can see what to swap.
+- Table melds show each card's rank and suit. A joker keeps its own face (gold paper, ★) and a false joker its JOKER face, with a tag **above the card** naming the card it stands for, so you can see what to swap.
 - **ውረድ** (Meld): select cards and press it; the app splits the selection into sets and runs (asking which card a joker stands for when there is a choice).
 - **ጨምር** (Open): enabled only when the one selected card can be added to a meld on the table; only the melds it fits light up.
 - **ጆከር መተካት** (swap joker): select the natural card a table joker stands for.
@@ -111,10 +111,14 @@ Each player receives only their own hand. Opponent hand sizes, the deck count an
 - **Animations:** both players see the deck shuffled and dealt when the prediction ends; the round winner (and the match winner) sees cards falling from the sky.
 - Hand order: a new deal is sorted by suit and drawn cards go on the right; nothing reorders automatically.
 - **ደርድር** (best order): rearranges the hand with the best melds first, jokers placed in the gaps they fill, then **near-melds**: run fragments (same suit, one or two apart) and same-rank pairs. Single cards come next, by suit and rank, with leftover jokers last (`arrangeHand()` / `nearMelds()`).
-- **Cards** are drawn as realistic SVG faces (`card-face.tsx`): corner indices, traditional pips, framed court cards, a printed joker and a lattice back. A table joker shows the card it plays as on gold paper, and a false joker shows its copy on violet paper.
+- **Cards** are drawn as realistic SVG faces (`card-face.tsx`): corner indices, traditional pips, framed court cards, a printed joker and a lattice back. Faces are kept flat and simple: a corner index and one large suit (or the court letter).
+- The **deck** is drawn as a 3D stack that thins as it empties. The opponent's name sits above their fan.
 - The **opponent's melds** are shown face-up at the front of their fan at the top. Tap one (it glows green) to add the selected card to it.
 - The **discard pile** shows the last four discards tossed at angles, with the top card the most visible.
 - **ጣል** is disabled for a protected card (joker or open card), with a hint explaining why.
+
+## In-app rules
+Players read the rules in the game lobby (*How to play*) and from the **ህጎች · Rules** button at the table (`conquer-rules.tsx`). Conquer is no longer marked Beta.
 
 ## Rules awaiting confirmation
 | Option | Default | Question to confirm |

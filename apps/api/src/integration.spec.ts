@@ -88,7 +88,7 @@ suite('API integration', () => {
     expect(res.body.map((g: { slug: string }) => g.slug)).toEqual([...GAME_SLUGS]);
     const bySlug = Object.fromEntries(res.body.map((g: { slug: string }) => [g.slug, g]));
     expect(bySlug.ludo.playable).toBe(true);
-    expect(bySlug.conquer).toMatchObject({ playable: true, maintenance: false, beta: true, minPlayers: 2, maxPlayers: 2 });
+    expect(bySlug.conquer).toMatchObject({ playable: true, maintenance: false, beta: false, minPlayers: 2, maxPlayers: 2 });
   });
 
   it('verifies Telegram initData on the backend and grants the welcome bonus once', async () => {
