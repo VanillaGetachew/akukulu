@@ -12,6 +12,12 @@ export interface CrazyRules {
   skipRank: Rank | null;
   /** This rank may carry more cards of its own suit, dropped together in one play (null = off). */
   carryRank: Rank | null;
+  /** The carry card played on its own skips the next player, like the skip rank. */
+  loneCarrySkips: boolean;
+  /** Wild cards may be carried whatever their suit: they count as the carry card's suit. */
+  carryWilds: boolean;
+  /** The starter gets one extra card and opens the empty pile with any card (no card is turned up). */
+  starterOpens: boolean;
   /** Draws allowed per turn (0 = draw until you can play). */
   maxDraws: number;
   /** Draws needed before a player may pass. */
@@ -27,7 +33,10 @@ export const DEFAULT_CRAZY_RULES: CrazyRules = {
   stackDrawTwo: true,
   skipRank: '5',
   carryRank: '7',
-  maxDraws: 3,
+  loneCarrySkips: true,
+  carryWilds: true,
+  starterOpens: true,
+  maxDraws: 1,
   passAfterDraws: 1,
   handSizeTwoPlayers: 7,
   handSizeMorePlayers: 5,
@@ -38,7 +47,7 @@ export interface CrazyConfig {
   /** Entry stake per player; the winner takes the pot. */
   stake: number;
   turnSeconds: number;
-  /** Consecutive timed-out turns before a player forfeits. */
+  /** Timed-out turns in a game before a player loses (each earlier one draws a card and passes). */
   maxMissedTurns: number;
 }
 
@@ -46,7 +55,7 @@ export const DEFAULT_CRAZY_CONFIG: CrazyConfig = {
   rules: DEFAULT_CRAZY_RULES,
   stake: 0,
   turnSeconds: 30,
-  maxMissedTurns: 3,
+  maxMissedTurns: 2,
 };
 
 export const CRAZY_MIN_PLAYERS = 2;
@@ -79,7 +88,7 @@ export interface CrazyLastEvent {
   card?: Card;
   /** Every card dropped in a carried play (7 first). */
   cards?: Card[];
-  /** The player skipped by a 5. */
+  /** The player skipped by a 5 (or a 7 played alone). */
   skipped?: string;
   suit?: Suit;
   count?: number;
@@ -94,9 +103,10 @@ export interface CrazyView {
   hand: Card[];
   currentPlayerId: string | null;
   phase: 'play' | 'finished';
-  topCard: Card;
-  /** The suit to follow: the top card's suit, or the suit named with a wild card. */
-  activeSuit: Suit;
+  /** Null until the starter opens the pile. */
+  topCard: Card | null;
+  /** The suit to follow: the top card's suit, or the suit named with a wild card (null on an empty pile). */
+  activeSuit: Suit | null;
   /** Cards the next draw must take because of stacked 2s (0 when none). */
   pendingDraw: number;
   discardCount: number;

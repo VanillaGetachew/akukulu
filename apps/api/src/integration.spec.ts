@@ -322,8 +322,10 @@ suite('API integration', () => {
     const byId = new Map(players.map((p) => [p.id, p]));
 
     let s = await state<CrazyView>(matchId, players[0]);
-    expect(s.view.hand).toHaveLength(5);
-    expect(s.view.players.every((p) => p.handCount === 5 && p.revealedHand === null)).toBe(true);
+    // Everyone has 5; the starter has one extra and opens the empty pile with any card.
+    expect(s.view.players.map((p) => (p.playerId === s.view.currentPlayerId ? p.handCount - 1 : p.handCount))).toEqual([5, 5, 5]);
+    expect(s.view.players.every((p) => p.revealedHand === null)).toBe(true);
+    expect(s.view.topCard).toBeNull();
     const first = byId.get(s.view.currentPlayerId!)!;
     const firstView = (await state<CrazyView>(matchId, first)).view;
     const illegal = firstView.hand.find((c) => !firstView.legal.play.includes(c));

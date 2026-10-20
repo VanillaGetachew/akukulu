@@ -178,8 +178,10 @@ function describe(e: CrazyLastEvent | null, name: (id: string) => string): strin
       return `${who} picked up ${e.count} cards`;
     case 'pass':
       return `${who} passed`;
+    case 'timeout':
+      return `${who} ran out of time and drew a card — next time they lose`;
     case 'forfeit':
-      return `${who} left the game`;
+      return `${who} is out of the game`;
     default:
       return null;
   }
@@ -234,9 +236,11 @@ export function CrazyTable({ state, view, act, pending, serverNow }: TableProps<
     if (dealtOnce.current) return;
     dealtOnce.current = true;
     if (view.phase !== 'play' || view.turn !== 1 || view.lastEvent !== null || myIndex < 0) return;
-    const size = me?.handCount ?? 0;
+    // Round by round; the starter's extra card comes last.
+    const seats = [view.players[myIndex], ...opponents];
+    const rounds = Math.max(...seats.map((p) => p.handCount));
     const seq: string[] = [];
-    for (let r = 0; r < size; r++) for (const p of [view.players[myIndex], ...opponents]) seq.push(p.playerId);
+    for (let r = 0; r < rounds; r++) for (const p of seats) if (r < p.handCount) seq.push(p.playerId);
     setDeal({ seq, start: performance.now() });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -262,7 +266,13 @@ export function CrazyTable({ state, view, act, pending, serverNow }: TableProps<
   const tryPlay = (cards: Card[]) => {
     if (!cards.length) return;
     if (!playable.has(cards[0])) {
-      setHint(view.pendingDraw > 0 ? `Answer with a 2 or draw ${view.pendingDraw}` : `Play a ${SUIT_SYMBOL[view.activeSuit]} card, a ${RANK_LABEL[view.topCard[0] as Rank]} or ${wildNames}`);
+      setHint(
+        view.pendingDraw > 0
+          ? `Answer with a 2 or draw ${view.pendingDraw}`
+          : view.topCard && view.activeSuit
+            ? `Play a ${SUIT_SYMBOL[view.activeSuit]} card, a ${RANK_LABEL[view.topCard[0] as Rank]} or ${wildNames}`
+            : 'That card cannot be played now',
+      );
       return;
     }
     // The last card dropped decides the effect: a wild card asks for the next suit.
@@ -270,10 +280,12 @@ export function CrazyTable({ state, view, act, pending, serverNow }: TableProps<
     else play(cards);
   };
   const lead = selected[0];
-  const canCarry = (c: Card) => !!lead && rules.carryRank !== null && lead[0] === rules.carryRank && playable.has(lead) && c[1] === lead[1] && c !== lead;
+  // A lifted 7 can carry cards of its suit, and J / 8 of any suit (they count as its suit).
+  const canCarry = (c: Card) =>
+    !!lead && rules.carryRank !== null && lead[0] === rules.carryRank && playable.has(lead) && c !== lead && (c[1] === lead[1] || (rules.carryWilds && isWild(c)));
   /**
    * First tap lifts a card; tapping it again plays it. With a 7 lifted, tapping more
-   * cards of its suit adds them to drop together (tap one again to take it back).
+   * cards it can carry adds them to drop together (tap one again to take it back).
    */
   const tap = (c: Card) => {
     if (c === lead) return tryPlay(selected);
@@ -286,9 +298,11 @@ export function CrazyTable({ state, view, act, pending, serverNow }: TableProps<
   const turnText = myTurn
     ? view.pendingDraw > 0
       ? `የእርስዎ ተራ · answer with a 2 or draw ${view.pendingDraw}`
-      : 'የእርስዎ ተራ · your turn'
+      : view.topCard
+        ? 'የእርስዎ ተራ · your turn'
+        : 'የእርስዎ ተራ · open with any card'
     : `የ${view.currentPlayerId ? nameOf(state, view.currentPlayerId) : ''} ተራ`;
-  const suitChanged = view.activeSuit !== view.topCard[1];
+  const suitChanged = !!view.topCard && view.activeSuit !== view.topCard[1];
 
   return (
     <div className="felt-pattern fixed inset-0 z-[35] flex flex-col overflow-hidden text-white">
@@ -341,11 +355,17 @@ export function CrazyTable({ state, view, act, pending, serverNow }: TableProps<
             <span className="text-[10px] font-bold uppercase tracking-widest text-white/70">Pile</span>
           </div>
         </div>
-        <div className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold ${suitChanged ? 'bg-gold text-[#17171c]' : 'bg-black/40'}`}>
-          {suitChanged ? 'Suit changed to' : 'Follow'}
-          <span className={`grid h-6 w-6 place-items-center rounded-full bg-white text-base leading-none ${red(view.activeSuit) ? 'text-[#c8102e]' : 'text-[#17171c]'}`}>{SUIT_SYMBOL[view.activeSuit]}</span>
-          {!suitChanged && <span className="font-normal text-white/70">or {RANK_LABEL[view.topCard[0] as Rank]}</span>}
-        </div>
+        {view.topCard && view.activeSuit ? (
+          <div className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold ${suitChanged ? 'bg-gold text-[#17171c]' : 'bg-black/40'}`}>
+            {suitChanged ? 'Suit changed to' : 'Follow'}
+            <span className={`grid h-6 w-6 place-items-center rounded-full bg-white text-base leading-none ${red(view.activeSuit) ? 'text-[#c8102e]' : 'text-[#17171c]'}`}>{SUIT_SYMBOL[view.activeSuit]}</span>
+            {!suitChanged && <span className="font-normal text-white/70">or {RANK_LABEL[view.topCard[0] as Rank]}</span>}
+          </div>
+        ) : (
+          <div className="rounded-full bg-black/40 px-3 py-1 text-xs font-bold">
+            {myTurn ? 'You start — play any card' : `${view.currentPlayerId ? nameOf(state, view.currentPlayerId) : ''} starts with any card`}
+          </div>
+        )}
         {status && <div className="max-w-xs text-center text-[11px] text-white/75">{status}</div>}
       </div>
 

@@ -51,7 +51,8 @@ export interface CrazyState {
   stock: Card[];
   /** Top of the discard pile is the last element. */
   discard: Card[];
-  activeSuit: Suit;
+  /** Null while the pile is empty (the starter opens it with any card). */
+  activeSuit: Suit | null;
   pendingDraw: number;
   current: number;
   phase: 'play' | 'finished';
@@ -91,6 +92,8 @@ export function playableCards(state: CrazyState, hand: Card[]): Card[] {
   const { rules } = state.config;
   const top = state.discard[state.discard.length - 1];
   if (state.pendingDraw > 0) return rules.stackDrawTwo ? hand.filter((c) => isDrawTwo(c, rules)) : [];
+  // The starter opens an empty pile with any card.
+  if (!top) return [...hand];
   return hand.filter((c) => isWild(c, rules) || cardSuit(c) === state.activeSuit || cardRank(c) === cardRank(top));
 }
 
@@ -193,8 +196,9 @@ function nextActive(state: CrazyState, index: number): number {
 
 /**
  * Plays `cards` in order: the first is the played card, the rest are carried with a 7
- * (same suit). The last card's effect applies: a wild names the suit, a 2 adds to the
- * draw, a 5 skips the next player (with two players you play again).
+ * (its suit, plus wild cards of any suit). The last card's effect applies: a wild names
+ * the suit, a 2 adds to the draw, a 5 skips the next player (with two players you play
+ * again). A 7 played on its own skips like a 5.
  */
 function play(state: CrazyState, cards: Card[], suit: Suit | undefined, ctx: EngineContext, out: Out) {
   const player = state.players[state.current];
@@ -207,7 +211,8 @@ function play(state: CrazyState, cards: Card[], suit: Suit | undefined, ctx: Eng
   state.activeSuit = isWild(last, rules) ? suit! : cardSuit(last);
   if (isDrawTwo(last, rules)) state.pendingDraw += 2;
   state.passesInRow = 0;
-  const skip = rules.skipRank !== null && cardRank(last) === rules.skipRank;
+  const loneCarry = rules.loneCarrySkips && cards.length === 1 && rules.carryRank !== null && cardRank(last) === rules.carryRank;
+  const skip = (rules.skipRank !== null && cardRank(last) === rules.skipRank) || loneCarry;
   const skipped = skip && activeCount(state) > 1 ? state.players[nextActive(state, state.current)].playerId : undefined;
   state.lastEvent = {
     playerId: player.playerId,
@@ -226,17 +231,21 @@ function play(state: CrazyState, cards: Card[], suit: Suit | undefined, ctx: Eng
   if (skipped) nextTurn(state, ctx);
 }
 
-/** Checks a carried play: the first card must be the carry rank, the rest of its suit, all held and distinct. */
+/**
+ * Checks a carried play: the first card must be the carry rank, the rest of its suit
+ * (or wild cards of any suit, which count as its suit), all held and distinct.
+ */
 function carryError(state: CrazyState, hand: Card[], card: Card, carry: unknown): string | null {
   if (carry === undefined || (Array.isArray(carry) && carry.length === 0)) return null;
   if (!Array.isArray(carry)) return 'Bad carried cards';
-  const { carryRank } = state.config.rules;
+  const { rules } = state.config;
+  const { carryRank } = rules;
   if (carryRank === null || cardRank(card) !== carryRank) return `Only a ${carryRank ?? 'carry card'} can carry other cards`;
   const seen = new Set<Card>([card]);
   for (const c of carry) {
     if (!isValidCard(c) || !hand.includes(c)) return 'You do not hold that card';
     if (seen.has(c)) return 'A card can only be dropped once';
-    if (cardSuit(c) !== cardSuit(card)) return `A ${carryRank} can only carry cards of its own suit`;
+    if (cardSuit(c) !== cardSuit(card) && !(rules.carryWilds && isWild(c, rules))) return `A ${carryRank} can only carry cards of its own suit${rules.carryWilds ? ' and wild cards' : ''}`;
     seen.add(c);
   }
   return null;
@@ -277,47 +286,39 @@ function pass(state: CrazyState, ctx: EngineContext, out: Out) {
   nextTurn(state, ctx);
 }
 
-/** The suit an automated 8 names: the suit the player holds most of. */
-function favouriteSuit(hand: Card[], played: Card): Suit {
-  const counts = new Map<Suit, number>();
-  for (const c of hand) if (c !== played && cardRank(c) !== '8') counts.set(cardSuit(c), (counts.get(cardSuit(c)) ?? 0) + 1);
-  return [...SUITS].sort((a, b) => (counts.get(b) ?? 0) - (counts.get(a) ?? 0))[0];
-}
-
-/** A timed-out turn: take a penalty, or play the best card, or draw until something fits, else pass. */
-function autoTurn(state: CrazyState, ctx: EngineContext, out: Out) {
+/**
+ * A timed-out turn (before the last allowed timeout): the player takes any pending
+ * draw-two cards, or else draws one card, and the turn passes. Nothing is played for them.
+ */
+function timeoutTurn(state: CrazyState, ctx: EngineContext, out: Out) {
   const player = state.players[state.current];
-  const { rules } = state.config;
-  for (;;) {
-    const options = playableCards(state, player.hand);
-    if (options.length > 0) {
-      // Keep 8s for last; otherwise shed the highest-scoring card.
-      const pick = [...options].sort((a, b) => Number(isWild(a, rules)) - Number(isWild(b, rules)) || crazyCardPoints(b, rules.wildRanks) - crazyCardPoints(a, rules.wildRanks))[0];
-      play(state, [pick], isWild(pick, rules) ? favouriteSuit(player.hand, pick) : undefined, ctx, out);
-      return;
-    }
-    if (state.pendingDraw > 0) return takePenalty(state, ctx, out);
-    if (!canDraw(state)) return pass(state, ctx, out);
-    drawOne(state, player, ctx, out);
-    state.drawsThisTurn += 1;
-  }
+  if (state.pendingDraw > 0) return takePenalty(state, ctx, out);
+  if (!canDraw(state)) return pass(state, ctx, out);
+  drawOne(state, player, ctx, out);
+  state.passesInRow = 0;
+  state.lastEvent = { playerId: player.playerId, kind: 'timeout', count: 1 };
+  nextTurn(state, ctx);
 }
 
 /**
- * Games saved before the 7 / 5 / J rules keep the rules they started with:
- * only 8s wild, no skip or carry, and passing only after the draw limit.
+ * Games saved under earlier rule sets keep the rules they started with. The first
+ * release had only 8s wild, no skip or carry, and passing after the draw limit; the
+ * second added 8/J wild, 7 carry and 5 skip, but no lone-7 skip, wild carrying or opener.
  */
 function upgrade(s: CrazyState): CrazyState {
   const rules = s.config.rules as Partial<CrazyRules> & { eightsWild?: boolean };
-  if (Array.isArray(rules.wildRanks)) return s;
+  if (typeof rules.starterOpens === 'boolean') return s;
   const legacy: CrazyRules = {
     ...DEFAULT_CRAZY_RULES,
     ...rules,
-    wildRanks: rules.eightsWild === false ? [] : ['8'],
-    skipRank: null,
-    carryRank: null,
-    passAfterDraws: rules.maxDraws || 3,
-  };
+    loneCarrySkips: false,
+    carryWilds: false,
+    starterOpens: false,
+    maxDraws: rules.maxDraws ?? 3,
+    ...(Array.isArray(rules.wildRanks)
+      ? {}
+      : { wildRanks: rules.eightsWild === false ? [] : ['8'], skipRank: null, carryRank: null, passAfterDraws: rules.maxDraws || 3 }),
+  } as CrazyRules;
   delete (legacy as { eightsWild?: boolean }).eightsWild;
   return { ...s, config: { ...s.config, rules: legacy } };
 }
@@ -336,7 +337,7 @@ function validateRules(input: unknown): CrazyRules {
     }
   }
   if (raw.passAfterDraws !== undefined) rules.passAfterDraws = intInRange(raw.passAfterDraws, 0, 10, 'rules.passAfterDraws');
-  for (const key of ['drawTwo', 'stackDrawTwo'] as const) {
+  for (const key of ['drawTwo', 'stackDrawTwo', 'loneCarrySkips', 'carryWilds', 'starterOpens'] as const) {
     if (raw[key] !== undefined) {
       if (typeof raw[key] !== 'boolean') throw new ConfigError(`rules.${key} must be a boolean`);
       rules[key] = raw[key] as boolean;
@@ -373,22 +374,29 @@ export const crazyEngine: GameEngine<CrazyState, CrazyConfig, CrazyView> = {
     }
     const stock = shuffle(standardDeck(), ctx.rng);
     const size = ordered.length === 2 ? config.rules.handSizeTwoPlayers : config.rules.handSizeMorePlayers;
+    const first = ctx.rng.int(ordered.length);
     const hands: Card[][] = ordered.map(() => []);
     for (let r = 0; r < size; r++) for (const h of hands) h.push(stock.pop()!);
-    // The starter card: a wild card (8, J) goes back into the middle of the stock and another is turned.
-    let starter = stock.pop()!;
-    while (config.rules.wildRanks.includes(cardRank(starter))) {
-      stock.splice(ctx.rng.int(stock.length + 1), 0, starter);
+    let starter: Card | null = null;
+    if (config.rules.starterOpens) {
+      // The starter gets one extra card and opens the empty pile with any card.
+      hands[first].push(stock.pop()!);
+    } else {
+      // The starter card: a wild card (8, J) goes back into the middle of the stock and another is turned.
       starter = stock.pop()!;
+      while (config.rules.wildRanks.includes(cardRank(starter))) {
+        stock.splice(ctx.rng.int(stock.length + 1), 0, starter);
+        starter = stock.pop()!;
+      }
     }
     const state: CrazyState = {
       config,
       players: ordered.map((p, i) => ({ playerId: p.playerId, seat: p.seat, hand: hands[i], status: 'active', missedTurns: 0 })),
       stock,
-      discard: [starter],
-      activeSuit: cardSuit(starter),
+      discard: starter ? [starter] : [],
+      activeSuit: starter ? cardSuit(starter) : null,
       pendingDraw: 0,
-      current: ctx.rng.int(ordered.length),
+      current: first,
       phase: 'play',
       drawsThisTurn: 0,
       passesInRow: 0,
@@ -436,13 +444,11 @@ export const crazyEngine: GameEngine<CrazyState, CrazyConfig, CrazyView> = {
           );
         }
         if (isWild(last, state.config.rules) && !(SUITS as readonly unknown[]).includes(suit)) return fail('NAME_A_SUIT', `Name the suit for your ${RANK_NAME[cardRank(last)]}`);
-        player.missedTurns = 0;
         play(state, cards, suit as Suit | undefined, ctx, out);
         return ok(state, out.events, out.ledger);
       }
       case 'draw': {
         if (state.pendingDraw > 0) {
-          player.missedTurns = 0;
           takePenalty(state, ctx, out);
           return ok(state, out.events, out.ledger);
         }
@@ -450,14 +456,12 @@ export const crazyEngine: GameEngine<CrazyState, CrazyConfig, CrazyView> = {
         const card = drawOne(state, player, ctx, out)!;
         state.drawsThisTurn += 1;
         state.passesInRow = 0;
-        player.missedTurns = 0;
         state.lastEvent = { playerId, kind: 'draw', count: 1 };
         out.events.push({ type: 'draw', playerId, data: { card } });
         return ok(state, out.events, out.ledger);
       }
       case 'pass': {
         if (!canPass(state)) return fail('CANNOT_PASS', state.pendingDraw > 0 ? `Draw ${state.pendingDraw} cards or answer with a 2` : 'Draw a card first');
-        player.missedTurns = 0;
         pass(state, ctx, out);
         return ok(state, out.events, out.ledger);
       }
@@ -471,10 +475,11 @@ export const crazyEngine: GameEngine<CrazyState, CrazyConfig, CrazyView> = {
     const state = clone(upgrade(saved));
     const out: Out = { events: [], ledger: [] };
     const player = state.players[state.current];
+    // Timeouts count over the whole game: the first draws a card and passes, the last one loses.
     player.missedTurns += 1;
     out.events.push({ type: 'timeout', playerId: player.playerId, data: { missedTurns: player.missedTurns } });
-    if (player.missedTurns >= state.config.maxMissedTurns) forfeit(state, state.current, 'Missed too many turns', ctx, out);
-    else autoTurn(state, ctx, out);
+    if (player.missedTurns >= state.config.maxMissedTurns) forfeit(state, state.current, 'Ran out of time too many times', ctx, out);
+    else timeoutTurn(state, ctx, out);
     return ok(state, out.events, out.ledger);
   },
 
@@ -512,7 +517,7 @@ export const crazyEngine: GameEngine<CrazyState, CrazyConfig, CrazyView> = {
       hand: viewer ? [...viewer.hand] : [],
       currentPlayerId: finished ? null : current.playerId,
       phase: s.phase,
-      topCard: s.discard[s.discard.length - 1],
+      topCard: s.discard[s.discard.length - 1] ?? null,
       activeSuit: s.activeSuit,
       pendingDraw: s.pendingDraw,
       discardCount: s.discard.length,

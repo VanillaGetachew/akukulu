@@ -48,15 +48,40 @@ function rigged(opts: { a: string; b: string; top: string; stockTop?: string; cu
 }
 
 describe('Crazy setup', () => {
-  it('deals 7 cards each to two players and 5 each to three or more, and turns a starter that is not wild (8 or J)', () => {
+  it('deals 7 each to two players (5 with more), and the starter gets one extra card and opens the empty pile with anything', () => {
     for (const [n, size] of [[2, 7], [3, 5], [5, 5]] as const) {
       for (let seed = 1; seed < 40; seed++) {
         const s = started(n, {}, seed).state;
-        expect(s.players.every((p) => p.hand.length === size)).toBe(true);
-        expect(s.discard).toHaveLength(1);
-        expect(['8', 'J']).not.toContain(s.discard[0][0]);
-        expect(s.activeSuit).toBe(s.discard[0][1]);
+        s.players.forEach((p, i) => expect(p.hand).toHaveLength(i === s.current ? size + 1 : size));
+        expect(s.discard).toEqual([]);
+        expect(s.activeSuit).toBeNull();
+        const v = crazyEngine.view(s, s.players[s.current].playerId);
+        expect(v.topCard).toBeNull();
+        expect(v.legal.play.sort()).toEqual([...s.players[s.current].hand].sort());
       }
+    }
+  });
+
+  it('the opening card sets the suit, and a wild opener names one', () => {
+    let s = started(2).state;
+    const starter = s.players[s.current];
+    if (!starter.hand.includes('Jd')) {
+      // Swap the J♦ into the starter's hand from wherever it was dealt.
+      const holder = [s.stock, ...s.players.map((p) => p.hand)].find((pile) => pile.includes('Jd'))!;
+      holder[holder.indexOf('Jd')] = starter.hand[0];
+      starter.hand[0] = 'Jd';
+    }
+    s = run(s, starter.playerId, { type: 'play', card: 'Jd', suit: 'c' });
+    expect(s).toMatchObject({ discard: ['Jd'], activeSuit: 'c' });
+  });
+
+  it('can still turn up a starter card instead (classic option)', () => {
+    for (let seed = 1; seed < 40; seed++) {
+      const s = started(2, { rules: { ...DEFAULT_CRAZY_RULES, starterOpens: false } }, seed).state;
+      expect(s.players.every((p) => p.hand.length === 7)).toBe(true);
+      expect(s.discard).toHaveLength(1);
+      expect(['8', 'J']).not.toContain(s.discard[0][0]);
+      expect(s.activeSuit).toBe(s.discard[0][1]);
     }
   });
 
@@ -83,9 +108,16 @@ describe('Crazy play', () => {
     expect(crazyEngine.view(s, 'a').legal.play.sort()).toEqual(['3h', '7c']);
     expect(act(s, 'a', { type: 'play', card: 'Kd' })).toMatchObject({ ok: false, code: 'ILLEGAL_CARD' });
     expect(act(s, 'b', { type: 'play', card: '4c' })).toMatchObject({ ok: false, code: 'NOT_YOUR_TURN' });
-    const next = run(s, 'a', { type: 'play', card: '7c' });
-    expect(next.activeSuit).toBe('c');
+    const next = run(s, 'a', { type: 'play', card: '3h' });
+    expect(next.activeSuit).toBe('h');
     expect(next.current).toBe(1);
+  });
+
+  it('a 7 played on its own skips like a 5', () => {
+    const s = run(rigged({ a: '7c 3h Kd', b: '4c 4d', top: '7h' }), 'a', { type: 'play', card: '7c' });
+    expect(s.activeSuit).toBe('c');
+    expect(s.current).toBe(0);
+    expect(s.lastEvent).toMatchObject({ card: '7c', skipped: 'b' });
   });
 
   it('an 8 can be played on anything and must name the next suit', () => {
@@ -166,6 +198,16 @@ describe('Crazy play', () => {
     expect(run(rigged(base), 'a', { type: 'play', card: '7h', carry: ['Jh'], suit: 'c' }).activeSuit).toBe('c');
   });
 
+  it('a 7 can carry a J or 8 of any suit: they count as its suit', () => {
+    const s = rigged({ a: '7h Kh Jc 8s 9c', b: '4c 4d', top: '7s' });
+    const end = run(s, 'a', { type: 'play', card: '7h', carry: ['Jc', 'Kh'] });
+    expect(end.discard.slice(-3)).toEqual(['7h', 'Jc', 'Kh']);
+    expect(end.activeSuit).toBe('h');
+    // Ending on a wild still names the next suit.
+    expect(act(s, 'a', { type: 'play', card: '7h', carry: ['Kh', '8s'] })).toMatchObject({ ok: false, code: 'NAME_A_SUIT' });
+    expect(run(s, 'a', { type: 'play', card: '7h', carry: ['Kh', '8s'], suit: 'd' }).activeSuit).toBe('d');
+  });
+
   it('rejects a bad carry: wrong suit, not a 7, not held, or twice', () => {
     const s = rigged({ a: '7h Kh 9c 9h', b: '4c 4d', top: '7s' });
     expect(act(s, 'a', { type: 'play', card: '7h', carry: ['9c'] })).toMatchObject({ ok: false, code: 'BAD_CARRY' });
@@ -184,22 +226,22 @@ describe('Crazy play', () => {
     let s = rigged({ a: 'Kc 9d', b: '4c 4d', top: '7h', stockTop: '3s' });
     expect(crazyEngine.view(s, 'a').legal.pass).toBe(false);
     s = run(s, 'a', { type: 'draw' });
-    expect(crazyEngine.view(s, 'a').legal).toMatchObject({ draw: true, pass: true });
+    // Only one card may be drawn: then play it if it fits, or pass.
+    expect(crazyEngine.view(s, 'a').legal).toMatchObject({ draw: false, pass: true });
+    expect(act(s, 'a', { type: 'draw' })).toMatchObject({ ok: false, code: 'NO_DRAW' });
     s = run(s, 'a', { type: 'pass' });
     expect(s.current).toBe(1);
+    expect(s.drawsThisTurn).toBe(0);
   });
 
-  it('draws up to three cards a turn, then lets the player pass', () => {
-    let s = rigged({ a: 'Kc 9d', b: '4c 4d', top: '7h', stockTop: '3s 5s 6c Ah' });
+  it('can allow more draws per turn (option)', () => {
+    let s = rigged({ a: 'Kc 9d', b: '4c 4d', top: '7h', stockTop: '3s 5s 6c Ah', rules: { maxDraws: 3 } });
     expect(act(s, 'a', { type: 'pass' })).toMatchObject({ ok: false, code: 'CANNOT_PASS' });
     s = run(s, 'a', { type: 'draw' });
     s = run(s, 'a', { type: 'draw' });
     s = run(s, 'a', { type: 'draw' });
     expect(s.players[0].hand).toEqual(['Kc', '9d', '3s', '5s', '6c']);
     expect(act(s, 'a', { type: 'draw' })).toMatchObject({ ok: false, code: 'NO_DRAW' });
-    s = run(s, 'a', { type: 'pass' });
-    expect(s.current).toBe(1);
-    expect(s.drawsThisTurn).toBe(0);
   });
 
   it('a drawn card that fits can be played straight away', () => {
@@ -262,20 +304,49 @@ describe('Crazy saved games', () => {
     const next = run(s, 'a', { type: 'play', card: '5h' });
     expect(next.current).toBe(1);
     expect(act(s, 'a', { type: 'play', card: 'Jh' }).ok).toBe(true);
+    expect(v.config.rules).toMatchObject({ loneCarrySkips: false, carryWilds: false, starterOpens: false });
+  });
+
+  it('a game saved with 8/J wild and 7 carry, before the lone-7 skip, keeps its rules', () => {
+    const s = rigged({ a: '7c 3h Jd', b: '4c 4d', top: '7h' });
+    const { loneCarrySkips: _a, carryWilds: _b, starterOpens: _c, ...older } = DEFAULT_CRAZY_RULES;
+    s.config = { ...s.config, rules: { ...older, maxDraws: 3 } as never };
+    expect(run(s, 'a', { type: 'play', card: '7c' }).current).toBe(1);
+    expect(act(s, 'a', { type: 'play', card: '7c', carry: ['Jd'] })).toMatchObject({ ok: false, code: 'BAD_CARRY' });
+    expect(crazyEngine.view(s, 'a').config.rules.maxDraws).toBe(3);
   });
 });
 
 describe('Crazy timeouts, leaving and privacy', () => {
-  it('a timed-out turn is played automatically, and too many timeouts forfeit the game', () => {
-    let s = rigged({ a: 'Kc 7d 8s', b: '4c 4d', top: '7h', stake: 0 });
+  it('the first timeout draws a card and passes; the second one in the game loses', () => {
+    let s = rigged({ a: 'Kc 7d 8s', b: '9h 5c Kd 4d', top: '7h', stockTop: '2s', stake: 50 });
     s = expectOk(crazyEngine.tick(s, ctx(s.turnDeadline!))).state;
-    // The 8 is kept: the 7 (same rank) is shed first.
-    expect(s.discard[s.discard.length - 1]).toBe('7d');
-    expect(s.players[0].missedTurns).toBe(1);
-    s.current = 0;
-    s.players[0].missedTurns = 2;
+    // Nothing is played for them: they draw one card and the turn passes.
+    expect(s.players[0].hand).toEqual(['Kc', '7d', '8s', '2s']);
+    expect(s.discard).toEqual(['7h']);
+    expect(s.current).toBe(1);
+    expect(s.lastEvent).toMatchObject({ playerId: 'a', kind: 'timeout' });
+    // Playing in between does not clear the count.
+    s = run(s, 'b', { type: 'play', card: '9h' });
+    s = run(s, 'a', { type: 'play', card: '8s', suit: 'c' });
+    s = run(s, 'b', { type: 'play', card: '5c' });
+    // 5 skips a, so b goes again; then a's turn comes and a runs out of time a second time.
+    expect(s.current).toBe(1);
+    s = run(s, 'b', { type: 'draw' });
+    s = run(s, 'b', { type: 'pass' });
+    expect(s.current).toBe(0);
+    const lost = expectOk(crazyEngine.tick(s, ctx(s.turnDeadline!)));
+    expect(lost.state).toMatchObject({ phase: 'finished', winnerId: 'b', finishReason: 'forfeit' });
+    expect(lost.ledger).toEqual([expect.objectContaining({ playerId: 'b', amount: 100, type: 'payout' })]);
+  });
+
+  it('a timeout facing stacked 2s takes the cards', () => {
+    let s = rigged({ a: '2h 9c', b: '5d 6d', top: '7h', stockTop: 'Ks Qs' });
+    s = run(s, 'a', { type: 'play', card: '2h' });
     s = expectOk(crazyEngine.tick(s, ctx(s.turnDeadline!))).state;
-    expect(s).toMatchObject({ phase: 'finished', winnerId: 'b', finishReason: 'forfeit' });
+    expect(s.players[1].hand).toHaveLength(4);
+    expect(s.pendingDraw).toBe(0);
+    expect(s.current).toBe(0);
   });
 
   it('leaving forfeits; with three players the game goes on', () => {
@@ -311,7 +382,7 @@ describe('Crazy simulated games', () => {
         if (rng.int(40) === 0) action = { type: 'leave' };
         else if (v.legal.play.length > 0 && rng.int(4) > 0) {
           const card = v.legal.play[rng.int(v.legal.play.length)];
-          const carry = card[0] === '7' ? v.hand.filter((c) => c !== card && c[1] === card[1] && rng.int(2) === 0) : [];
+          const carry = card[0] === '7' ? v.hand.filter((c) => c !== card && (c[1] === card[1] || c[0] === '8' || c[0] === 'J') && rng.int(2) === 0) : [];
           action = { type: 'play', card, suit: ['s', 'h', 'd', 'c'][rng.int(4)], ...(carry.length ? { carry } : {}) };
         } else if (v.legal.draw) action = { type: 'draw' };
         else if (v.legal.pass) action = { type: 'pass' };

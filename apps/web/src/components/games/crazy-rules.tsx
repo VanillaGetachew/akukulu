@@ -8,7 +8,7 @@ export const CRAZY_RULES: { am: string; en: string; items: string[] }[] = [
     items: [
       'Two to five players with a normal 52-card deck.',
       'With 2 players everyone gets 7 cards. With 3 or more players everyone gets 5.',
-      'One card is turned face-up to start the pile. If it is an 8 or a J, it goes back into the deck and another card is turned.',
+      'The player who starts gets one extra card (8 with 2 players) and opens the empty pile with any card they like.',
       'The first player to get rid of all their cards wins the pot.',
     ],
   },
@@ -17,10 +17,10 @@ export const CRAZY_RULES: { am: string; en: string; items: string[] }[] = [
     en: 'Your turn',
     items: [
       'Play one card that matches the top card of the pile by suit (♥ on ♥) or by rank (7 on 7).',
-      'If you cannot play, or do not want to, tap the deck to draw. You can play a drawn card straight away if it fits.',
-      'Once you have drawn a card you may pass (እለፍ). You can draw up to 3 cards in a turn.',
+      'If you cannot play, or do not want to, tap the deck to draw one card. If it fits you can play it straight away; otherwise pass (እለፍ).',
+      'Only one card can be drawn per turn.',
       'When the deck runs out, the pile is shuffled to make a new deck. The top card stays where it is.',
-      'You have 30 seconds per turn. If time runs out, a move is made for you. After 3 missed turns in a row you leave the game.',
+      'You have 30 seconds per turn. The first time your time runs out, you draw a card and the turn passes. The second time, you lose the game.',
     ],
   },
   {
@@ -28,7 +28,8 @@ export const CRAZY_RULES: { am: string; en: string; items: string[] }[] = [
     en: 'Special cards',
     items: [
       '8 and J are wild (★): play one on any card and choose the next suit. The next player must follow that suit or play another 8 or J.',
-      '7 carries cards: when you play a 7, you can drop more cards of the same suit with it in one go (7♥ K♥ 3♥). The last card you drop is the new top card, and its effect counts.',
+      '7 carries cards: when you play a 7, you can drop more cards of the same suit with it in one go (7♥ K♥ 3♥). A J or 8 of any suit can be carried too, because they are jokers (7♥ J♣ K♥). The last card you drop is the new top card, and its effect counts.',
+      'A 7 played on its own skips the next player, like a 5.',
       '5 skips the next player. With two players, you play again.',
       '2 is draw two: the next player draws 2 cards and misses their turn.',
       'You can answer a 2 with your own 2. Then the next player draws 4, then 6, and so on.',
@@ -48,7 +49,7 @@ export const CRAZY_RULES: { am: string; en: string; items: string[] }[] = [
     en: 'Buttons',
     items: [
       'Tap a card to lift it, then tap it again (or press ጣል) to play it. Cards you cannot play are dimmed.',
-      'With a 7 lifted, tap more cards of its suit to add them (they are numbered in the order they will drop), then tap the 7 or press ጣል.',
+      'With a 7 lifted, tap more cards of its suit (or a J or 8) to add them. They are numbered in the order they will drop. Then tap the 7 or press ጣል.',
       'Tap the deck in the middle to draw a card, or to take the cards from 2s.',
       'እለፍ: pass your turn after drawing a card.',
       'ደርድር: sort your hand by suit and rank.',
