@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_CONQUER_RULES, type ConquerRules } from '@akukulu/shared';
-import { arrangeHand, extendMeld, interpretMeld, layoffOptions, meldOptions, naturalValue, openingPoints, partitionIntoMelds, penaltyValue, selectWildcards, type MeldContext } from './rules';
+import { arrangeHand, nearMelds, extendMeld, interpretMeld, layoffOptions, meldOptions, naturalValue, openingPoints, partitionIntoMelds, penaltyValue, selectWildcards, type MeldContext } from './rules';
 
 const h = (s: string) => s.split(' ');
 const rules = (patch: Partial<ConquerRules> = {}): ConquerRules => ({ ...DEFAULT_CONQUER_RULES, ...patch });
@@ -255,5 +255,18 @@ describe('false (printed) jokers and the one-joker limit', () => {
   });
   it('scores a false joker left in hand as the card it copies', () => {
     expect(penaltyValue('X1', new Set(chosen), rules(), chosen)).toBe(6);
+  });
+});
+describe('best order groups near-melds', () => {
+  it('puts pairs and run fragments together before single cards', () => {
+    const { order } = arrangeHand(h('Kd 2c 5h Qs 7h Kh 9d'), ctx());
+    // 5♥-7♥ (one gap) and K♥ K♦ (pair) come before the singles 2♣ 9♦ Q♠.
+    expect(order.slice(0, 4)).toEqual(['5h', '7h', 'Kh', 'Kd']);
+    expect(order.slice(4).sort()).toEqual(['2c', '9d', 'Qs']);
+  });
+  it('keeps jokers after everything else', () => {
+    const { groups, singles } = nearMelds(h('8c 5s 6s Ad'), ctx(['8c']));
+    expect(groups).toEqual([['5s', '6s']]);
+    expect(singles).toEqual(['Ad', '8c']);
   });
 });

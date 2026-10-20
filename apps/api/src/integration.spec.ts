@@ -51,6 +51,7 @@ suite('API integration', () => {
 
   const balance = async (p: Player) => (await api('GET', '/me', p.token)).body.balance as number;
   const state = async <V>(matchId: string, p: Player) => (await api('GET', `/matches/${matchId}/state`, p.token)).body as MatchStatePayload & { view: V };
+  const allowedDiscards = (v: ConquerView) => v.hand.filter((c) => !v.undiscardable.includes(c));
   const act = (p: Player, matchId: string, action: Record<string, unknown>, clientActionId = randomUUID()) =>
     emitAck(p.socket, 'match:action', { matchId, clientActionId, action });
 
@@ -194,7 +195,7 @@ suite('API integration', () => {
 
     // The starter (14 cards) opens by discarding. Simultaneous conflicting discards: exactly one is accepted.
     const first = other;
-    const hand = (await state<ConquerView>(matchId, first)).view.hand;
+    const hand = allowedDiscards((await state<ConquerView>(matchId, first)).view);
     const racing = await Promise.all([act(first, matchId, { type: 'discard', card: hand[0] }), act(first, matchId, { type: 'discard', card: hand[1] })]);
     expect(racing.filter((r) => r.ok)).toHaveLength(1);
     expect(racing.find((r) => !r.ok)).toMatchObject({ code: 'NOT_YOUR_TURN' });
@@ -210,7 +211,7 @@ suite('API integration', () => {
       s = await state<ConquerView>(matchId, a);
       const current = s.view.currentPlayerId === a.id ? a : b;
       const mine = (await state<ConquerView>(matchId, current)).view;
-      expect(await act(current, matchId, mine.phase === 'draw' ? { type: 'drawStock' } : { type: 'discard', card: mine.hand[0] })).toEqual({ ok: true });
+      expect(await act(current, matchId, mine.phase === 'draw' ? { type: 'drawStock' } : { type: 'discard', card: allowedDiscards(mine)[0] })).toEqual({ ok: true });
     }
     const reshuffled = await internal();
     expect(reshuffled.reshuffles).toBe(1);
@@ -247,7 +248,7 @@ suite('API integration', () => {
     const view = (await state<ConquerView>(matchId, first)).view;
     // The starter may not draw on the opening turn.
     expect(await act(first, matchId, { type: 'drawStock' })).toMatchObject({ ok: false, code: 'WRONG_PHASE' });
-    expect(await act(first, matchId, { type: 'discard', card: view.hand[0] })).toEqual({ ok: true });
+    expect(await act(first, matchId, { type: 'discard', card: allowedDiscards(view)[0] })).toEqual({ ok: true });
     const pv = (await state<ConquerView>(matchId, predictor)).view;
     expect(await act(predictor, matchId, { type: 'discard', card: pv.hand[0] })).toMatchObject({ ok: false, code: 'WRONG_PHASE' });
     // Taking the discard puts it in hand, but discarding is blocked until it is melded.
@@ -415,9 +416,9 @@ suite('API integration', () => {
     expect(after.view).toEqual(before.view);
     first.socket = await connect(t.url, first.token);
     sockets.push(first.socket);
-    expect(await act(first, matchId, { type: 'discard', card: after.view.hand[0] })).toEqual({ ok: true });
+    expect(await act(first, matchId, { type: 'discard', card: allowedDiscards(after.view)[0] })).toEqual({ ok: true });
     s = await state<ConquerView>(matchId, a);
     expect(s.view.currentPlayerId).toBe(predictor.id);
-    expect(s.view.discardTop).toBe(after.view.hand[0]);
+    expect(s.view.discardTop).toBe(allowedDiscards(after.view)[0]);
   });
 });

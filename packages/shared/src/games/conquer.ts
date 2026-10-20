@@ -241,8 +241,13 @@ export interface ConquerView {
   openingProgress: number;
   /** The current player took the discard before opening and must reach the threshold this turn. */
   mustOpen: boolean;
-  /** The current player took the base card and must go out this turn. */
+  /** The current player must go out this turn: they took the base card or filled a meld. */
   mustFinish: boolean;
+  mustFinishReason: 'base' | 'fill' | null;
+  /** Cards in the viewer's hand that may not be discarded now (jokers and cards that fit a table meld). */
+  undiscardable: Card[];
+  /** The most recent discards, oldest first (top card last) — for drawing the pile. */
+  discardRecent: Card[];
   melds: ConquerMeldView[];
   stockCount: number;
   discardTop: Card | null;

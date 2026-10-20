@@ -26,6 +26,7 @@ import {
 import { useSession } from '@/lib/session';
 import { Coin, PlayingCard } from '@/components/ui';
 import { CardRain, ShuffleAndDeal } from '@/components/fx';
+import { CardFace } from '@/components/card-face';
 import { nameOf, type TableProps } from './types';
 
 /** Order of the prediction buttons, as players know them. */
@@ -50,50 +51,50 @@ function useWidth<T extends HTMLElement>() {
 }
 
 const HAND_W = 54;
-const HAND_H = 78;
+const HAND_H = Math.round(HAND_W * 1.4);
 
-/**
- * A card face for a tight fan: rank, suit and joker star are stacked in the
- * top-left corner, the only part of each card that stays visible.
- */
+/** A hand card: the realistic face, with selection / picked-up rings and a joker star in the corner. */
 function FanCard({ card, selected, joker, marked }: { card: Card; selected?: boolean; joker?: boolean; marked?: boolean }) {
-  if (isPrintedJoker(card)) {
-    return (
-      <div
-        className={`relative rounded-lg bg-[linear-gradient(160deg,#fff7d6,#ffd36b)] text-[#7c1424] shadow-[0_2px_6px_rgba(0,0,0,.45)] ${selected ? 'ring-[3px] ring-lime' : marked ? 'ring-[3px] ring-gold' : 'ring-1 ring-[#e3a008]'}`}
-        style={{ width: HAND_W, height: HAND_H }}
-      >
-        <div className="absolute left-[3px] top-[3px] flex w-[17px] flex-col items-center leading-none">
-          <span className="text-[15px] text-[#e3a008]">★</span>
-          <span className="text-[8px] font-black tracking-tighter">JKR</span>
-        </div>
-        <span className="absolute bottom-1 right-1 text-[24px] leading-none text-[#e3a008]">★</span>
-      </div>
-    );
-  }
-  const rank = RANK_LABEL[card[0] as Rank];
-  const suit = SUIT_SYMBOL[card[1] as 's'];
-  const red = card[1] === 'h' || card[1] === 'd';
   return (
     <div
-      className={`relative rounded-lg bg-[#fbfaff] shadow-[0_2px_6px_rgba(0,0,0,.45)] ${selected ? 'ring-[3px] ring-lime' : marked ? 'ring-[3px] ring-gold' : 'ring-1 ring-black/10'} ${red ? 'text-[#e0284f]' : 'text-[#16161f]'}`}
+      className={`rounded-[9px] shadow-[0_2px_6px_rgba(0,0,0,.45)] ${selected ? 'outline outline-[3px] outline-lime' : marked ? 'outline outline-[3px] outline-gold' : ''}`}
       style={{ width: HAND_W, height: HAND_H }}
     >
-      <div className="absolute left-[3px] top-[3px] flex w-[17px] flex-col items-center leading-none">
-        <span className={`font-black ${rank === '10' ? 'text-[13px] tracking-tighter' : 'text-[16px]'}`}>{rank}</span>
-        <span className="text-[14px]">{suit}</span>
-        {joker && <span className="mt-0.5 text-[12px] text-[#e3a008]">★</span>}
-      </div>
-      <span className="absolute bottom-1 right-1.5 text-[26px] leading-none">{suit}</span>
+      <CardFace card={card} width={HAND_W} star={joker} />
     </div>
   );
 }
 
+/** A face-up card in the opponent's fan (one of their melds). */
+interface FanFace {
+  placed: Pick<ConquerPlacedCard, 'card' | 'as' | 'wild'>;
+  /** One of your cards can be added to this meld (ጨምር). */
+  active: boolean;
+}
+
 /** Cards on a shallow arc that always fits its box. `flip` is the opponent's fan at the top. */
-function Fan({ cards, width, flip, selected, wild, marked, onTap }: { cards: Card[]; width: number; flip?: boolean; selected?: Card[]; wild?: Set<Card>; marked?: Card | null; onTap?: (c: Card) => void }) {
+function Fan({
+  cards,
+  width,
+  flip,
+  selected,
+  wild,
+  marked,
+  onTap,
+  faces,
+}: {
+  cards: Card[];
+  width: number;
+  flip?: boolean;
+  selected?: Card[];
+  wild?: Set<Card>;
+  marked?: Card | null;
+  onTap?: (c: Card) => void;
+  faces?: Map<Card, FanFace>;
+}) {
   const n = cards.length;
   const cw = flip ? 36 : HAND_W;
-  const ch = flip ? 48 : HAND_H;
+  const ch = Math.round(cw * 1.4);
   const mid = (n - 1) / 2;
   const spacing = n > 1 ? Math.max(8, Math.min(cw * 0.62, (width - cw - 32) / (n - 1))) : 0;
   const angleStep = n > 1 ? Math.min(2, 16 / (n - 1)) : 0;
@@ -107,11 +108,13 @@ function Fan({ cards, width, flip, selected, wild, marked, onTap }: { cards: Car
         const d = i - mid;
         const drop = d * d * curve;
         const lifted = selected?.includes(c);
+        const face = faces?.get(c);
+        const tappable = flip ? !!face?.active : !!onTap;
         return (
           <button
             key={`${c}-${i}`}
             type="button"
-            disabled={!onTap}
+            disabled={!tappable}
             onClick={() => onTap?.(c)}
             aria-pressed={lifted}
             aria-label={c === '??' ? 'Hidden card' : `${label(c)}${wild?.has(c) ? ' (joker)' : ''}`}
@@ -124,42 +127,68 @@ function Fan({ cards, width, flip, selected, wild, marked, onTap }: { cards: Car
               zIndex: i,
             }}
           >
-            {c === '??' ? <PlayingCard card="??" size="sm" /> : <FanCard card={c} selected={lifted} joker={wild?.has(c)} marked={c === marked} />}
+            {c === '??' ? (
+              <PlayingCard card="??" size="sm" />
+            ) : face ? (
+              <MiniCard placed={face.placed} highlight={face.active} width={cw} />
+            ) : (
+              <FanCard card={c} selected={lifted} joker={wild?.has(c)} marked={c === marked} />
+            )}
           </button>
         );
       })}
     </div>
   );
 }
+
 /**
- * Small table card with its index in the visible corner. A joker shows the card
- * it stands for, in gold, so the matching natural card can be swapped in.
+ * Small table card with a large corner index. A joker shows the card it stands
+ * for on gold paper (so the matching card can be swapped in); a false joker shows
+ * the card it copies on violet paper.
  */
-function MiniCard({ placed, highlight }: { placed: Pick<ConquerPlacedCard, 'card' | 'as' | 'wild'>; highlight?: boolean }) {
+function MiniCard({ placed, highlight, width = 34 }: { placed: Pick<ConquerPlacedCard, 'card' | 'as' | 'wild'>; highlight?: boolean; width?: number }) {
   const copy = isPrintedJoker(placed.card) && !placed.wild;
   const shown = placed.wild || copy ? placed.as : placed.card;
-  if (isPrintedJoker(shown)) {
-    return (
-      <div className="relative grid h-[46px] w-[33px] shrink-0 place-items-center rounded-md bg-[linear-gradient(160deg,#fff7d6,#ffd36b)] text-[#e3a008] shadow-[0_1px_3px_rgba(0,0,0,.5)] ring-1 ring-[#e3a008]" title="Joker">
-        <span className="text-lg leading-none">★</span>
-      </div>
-    );
-  }
-  const rank = RANK_LABEL[shown[0] as Rank];
-  const suit = SUIT_SYMBOL[shown[1] as 's'];
-  const red = shown[1] === 'h' || shown[1] === 'd';
   return (
     <div
-      className={`relative h-[46px] w-[33px] shrink-0 rounded-md shadow-[0_1px_3px_rgba(0,0,0,.5)] ${placed.wild ? 'bg-[#ffe7a0] ring-2 ring-[#e3a008]' : copy ? 'bg-[#efe7ff] ring-2 ring-violet' : 'bg-[#fbfaff]'} ${highlight ? 'outline outline-2 outline-lime' : ''} ${red ? 'text-[#e0284f]' : 'text-[#16161f]'}`}
+      className={`shrink-0 rounded-[7px] shadow-[0_1px_3px_rgba(0,0,0,.5)] ${highlight ? 'outline outline-2 outline-lime' : ''}`}
+      style={{ width, height: Math.round(width * 1.4) }}
       title={placed.wild ? `Joker (${label(placed.card)}) playing as ${label(placed.as)}` : copy ? `False joker copying ${label(placed.as)}` : label(placed.card)}
     >
-      <div className="absolute left-[2px] top-[2px] flex w-[14px] flex-col items-center leading-none">
-        <span className={`font-black ${rank === '10' ? 'text-[10px] tracking-tighter' : 'text-[12px]'}`}>{rank}</span>
-        <span className="text-[11px]">{suit}</span>
-        {placed.wild && <span className="text-[9px] text-[#b45309]">★</span>}
-        {copy && <span className="text-[7px] font-black text-violet">JK</span>}
-      </div>
-      <span className="absolute bottom-0.5 right-1 text-[15px] leading-none">{suit}</span>
+      <CardFace card={shown} width={width} compact star={placed.wild} tint={placed.wild ? 'gold' : copy ? 'violet' : undefined} />
+    </div>
+  );
+}
+/** Deterministic "random" tilt and offset per card, so the pile looks tossed but does not jitter between renders. */
+function toss(card: Card, i: number) {
+  let h = i * 7919;
+  for (const ch of card) h = (h * 31 + ch.charCodeAt(0)) | 0;
+  const r = (k: number) => (((h >> k) & 0xff) / 255) * 2 - 1;
+  return { rot: r(0) * 24, x: r(8) * 7, y: r(16) * 5 };
+}
+
+/** The discard pile: the last few cards thrown at angles, the top one fully visible. */
+function DiscardPile({ cards, count, active }: { cards: Card[]; count: number; active: boolean }) {
+  const w = 52;
+  const h = Math.round(w * 1.4);
+  const hidden = Math.max(0, count - cards.length);
+  return (
+    <div className="relative" style={{ width: w + 16, height: h + 12 }}>
+      {hidden > 0 && <div className="absolute left-2 top-1.5 rounded-lg bg-white/25" style={{ width: w, height: h, transform: 'rotate(-8deg)' }} />}
+      {cards.length === 0 && <div className="absolute left-2 top-1.5 rounded-lg bg-white/10" style={{ width: w, height: h }} />}
+      {cards.map((c, i) => {
+        const top = i === cards.length - 1;
+        const t = toss(c, count - cards.length + i);
+        return (
+          <div
+            key={`${c}-${i}`}
+            className={`absolute left-2 top-1.5 rounded-[8px] shadow-[0_2px_5px_rgba(0,0,0,.45)] ${top && active ? 'outline outline-2 outline-gold' : ''}`}
+            style={{ transform: `translate(${t.x}px, ${t.y}px) rotate(${top ? t.rot * 0.35 : t.rot}deg)`, zIndex: i }}
+          >
+            <CardFace card={c} width={w} />
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -464,13 +493,32 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
   const myMelds = view.melds.filter((m) => m.ownerId === user?.id);
   const meldTap = (m: ConquerMeldView) =>
     openTargets.includes(m.id) ? () => layOff(m) : undefined;
+  // The opponent's melds sit face-up in their fan, ahead of the hidden cards.
+  const oppFaces = new Map<Card, FanFace>();
+  const oppMeldOf = new Map<Card, ConquerMeldView>();
+  for (const m of oppMelds)
+    for (const p of m.cards) {
+      oppFaces.set(p.card, { placed: p, active: openTargets.includes(m.id) });
+      oppMeldOf.set(p.card, m);
+    }
+  const oppCards: Card[] = [...oppMelds.flatMap((m) => m.cards.map((p) => p.card)), ...Array.from({ length: opp?.handCount ?? 0 }, () => '??' as Card)];
+  const blocked = selected.length === 1 && view.undiscardable.includes(selected[0]);
 
   return shell(
     <>
       {/* Opponent */}
       <div className="flex flex-col items-center pt-2">
         <div ref={oppRef} className="w-full max-w-md">
-          <Fan cards={Array.from({ length: opp?.handCount ?? 0 }, () => '??')} width={oppWidth} flip />
+          <Fan
+            cards={oppCards}
+            width={oppWidth}
+            flip
+            faces={oppFaces}
+            onTap={(c) => {
+              const m = oppMeldOf.get(c);
+              if (m && openTargets.includes(m.id)) layOff(m);
+            }}
+          />
         </div>
         <div className="mt-1 flex items-center gap-1.5 text-xs font-bold">
           <span className={`h-2 w-2 rounded-full ${oppInfo?.online ? 'bg-lime' : 'bg-white/40'}`} title={oppInfo?.online ? 'Online' : 'Offline'} />
@@ -479,16 +527,9 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
         </div>
       </div>
 
-      {/* Table: opponent melds, deck and discard, my melds — scrolls instead of overlapping. */}
+      {/* Table: deck and discard, then my melds — scrolls instead of overlapping. */}
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden px-2">
         <div className="my-auto flex w-full flex-col items-center gap-2 py-1">
-          {oppMelds.length > 0 && (
-            <div className="flex max-w-full flex-wrap justify-center gap-1">
-              {oppMelds.map((m) => (
-                <MeldRow key={m.id} meld={m} onTap={meldTap(m)} />
-              ))}
-            </div>
-          )}
       <div className="flex shrink-0 items-center justify-center gap-10">
         <div className="flex flex-col items-center gap-1">
           <div className="relative pt-11">
@@ -533,14 +574,7 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
             className="relative disabled:cursor-default"
             aria-label="Take the top discard"
           >
-            {view.discardCount > 1 && <div className="absolute left-1 top-1 h-[4.5rem] w-[3.25rem] rounded-lg bg-white/30" />}
-            {view.discardTop ? (
-              <div className={`relative rounded-lg ${view.legal.takeDiscard ? 'ring-2 ring-gold/70' : ''}`}>
-                <PlayingCard card={view.discardTop} />
-              </div>
-            ) : (
-              <div className="h-[4.5rem] w-[3.25rem] rounded-lg bg-white/10" />
-            )}
+            <DiscardPile cards={view.discardRecent} count={view.discardCount} active={view.legal.takeDiscard} />
           </button>
           <span className="text-[10px] font-bold uppercase tracking-widest text-white/70">Discard {view.discardCount || ''}</span>
         </div>
@@ -566,7 +600,13 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
           )}
           {myTurn && view.mustFinish && (
             <div className="mx-auto mb-1 w-fit rounded-full border border-danger/70 bg-black/40 px-3 py-1 text-center text-[11px] font-bold text-[#ff9aa9]">
-              <span className="font-ethiopic">የመሠረት ካርታ ወስደዋል</span> — meld everything and discard your last card this turn
+              <span className="font-ethiopic">{view.mustFinishReason === 'fill' ? 'ካርታ ሞልተዋል' : 'የመሠረት ካርታ ወስደዋል'}</span>
+              {view.mustFinishReason === 'fill' ? ' — you filled a meld: go out this turn or lose' : ' — meld everything and discard your last card this turn'}
+            </div>
+          )}
+          {myTurn && blocked && (
+            <div className="mx-auto mb-1 w-fit rounded-full border border-gold/60 bg-black/40 px-3 py-1 text-center text-[11px] font-bold text-gold">
+              {wild.has(selected[0]) ? 'A joker cannot be discarded — meld it, fill with it or keep it' : `${label(selected[0])} fits a meld on the table — it cannot be discarded`}
             </div>
           )}
           <TurnBar view={view} serverNow={serverNow} state={state} mine={myTurn} />
@@ -600,7 +640,7 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
             <ActionButton am="ውረድ" en="meld" onClick={enter} disabled={!myTurn || pending || view.phase !== 'meld' || selected.length < 3} />
             <ActionButton am="ጨምር" en="open" onClick={addToMeld} disabled={!canLayOff || pending} />
             <ActionButton am="ጆከር መተካት" en="swap joker" tone="gold" onClick={() => swapTarget && void act({ type: 'swapWild', meldId: swapTarget.id, card: selected[0] })} disabled={!view.legal.swapWild || !swapTarget || pending} />
-            <ActionButton am="ጣል" en="discard" tone="red" onClick={() => void act({ type: 'discard', card: selected[0] })} disabled={!view.legal.discard || selected.length !== 1 || pending} />
+            <ActionButton am="ጣል" en="discard" tone="red" onClick={() => void act({ type: 'discard', card: selected[0] })} disabled={!view.legal.discard || selected.length !== 1 || blocked || pending} />
             <ActionButton am="ደርድር" en="best order" onClick={() => setOrder(arrangeHand(view.hand, meldCtx).order)} disabled={view.hand.length === 0} />
           </div>
         </div>
@@ -621,7 +661,7 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
                   ? `${result.winnerId === user?.id ? 'Your opponent' : 'You'} ran out of time.`
                   : result.reason === 'forfeit'
                     ? 'Won by forfeit.'
-                    : 'The deck ran out — lower penalty wins.'}
+                    : 'The deck ran out.'}
             </div>
             {(() => {
               const stake = view.config.stake;
@@ -640,7 +680,7 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
                   <div className="flex justify-between text-xs font-bold">
                     <span>{nameOf(state, p.playerId)}</span>
                     <span className="flex gap-3">
-                      <span className="text-muted">Penalty {result.penalties[p.playerId] ?? 0}</span>
+
                       <span className={delta > 0 ? 'text-lime' : delta < 0 ? 'text-danger' : 'text-muted'}>
                         {delta > 0 ? '+' : ''}
                         {delta.toLocaleString()}

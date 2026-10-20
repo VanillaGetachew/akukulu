@@ -21,6 +21,11 @@ function started(config: Partial<ConquerConfig> = {}, seed = 11) {
 }
 
 const act = (s: ConquerState, id: string, action: Record<string, unknown>, c = ctx()) => conquerEngine.act(s, id, action, c);
+/** A card the current player is allowed to discard. */
+const discardable = (s: ConquerState, id: string) => {
+  const v = conquerEngine.view(s, id);
+  return v.hand.find((c) => !v.undiscardable.includes(c))!;
+};
 const run = (s: ConquerState, id: string, action: Record<string, unknown>) => expectOk(act(s, id, action)).state;
 
 /**
@@ -110,11 +115,11 @@ describe('Conquer setup and prediction', () => {
     let s = started().state;
     s = run(s, s.players[s.predictor].playerId, { type: 'predict', choice: 'up' });
     const base = s.baseCard!;
-    s = run(s, s.players[s.current].playerId, { type: 'discard', card: s.players[s.current].hand[0] });
+    s = run(s, s.players[s.current].playerId, { type: 'discard', card: discardable(s, s.players[s.current].playerId) });
     while (s.stock.length > 1) {
       const id = s.players[s.current].playerId;
       s = run(s, id, { type: 'drawStock' });
-      s = run(s, id, { type: 'discard', card: s.players[s.current].hand[0] });
+      s = run(s, id, { type: 'discard', card: discardable(s, id) });
     }
     expect(conquerEngine.view(s, 'a').baseInStock).toBe(true);
     const id = s.players[s.current].playerId;
@@ -277,18 +282,34 @@ describe('Conquer discard pickup', () => {
     expect(s.roundResult).toMatchObject({ winnerId: 'b', reason: 'timeout' });
   });
 
-  it('lets an opened player take a discard only to lay it off where it fits', () => {
-    let s = rigged({ a: hand, b: FILLER_B.replace('8s', '9h'), stockTop: '7s 2h', discard: 'Ah' });
+  it('filling a meld commits the player to going out this turn', () => {
+    let s = rigged({ a: hand, b: FILLER_B, stockTop: '7s 2h 9h' });
     s = run(s, 'a', { type: 'drawStock' });
     s = run(s, 'a', { type: 'meld', melds: [{ cards: h('Kh Kd Kc') }, { cards: h('9s 9d 9c') }] });
     s = run(s, 'a', { type: 'discard', card: 'Qs' });
     s = run(s, 'b', { type: 'drawStock' });
-    s = run(s, 'b', { type: 'discard', card: '9h' });
-    expect(act(s, 'a', { type: 'takeDiscard', layoffs: [{ meldId: s.melds[0].id, card: '9h' }] })).toMatchObject({ ok: false, code: 'ILLEGAL_PICKUP' });
-    s = run(s, 'a', { type: 'takeDiscard', layoffs: [{ meldId: s.melds[1].id, card: '9h' }] });
-    expect(s.melds[1].placed).toHaveLength(4);
+    s = run(s, 'b', { type: 'discard', card: discardable(s, 'b') });
+    s = run(s, 'a', { type: 'drawStock' });
+    expect(s.players[0].hand).toContain('9h');
+    s = run(s, 'a', { type: 'layoff', layoffs: [{ meldId: s.melds[1].id, card: '9h' }] });
+    expect(conquerEngine.view(s, 'a')).toMatchObject({ mustFinish: true, mustFinishReason: 'fill', legal: { discard: false } });
+    const res = act(s, 'a', { type: 'discard', card: '7s' });
+    expect(!res.ok && res.error).toMatch(/You filled a meld/);
+    s = expectOk(conquerEngine.tick(s, ctx(s.turnDeadline!))).state;
+    expect(s.roundResult).toMatchObject({ winnerId: 'b', reason: 'timeout' });
   });
-});
+
+  it('never lets a real joker or a card that fits a table meld be discarded', () => {
+    let s = rigged({ a: hand.replace('Jh', '8c'), b: FILLER_B.replace('8s', 'Jh').replace('8d', 'Ah'), stockTop: '9h', wild: ['8c', '8s'] });
+    s = run(s, 'a', { type: 'drawStock' });
+    s = run(s, 'a', { type: 'meld', melds: [{ cards: h('Kh Kd Kc') }, { cards: h('9s 9d 9c') }] });
+    const v = conquerEngine.view(s, 'a');
+    expect(v.undiscardable.sort()).toEqual(['8c', '9h']);
+    expect(act(s, 'a', { type: 'discard', card: '8c' })).toMatchObject({ ok: false, code: 'ILLEGAL_DISCARD' });
+    const fits = act(s, 'a', { type: 'discard', card: '9h' });
+    expect(!fits.ok && fits.error).toMatch(/can fill a meld/);
+    expect(act(s, 'a', { type: 'discard', card: 'Qs' }).ok).toBe(true);
+  });});
 
 describe('Conquer base card', () => {
   it('can be drawn from under the deck, but the player must go out that turn', () => {
@@ -544,23 +565,17 @@ describe('Conquer simulated matches', () => {
             // Completed-turn invariant: hand + own table cards = 13.
             const v = conquerEngine.view(s, id);
             expect(v.hand.length + v.players[s.current].tableCount).toBe(13);
-            // An opened bot takes the discard when it can lay it straight off.
-            const top = s.discard[s.discard.length - 1];
-            const took = me.opened && top !== undefined && s.melds.some((m) => step(id, { type: 'takeDiscard', layoffs: [{ meldId: m.id, card: top }] }));
+            // An opened bot sometimes takes the discard (no obligation once open).
+            const took = me.opened && s.discard.length > 0 && rng.int(4) === 0 && step(id, { type: 'takeDiscard' });
             if (took) pickups++;
             else expect(step(id, { type: 'drawStock' })).toBe(true);
           }
           const meldCtx: MeldContext = { wild: new Set(s.wildCards), rules: s.config.rules, taken: new Set(s.melds.flatMap((m) => m.placed.map((p) => p.as))), falseJokerAs: s.wildCards };
           const melds = bestOpening(s.players[s.current].hand, meldCtx, me.opened ? 0 : s.config.rules.openingThreshold, 1);
           if (melds.length) expect(step(id, { type: 'meld', melds: melds.map((m) => ({ cards: m.placed.map((p) => p.card) })) })).toBe(true);
-          if (s.players[s.current].opened) {
-            for (const card of [...s.players[s.current].hand]) {
-              if (s.players[s.current].hand.length <= 1) break;
-              for (const m of s.melds) if (step(id, { type: 'layoff', layoffs: [{ meldId: m.id, card }] })) break;
-            }
-          }
-          const hand = s.players[s.current].hand;
-          const discard = hand.reduce((best, x) => (penaltyValue(x, new Set(s.wildCards), s.config.rules) > penaltyValue(best, new Set(s.wildCards), s.config.rules) ? x : best), hand[0]);
+          const v = conquerEngine.view(s, id);
+          const allowed = v.hand.filter((x) => !v.undiscardable.includes(x));
+          const discard = allowed.reduce((best, x) => (penaltyValue(x, new Set(s.wildCards), s.config.rules) > penaltyValue(best, new Set(s.wildCards), s.config.rules) ? x : best), allowed[0]);
           expect(step(id, { type: 'discard', card: discard })).toBe(true);
         }
         expect(s.phase).toBe('roundOver');

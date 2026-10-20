@@ -491,11 +491,50 @@ function arrangeHandPlain(hand: Card[], ctx: MeldContext): { order: Card[]; meld
     if (res.ok) melds.push(res.meld.placed.map((p) => p.card));
   }
   const inMelds = new Set(melds.flat());
+  const { groups, singles } = nearMelds(hand.filter((c) => !inMelds.has(c)), ctx);
+  return { order: [...melds.flat(), ...groups.flat(), ...singles], melds };
+}
+
+/**
+ * Groups cards that could become melds: pairs of a rank (♥ ♣ ♦ ♠ order) and
+ * run fragments of one suit with at most one gap (5♥6♥, 5♥7♥). Remaining cards
+ * follow by suit and rank, jokers last.
+ */
+export function nearMelds(cards: Card[], ctx: MeldContext): { groups: Card[][]; singles: Card[] } {
+  const isJoker = (c: Card) => ctx.wild.has(c) || isPrintedJoker(c);
+  const left = new Set(cards.filter((c) => !isJoker(c)));
+  const groups: Card[][] = [];
+  // Run fragments first (same suit, consecutive or one apart), lowest first.
+  for (const suit of SUITS) {
+    const inSuit = [...left].filter((c) => cardSuit(c) === suit).sort((a, b) => lowPosition(cardRank(a)) - lowPosition(cardRank(b)));
+    for (let i = 0; i + 1 < inSuit.length; i++) {
+      const a = inSuit[i];
+      const b = inSuit[i + 1];
+      if (!left.has(a) || !left.has(b)) continue;
+      const gap = lowPosition(cardRank(b)) - lowPosition(cardRank(a));
+      if (gap >= 1 && gap <= 2) {
+        groups.push([a, b]);
+        left.delete(a);
+        left.delete(b);
+        i++;
+      }
+    }
+  }
+  // Then pairs (or more) of the same rank.
+  const byRank = new Map<Rank, Card[]>();
+  for (const c of left) byRank.set(cardRank(c), [...(byRank.get(cardRank(c)) ?? []), c]);
+  for (const same of byRank.values()) {
+    if (same.length < 2) continue;
+    const ordered = same.map((c) => ({ as: c, c })).sort(bySetOrder).map((x) => x.c);
+    groups.push(ordered);
+    for (const c of ordered) left.delete(c);
+  }
   const suitOrder = (c: Card) => SUITS.indexOf(cardSuit(c));
-  const rest = hand
-    .filter((c) => !inMelds.has(c))
-    .sort((a, b) => Number(ctx.wild.has(a)) - Number(ctx.wild.has(b)) || suitOrder(a) - suitOrder(b) || lowPosition(cardRank(a)) - lowPosition(cardRank(b)));
-  return { order: [...melds.flat(), ...rest], melds };
+  const singles = [
+    ...[...left].sort((a, b) => suitOrder(a) - suitOrder(b) || lowPosition(cardRank(a)) - lowPosition(cardRank(b))),
+    ...cards.filter(isJoker),
+  ];
+  return { groups, singles };
 }
 
 /* ------------------------------------------------------------------ */

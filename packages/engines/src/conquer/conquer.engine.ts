@@ -103,8 +103,9 @@ export interface ConquerState {
   openingProgress: number;
   /** Took the discard before opening: must reach the threshold this turn to be allowed to discard. */
   mustOpen: boolean;
-  /** Took the base card: must go out this turn. */
+  /** Took the base card or filled a meld: must go out this turn. */
   mustFinish: boolean;
+  mustFinishReason: 'base' | 'fill' | null;
   turnDeadline: number | null;
   lastEvent: ConquerLastEvent | null;
   roundResult: ConquerRoundResult | null;
@@ -275,6 +276,7 @@ function resetTurn(state: ConquerState) {
   state.openingProgress = 0;
   state.mustOpen = false;
   state.mustFinish = false;
+  state.mustFinishReason = null;
   state.pendingPickup = null;
 }
 
@@ -366,6 +368,11 @@ function applyTablePlay(state: ConquerState, index: number, melds: ConquerMeldSp
   }
 
   if (required && !placedCards.includes(required)) return 'A taken discard must be used in a meld right away';
+  if (layoffs.length > 0 && !state.mustFinish) {
+    // Filling a meld on the table commits the player to going out this turn (owner-confirmed).
+    state.mustFinish = true;
+    state.mustFinishReason = 'fill';
+  }
   if (rules.mustDiscardToWin && p.hand.length === 0) return 'Keep one card — you must finish by discarding';
   if (state.pendingWild && placedCards.includes(state.pendingWild)) state.pendingWild = null;
   if (state.pendingPickup && placedCards.includes(state.pendingPickup)) state.pendingPickup = null;
@@ -379,6 +386,22 @@ function autoDiscardCard(state: ConquerState, hand: Card[]): Card {
   const pool = candidates.length ? candidates : hand;
   const value = (x: Card) => penaltyValue(x, wild, state.config.rules, falseJokerAs(state));
   return pool.reduce((best, c) => (value(c) > value(best) ? c : best), pool[0]);
+}
+
+/**
+ * Cards the player may not discard: real jokers and "open" cards (cards that
+ * fit a meld on the table). Printed jokers are not jokers. To avoid a dead end,
+ * the final go-out discard and a hand with nothing else to discard are exempt.
+ */
+export function undiscardable(state: ConquerState, index: number): Card[] {
+  const hand = state.players[index].hand;
+  if (hand.length <= 1) return [];
+  const blocked = hand.filter(
+    (c) =>
+      state.wildCards.includes(c) ||
+      state.melds.some((m) => extendMeld(toInterp(m), c, meldContext(state, m.id)).ok),
+  );
+  return blocked.length === hand.length ? [] : blocked;
 }
 
 function discardCard(state: ConquerState, index: number, card: Card, ctx: EngineContext, out: Out) {
@@ -462,6 +485,7 @@ export const conquerEngine: GameEngine<ConquerState, ConquerConfig, ConquerView>
       openingProgress: 0,
       mustOpen: false,
       mustFinish: false,
+      mustFinishReason: null,
       turnDeadline: null,
       lastEvent: null,
       roundResult: null,
@@ -535,6 +559,7 @@ export const conquerEngine: GameEngine<ConquerState, ConquerConfig, ConquerView>
         state.baseVisible = false;
         p.hand.push(state.baseCard!);
         state.mustFinish = true;
+        state.mustFinishReason = 'base';
         p.missedTurns = 0;
         state.phase = 'meld';
         setDeadline(state, ctx);
@@ -606,7 +631,12 @@ export const conquerEngine: GameEngine<ConquerState, ConquerConfig, ConquerView>
         if (!p.hand.includes(card)) return fail('ILLEGAL_DISCARD', `${card} is not in your hand`);
         if (state.pendingWild && p.hand.includes(state.pendingWild)) return fail('ILLEGAL_DISCARD', 'Meld the wildcard you swapped before discarding');
         if (state.mustFinish && p.hand.length !== 1) {
-          return fail('ILLEGAL_DISCARD', 'You took the base card — meld everything and discard your last card this turn, or you lose when time runs out');
+          const why = state.mustFinishReason === 'fill' ? 'You filled a meld' : 'You took the base card';
+          return fail('ILLEGAL_DISCARD', `${why} — meld everything and discard your last card this turn, or you lose when time runs out`);
+        }
+        const blocked = undiscardable(state, index);
+        if (blocked.includes(card)) {
+          return fail('ILLEGAL_DISCARD', state.wildCards.includes(card) ? 'A joker cannot be discarded — meld it, use it to fill, or keep it' : `${cardLabel(card)} can fill a meld on the table — it cannot be discarded`);
         }
         if (!p.opened && (state.mustOpen || state.openingProgress > 0)) {
           const thr = state.config.rules.openingThreshold;
@@ -710,6 +740,9 @@ export const conquerEngine: GameEngine<ConquerState, ConquerConfig, ConquerView>
       openingProgress: s.openingProgress,
       mustOpen: s.mustOpen,
       mustFinish: s.mustFinish,
+      mustFinishReason: s.mustFinishReason,
+      undiscardable: myTurn && s.phase === 'meld' ? undiscardable(s, viewer) : [],
+      discardRecent: s.discard.slice(-4),
       melds: s.melds.map((m) => ({ id: m.id, ownerId: m.ownerId, kind: m.kind, cards: m.placed.map((x) => ({ ...x })), points: m.placed.reduce((n, x) => n + x.points, 0) })),
       stockCount: s.stock.length,
       discardTop: s.discard[s.discard.length - 1] ?? null,

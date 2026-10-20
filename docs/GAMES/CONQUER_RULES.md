@@ -67,8 +67,11 @@ The starter's first turn skips the draw (14 cards, discard to start). Every othe
 1. **Draw** — exactly one of:
    - `drawStock`: take the top stock card.
    - `takeDiscard`: take the top discard into hand (owner-confirmed). **Before going in**, this commits the player to reach 41 this turn using any of their cards — the picked-up card does not have to be part of the melds. Until they reach 41 they cannot discard, and running out of time loses the round. **After going in**, the discard can be taken freely with no obligation. The card underneath becomes the visible top of the pile.
-   - `takeBase`: take the face-up **base card** from under the deck (after an "Are you sure you want to draw the base card?" confirmation). The player must then **go out this turn** — meld everything and discard the last card — or they lose when time runs out.2. **Meld** (optional, repeatable): `meld`, `layoff`, `swapWild`.
+   - `takeBase`: take the face-up **base card** from under the deck (after an "Are you sure you want to draw the base card?" confirmation). The player must then **go out this turn** — meld everything and discard the last card — or they lose when time runs out.
+2. **Meld** (optional, repeatable): `meld`, `layoff`, `swapWild`.
 3. **Discard** one card from hand. This ends the turn and the opponent is notified.
+   - A **real joker** (a predicted wildcard; printed false jokers are not real jokers) and an **open card** (one that would fit a meld already on the table) **cannot be discarded** (owner-confirmed). They can only be melded, used to fill a meld, or kept. If every card in hand is protected, any card may be discarded; the last card when going out is never blocked. The view lists the blocked cards in `undiscardable`.
+   - **Filling a meld commits you to going out** (owner-confirmed): after laying a card off on any table meld, the player must go out that same turn. They cannot discard to pass the turn, and they lose the round when the timer runs out (`mustFinishReason: 'fill'`).
 
 The server rejects out-of-turn actions, a second draw, discards before drawing, cards not held, and a discard while a swapped wildcard is unused. Duplicate requests (same `clientActionId`) are applied once. Concurrent conflicting requests are serialised by a database row lock: exactly one wins and the other gets `WRONG_PHASE`.
 
@@ -81,7 +84,7 @@ The server tracks each player's hand, every table meld (with who contributed eac
 - **Going out:** meld everything except one card, then discard it to leave an empty hand. Melds may never empty the hand (`mustDiscardToWin`), so a final discard is always required. The round ends immediately.
 - **Deck runs out** (confirmed by the owner, `exhaustion: 'reshuffle'`): the last deck card may be drawn. When the deck is empty at the end of a turn, the discard pile **except its top card** is shuffled (`crypto.randomInt`) and becomes the new deck; play continues. The base card is no longer shown once it has been drawn or reshuffled.
 - Alternative options kept for configuration: `'lowerPenaltyWins'` (reveal hands, lower penalty wins, equal is a draw; Ace = 11, joker in hand = natural value) and `'dead'` (exhausted round is a draw).
-- **Penalties** are still computed and shown for every round result.
+- **Penalties** are still computed for the `lowerPenaltyWins` option, but the round result no longer shows them (owner request).
 
 ## 10. Rounds, rematches and points
 - An optional stake per player per round (room stake) is debited at the start of each round. The round winner receives both stakes; a draw refunds both. Ledger keys `match:<id>:r<n>:stake|payout|refund:<player>` make settlement idempotent.
@@ -107,7 +110,11 @@ Each player receives only their own hand. Opponent hand sizes, the deck count an
 - **ጣል** (discard): select one card.
 - **Animations:** both players see the deck shuffled and dealt when the prediction ends; the round winner (and the match winner) sees cards falling from the sky.
 - Hand order: a new deal is sorted by suit and drawn cards go on the right; nothing reorders automatically.
-- **ደርድር** (best order): rearranges the hand with the best melds first, jokers placed in the gaps they fill, then the rest by suit and rank (`arrangeHand()`).
+- **ደርድር** (best order): rearranges the hand with the best melds first, jokers placed in the gaps they fill, then **near-melds**: run fragments (same suit, one or two apart) and same-rank pairs. Single cards come next, by suit and rank, with leftover jokers last (`arrangeHand()` / `nearMelds()`).
+- **Cards** are drawn as realistic SVG faces (`card-face.tsx`): corner indices, traditional pips, framed court cards, a printed joker and a lattice back. A table joker shows the card it plays as on gold paper, and a false joker shows its copy on violet paper.
+- The **opponent's melds** are shown face-up at the front of their fan at the top. Tap one (it glows green) to add the selected card to it.
+- The **discard pile** shows the last four discards tossed at angles, with the top card the most visible.
+- **ጣል** is disabled for a protected card (joker or open card), with a hint explaining why.
 
 ## Rules awaiting confirmation
 | Option | Default | Question to confirm |

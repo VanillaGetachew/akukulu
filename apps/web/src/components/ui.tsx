@@ -3,9 +3,10 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { HIDDEN_CARD, RANK_LABEL, SUIT_SYMBOL, isPrintedJoker, type Card, type Rank, type Suit } from '@akukulu/shared';
+import { HIDDEN_CARD, RANK_LABEL, isPrintedJoker, type Card, type Rank, type Suit } from '@akukulu/shared';
 import { useSession } from '@/lib/session';
 import { Logo } from './art';
+import { CardBack, CardFace } from './card-face';
 
 export function Coin({ className = 'h-4 w-4' }: { className?: string }) {
   return (
@@ -160,38 +161,29 @@ export function Toast({ message, tone = 'error', onClose }: { message: string | 
   );
 }
 
+const CARD_WIDTH = { sm: 36, md: 52, lg: 68 } as const;
+
+/** A realistic playing card (face or back) at one of three sizes. */
 export function PlayingCard({ card, size = 'md', delay = 0, highlight = false }: { card: Card; size?: 'sm' | 'md' | 'lg'; delay?: number; highlight?: boolean }) {
-  const dims = size === 'sm' ? 'h-12 w-9 text-xs' : size === 'lg' ? 'h-24 w-[4.25rem] text-lg' : 'h-[4.5rem] w-[3.25rem] text-sm';
-  const style = { animationDelay: `${delay}ms` };
-  if (card === HIDDEN_CARD) {
-    return (
-      <div style={style} className={`${dims} animate-dealIn rounded-lg border border-white/20 bg-[repeating-linear-gradient(45deg,#3a2d7a_0_6px,#2a2160_6px_12px)] shadow-card`} aria-label="Hidden card" />
-    );
-  }
-  if (isPrintedJoker(card)) {
-    return (
-      <div style={style} className={`${dims} animate-dealIn relative grid place-items-center rounded-lg bg-[linear-gradient(160deg,#fff7d6,#ffd36b)] font-black text-[#e3a008] shadow-card ring-1 ring-[#e3a008] ${highlight ? 'ring-2 ring-lime' : ''}`} aria-label="Joker">
-        <span className="text-[1.8em] leading-none">★</span>
-        <span className="absolute left-1 top-1 text-[0.6em] text-[#7c1424]">JKR</span>
-      </div>
-    );
-  }
-  const rank = card[0] as Rank;
-  const suit = card[1] as Suit;
-  const red = suit === 'h' || suit === 'd';
+  const width = CARD_WIDTH[size];
+  const style = { animationDelay: `${delay}ms`, width, height: width * 1.4 };
+  const name =
+    card === HIDDEN_CARD
+      ? 'Hidden card'
+      : isPrintedJoker(card)
+        ? 'Joker'
+        : `${RANK_LABEL[card[0] as Rank]} of ${{ s: 'spades', h: 'hearts', d: 'diamonds', c: 'clubs' }[card[1] as Suit]}`;
   return (
     <div
       style={style}
-      className={`${dims} animate-dealIn relative flex flex-col justify-between rounded-lg bg-[#f8f7ff] p-1 font-black shadow-card ${red ? 'text-[#e5395c]' : 'text-[#1b1b26]'} ${highlight ? 'ring-2 ring-lime' : ''}`}
-      aria-label={`${RANK_LABEL[rank]} of ${{ s: 'spades', h: 'hearts', d: 'diamonds', c: 'clubs' }[suit]}`}
+      className={`animate-dealIn relative rounded-[9px] shadow-[0_2px_5px_rgba(0,0,0,.45),0_0_0_1px_rgba(0,0,0,.06)] ${highlight ? 'outline outline-2 outline-lime' : ''}`}
+      role="img"
+      aria-label={name}
     >
-      <span className="leading-none">{RANK_LABEL[rank]}</span>
-      <span className="self-center text-[1.6em] leading-none">{SUIT_SYMBOL[suit]}</span>
-      <span className="rotate-180 leading-none">{RANK_LABEL[rank]}</span>
+      {card === HIDDEN_CARD ? <CardBack width={width} /> : <CardFace card={card} width={width} compact={size === 'sm'} />}
     </div>
   );
 }
-
 export function Countdown({ deadline, serverNow, total }: { deadline: number | null; serverNow: () => number; total: number }) {
   const [now, setNow] = useState(serverNow());
   useEffect(() => {
