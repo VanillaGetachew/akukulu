@@ -9,6 +9,7 @@ import { seededRng } from '@akukulu/engines';
 import {
   GAME_SLUGS,
   LEGACY_CONQUER_MAINTENANCE_MESSAGE,
+  NO_ENGINE_MAINTENANCE_MESSAGE,
   type BlackjackView,
   type ConquerView,
   type CrazyView,
@@ -84,6 +85,8 @@ suite('API integration', () => {
     await ds.query(`INSERT INTO games (slug, name, tagline, description, "minPlayers", "maxPlayers") VALUES ('bingo','Bingo','x','x',1,1)`);
     // A database seeded before Conquer had an engine carries the automatic "rules pending" maintenance.
     await ds.query(`UPDATE games SET maintenance = true, "maintenanceMessage" = $1, "maxPlayers" = 5 WHERE slug = 'conquer'`, [LEGACY_CONQUER_MAINTENANCE_MESSAGE]);
+    // A game first seeded while its engine was not loaded yet (e.g. a restart mid-build) is lifted once the engine is there.
+    await ds.query(`UPDATE games SET maintenance = true, "maintenanceMessage" = $1 WHERE slug = 'crazy'`, [NO_ENGINE_MAINTENANCE_MESSAGE]);
     await t.app.get(GamesService).syncCatalog();
     const res = await api('GET', '/games');
     expect(res.body.map((g: { slug: string }) => g.slug)).toEqual([...GAME_SLUGS]);

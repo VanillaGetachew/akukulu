@@ -87,6 +87,9 @@ export const GAME_CATALOG: readonly GameCatalogEntry[] = [
 /** Message seeded while Conquer had no engine; cleared automatically once it does. */
 export const LEGACY_CONQUER_MAINTENANCE_MESSAGE = 'Conquer is coming soon — the official ruleset is being finalized.';
 
+/** Set automatically while a catalog game has no engine loaded; lifted on the next boot that has one. */
+export const NO_ENGINE_MAINTENANCE_MESSAGE = 'Coming soon — this game is not available yet.';
+
 export function getCatalogEntry(slug: GameSlug): GameCatalogEntry {
   const entry = GAME_CATALOG.find((g) => g.slug === slug);
   if (!entry) throw new Error(`Unknown game: ${slug}`);

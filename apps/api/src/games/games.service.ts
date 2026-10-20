@@ -1,7 +1,7 @@
 import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { DataSource, Not, In } from 'typeorm';
 import { getEngine } from '@akukulu/engines';
-import { GAME_CATALOG, GAME_SLUGS, LEGACY_CONQUER_MAINTENANCE_MESSAGE, getCatalogEntry, type GameSlug, type GameSummary } from '@akukulu/shared';
+import { GAME_CATALOG, GAME_SLUGS, LEGACY_CONQUER_MAINTENANCE_MESSAGE, NO_ENGINE_MAINTENANCE_MESSAGE, getCatalogEntry, type GameSlug, type GameSummary } from '@akukulu/shared';
 import { GameEntity } from '../database/entities';
 import { GameError } from '../common/util';
 
@@ -38,11 +38,14 @@ export class GamesService implements OnApplicationBootstrap {
       if (existing) {
         // A game without an engine can never leave maintenance.
         const forceMaintenance = !getEngine(entry.slug);
-        // Lift the automatic "rules pending" maintenance once an engine exists (admin toggles are kept).
-        const liftLegacy = !forceMaintenance && existing.maintenance && existing.maintenanceMessage === LEGACY_CONQUER_MAINTENANCE_MESSAGE;
+        // Lift automatic maintenance ("rules pending", or seeded before the engine was loaded) once an engine exists. Admin toggles are kept.
+        const automatic = existing.maintenanceMessage === LEGACY_CONQUER_MAINTENANCE_MESSAGE || existing.maintenanceMessage === NO_ENGINE_MAINTENANCE_MESSAGE;
+        const liftLegacy = !forceMaintenance && existing.maintenance && automatic;
         await repo.update(entry.slug, {
           ...copy,
-          ...(forceMaintenance ? { maintenance: true, maintenanceMessage: entry.maintenanceMessage ?? existing.maintenanceMessage } : {}),
+          ...(forceMaintenance
+            ? { maintenance: true, maintenanceMessage: entry.maintenanceMessage ?? existing.maintenanceMessage ?? NO_ENGINE_MAINTENANCE_MESSAGE }
+            : {}),
           ...(liftLegacy ? { maintenance: false, maintenanceMessage: null } : {}),
         });
       } else {
@@ -51,7 +54,7 @@ export class GamesService implements OnApplicationBootstrap {
           ...copy,
           enabled: true,
           maintenance: entry.defaultMaintenance || !getEngine(entry.slug),
-          maintenanceMessage: entry.maintenanceMessage ?? null,
+          maintenanceMessage: entry.maintenanceMessage ?? (getEngine(entry.slug) ? null : NO_ENGINE_MAINTENANCE_MESSAGE),
         });
       }
     }
