@@ -10,6 +10,7 @@ import { AdminGuard, InternalKeyGuard, JwtAuthGuard } from './auth/guards';
 import { UsersService } from './users/users.service';
 import { LedgerService } from './wallet/ledger.service';
 import { WalletService } from './wallet/wallet.service';
+import { RewardsService } from './wallet/rewards.service';
 import { GamesService } from './games/games.service';
 import { RoomsService } from './rooms/rooms.service';
 import { RoomPresenter } from './rooms/room-presenter';
@@ -75,6 +76,7 @@ export class AppModule {
         UsersService,
         LedgerService,
         WalletService,
+        RewardsService,
         GamesService,
         RoomPresenter,
         RoomsService,

@@ -1,4 +1,8 @@
-export const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000').replace(/\/$/, '');
+/**
+ * API origin. Empty (the default) means same-origin: the web app proxies
+ * /api and /socket.io to the API server (see next.config.mjs).
+ */
+export const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? '').replace(/\/$/, '');
 export const DEV_AUTH = process.env.NEXT_PUBLIC_DEV_AUTH === 'true';
 
 const TOKEN_KEY = 'akukulu.token';

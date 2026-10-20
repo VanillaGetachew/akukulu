@@ -15,6 +15,21 @@ const nextConfig = {
   images: { unoptimized: true },
   // Lets the dev server be opened through a Cloudflare quick tunnel (Telegram testing).
   allowedDevOrigins: ['*.trycloudflare.com'],
+  // Socket.IO requests end in "/socket.io/"; don't redirect them to drop the slash.
+  skipTrailingSlashRedirect: true,
+  /**
+   * The web app forwards API and Socket.IO traffic to the API server, so the
+   * browser only ever talks to one origin (one tunnel / one domain, no CORS).
+   */
+  async rewrites() {
+    const api = (process.env.INTERNAL_API_ORIGIN ?? 'http://localhost:4000').replace(/\/$/, '');
+    return [
+      { source: '/api/:path*', destination: `${api}/api/:path*` },
+      // Socket.IO only answers on "/socket.io/" (with the slash), so keep it on the way through.
+      { source: '/socket.io', destination: `${api}/socket.io/` },
+      { source: '/socket.io/:path+', destination: `${api}/socket.io/:path+` },
+    ];
+  },
 };
 
 export default nextConfig;

@@ -10,6 +10,7 @@ import { PresenceService } from '../realtime/presence.service';
 import { UsersService } from '../users/users.service';
 import { LedgerService } from '../wallet/ledger.service';
 import { WalletService } from '../wallet/wallet.service';
+import { RewardsService } from '../wallet/rewards.service';
 import { GameError, body, optInt, reqString, toProfile } from '../common/util';
 
 @Controller('admin')
@@ -21,6 +22,7 @@ export class AdminController {
     private readonly runtime: MatchRuntimeService,
     private readonly ledger: LedgerService,
     private readonly presence: PresenceService,
+    private readonly rewards: RewardsService,
   ) {}
 
   @Get('overview')
@@ -35,7 +37,8 @@ export class AdminController {
     const perGame = await this.dataSource.query(
       `SELECT "gameSlug", status, COUNT(*)::int AS count FROM matches GROUP BY "gameSlug", status ORDER BY "gameSlug"`,
     );
-    return { users: users.count, pointsInCirculation: Number(points.total), activeMatches, waitingRooms: rooms.count, online, perGame };
+    const [{ count: pendingRewards }] = await this.dataSource.query(`SELECT COUNT(*)::int AS count FROM reward_requests WHERE status = 'pending'`);
+    return { users: users.count, pointsInCirculation: Number(points.total), activeMatches, waitingRooms: rooms.count, online, pendingRewards, perGame };
   }
 
   @Get('games')
@@ -83,6 +86,38 @@ export class AdminController {
     const reason = reqString(b.reason, 'reason', 200);
     const key = typeof b.idempotencyKey === 'string' && b.idempotencyKey ? `admin:${b.idempotencyKey}` : `admin:${randomUUID()}`;
     return this.ledger.applyStandalone({ userId: id, amount, type: 'admin_adjustment', description: `${reason} (by ${admin.id})`, key });
+  }
+
+  /* ---- Rewards: only administrators can authorise them ---- */
+
+  @Get('rewards')
+  rewardRequests(@Query('status') status?: string) {
+    const s = status === 'approved' || status === 'rejected' || status === 'all' ? status : 'pending';
+    return this.rewards.list(s);
+  }
+
+  @Post('rewards/:id/approve')
+  @HttpCode(200)
+  approveReward(@CurrentUser() admin: UserEntity, @Param('id') id: string) {
+    return this.rewards.approve(id, admin.id);
+  }
+
+  @Post('rewards/:id/reject')
+  @HttpCode(200)
+  async rejectReward(@CurrentUser() admin: UserEntity, @Param('id') id: string, @Body() input: unknown) {
+    const note = body(input).note;
+    await this.rewards.reject(id, admin.id, typeof note === 'string' ? note.slice(0, 200) : null);
+    return { ok: true };
+  }
+
+  /** Manually deposit coins into an account (positive amounts only; recorded in the ledger). */
+  @Post('users/:id/deposit')
+  @HttpCode(200)
+  deposit(@CurrentUser() admin: UserEntity, @Param('id') id: string, @Body() input: unknown) {
+    const b = body(input);
+    const amount = optInt(b.amount, 'amount', 1, 10_000_000, 0);
+    const reason = reqString(b.reason, 'reason', 200);
+    return this.rewards.deposit(id, amount, reason, admin.id, typeof b.idempotencyKey === 'string' ? b.idempotencyKey : undefined);
   }
 
   @Get('matches')

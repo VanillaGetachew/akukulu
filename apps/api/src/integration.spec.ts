@@ -18,7 +18,7 @@ import {
 import { GamesService } from './games/games.service';
 import { MatchRuntimeService } from './matches/match-runtime.service';
 import { LedgerService } from './wallet/ledger.service';
-import { client, connect, emitAck, initDataFor, startApp, type TestApp } from './testing/harness';
+import { ADMIN_TELEGRAM_ID, client, connect, emitAck, initDataFor, startApp, type TestApp } from './testing/harness';
 
 const DB = process.env.TEST_DATABASE_URL;
 const suite = DB ? describe : describe.skip;
@@ -100,20 +100,57 @@ suite('API integration', () => {
     expect((await api('GET', '/me')).status).toBe(401);
   });
 
-  it('credits a referral exactly once', async () => {
+  /** Signs in as the configured administrator. */
+  async function loginAdmin(): Promise<{ token: string }> {
+    const res = await api('POST', '/auth/telegram', undefined, { initData: initDataFor(Number(ADMIN_TELEGRAM_ID), 'Admin') });
+    expect(res.body.user.isAdmin).toBe(true);
+    return { token: res.body.token };
+  }
+
+  it('turns a referral into a reward that pays only after admin approval', async () => {
     const referrer = await login('Referrer');
     const code = (await api('GET', '/me', referrer.token)).body.referralCode;
     await login('Friend', { start_param: `ref_${code}` });
+    expect(await balance(referrer)).toBe(1000);
+    const admin = await loginAdmin();
+    const pending = (await api('GET', '/admin/rewards', admin.token)).body as { id: string; userId: string; type: string; amount: number }[];
+    const request = pending.find((r) => r.userId === referrer.id)!;
+    expect(request).toMatchObject({ type: 'referral', amount: 300 });
+    expect((await api('POST', `/admin/rewards/${request.id}/approve`, admin.token, {})).status).toBe(200);
     expect(await balance(referrer)).toBe(1300);
+    expect((await api('POST', `/admin/rewards/${request.id}/approve`, admin.token, {})).body.code).toBe('ALREADY_DECIDED');
   });
 
-  it('pays the daily reward once even under concurrent claims', async () => {
+  it('files one daily reward request under concurrent claims; only an admin can approve it, once', async () => {
     const p = await login('Daily');
     const results = await Promise.all(Array.from({ length: 6 }, () => api('POST', '/rewards/daily', p.token)));
     expect(results.filter((r) => r.body.claimed).length).toBe(1);
+    expect(results.find((r) => r.body.claimed)!.body.pending).toBe(true);
+    expect(await balance(p)).toBe(1000);
+    expect((await api('GET', '/rewards', p.token)).body).toMatchObject({ dailyAvailable: false, dailyPending: true, pendingRewards: 1 });
+
+    const admin = await loginAdmin();
+    const request = ((await api('GET', '/admin/rewards', admin.token)).body as { id: string; userId: string }[]).find((r) => r.userId === p.id)!;
+    // A regular player cannot approve rewards.
+    expect((await api('POST', `/admin/rewards/${request.id}/approve`, p.token, {})).status).toBe(403);
+    const approvals = await Promise.all([1, 2, 3].map(() => api('POST', `/admin/rewards/${request.id}/approve`, admin.token, {})));
+    expect(approvals.filter((a) => a.status === 200)).toHaveLength(1);
     expect(await balance(p)).toBe(1200);
   });
 
+  it('lets an admin reject a reward and deposit coins manually', async () => {
+    const p = await login('Depositee');
+    await api('POST', '/rewards/daily', p.token);
+    const admin = await loginAdmin();
+    const request = ((await api('GET', '/admin/rewards', admin.token)).body as { id: string; userId: string }[]).find((r) => r.userId === p.id)!;
+    expect((await api('POST', `/admin/rewards/${request.id}/reject`, admin.token, { note: 'test' })).status).toBe(200);
+    expect(await balance(p)).toBe(1000);
+    expect((await api('POST', `/admin/users/${p.id}/deposit`, admin.token, { amount: 2500, reason: 'Tournament prize' })).body.balance).toBe(3500);
+    expect((await api('POST', `/admin/users/${p.id}/deposit`, admin.token, { amount: -5, reason: 'x' })).status).toBe(400);
+    expect((await api('POST', `/admin/users/${p.id}/deposit`, p.token, { amount: 100, reason: 'self' })).status).toBe(403);
+    const tx = (await api('GET', '/me/transactions', p.token)).body as { type: string; amount: number }[];
+    expect(tx[0]).toMatchObject({ type: 'admin_deposit', amount: 2500 });
+  });
   it('never lets a balance go negative', async () => {
     const p = await login('Broke');
     await expect(

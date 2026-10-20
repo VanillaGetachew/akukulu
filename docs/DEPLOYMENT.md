@@ -21,7 +21,8 @@ Copy `.env.example` to `.env` and set at least:
 | `INTERNAL_API_KEY` | Random secret shared by API and bot. |
 | `ADMIN_TELEGRAM_IDS` | Comma-separated Telegram user ids. |
 | `CORS_ORIGINS` | The web app origin(s). |
-| `NEXT_PUBLIC_API_URL` | Public API URL baked into the web build. |
+| `NEXT_PUBLIC_API_URL` | Leave empty: the web app proxies `/api` and `/socket.io` to the API (`INTERNAL_API_ORIGIN`), so one domain or tunnel serves both. |
+| `REWARDS_REQUIRE_APPROVAL` | `true` (default): daily and referral rewards wait in *Admin → Rewards waiting for approval*. |
 | `WEBAPP_URL` | Public web URL used by the bot. |
 | `DB_SYNCHRONIZE` | See *Schema* below. |
 

@@ -84,7 +84,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!token) return;
-    const s: GameSocket = io(API_URL, { auth: { token }, transports: ['websocket', 'polling'] });
+    // Polling first: it works through the same-origin proxy and upgrades to WebSocket where possible.
+    const s: GameSocket = io(API_URL || undefined, { auth: { token }, transports: ['polling', 'websocket'] });
     s.on('connect', () => setConnected(true));
     s.on('disconnect', () => setConnected(false));
     s.on('balance:update', ({ balance }) => setUser((u) => (u ? { ...u, balance } : u)));

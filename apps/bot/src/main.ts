@@ -26,7 +26,7 @@ if (!env.internalKey) throw new Error('INTERNAL_API_KEY is required');
 
 interface Summary {
   profile: UserProfile;
-  rewards: { dailyAvailable: boolean; dailyAmount: number; referralsCount: number; referralReward: number };
+  rewards: { dailyAvailable: boolean; dailyPending: boolean; dailyAmount: number; referralsCount: number; referralReward: number };
   transactions: LedgerEntrySummary[];
 }
 
@@ -120,13 +120,22 @@ bot.action('rewards', async (ctx) => {
     ? [[Markup.button.callback(`🎁 Claim ${rewards.dailyAmount} pts`, 'claim_daily')], [Markup.button.callback('⬅️ Menu', 'menu')]]
     : [[Markup.button.callback('⬅️ Menu', 'menu')]];
   await ctx.editMessageText(
-    rewards.dailyAvailable ? `🎁 Your daily reward of ${rewards.dailyAmount} pts is ready!` : '🎁 Daily reward already claimed. Come back tomorrow (UTC).',
+    rewards.dailyAvailable
+      ? `🎁 Your daily reward of ${rewards.dailyAmount} pts is ready to request!`
+      : rewards.dailyPending
+        ? '🕓 Your daily reward is waiting for admin approval.'
+        : '🎁 Daily reward already claimed. Come back tomorrow (UTC).',
     Markup.inlineKeyboard(buttons),
   );
 });
 
 bot.action('claim_daily', async (ctx) => {
-  const result = await internal<{ claimed: boolean; balance: number; amount: number }>(`/users/${ctx.from!.id}/daily`, {});
+  const result = await internal<{ claimed: boolean; pending: boolean; balance: number; amount: number }>(`/users/${ctx.from!.id}/daily`, {});
+  if (result.claimed && result.pending) {
+    await ctx.answerCbQuery('Requested — waiting for admin approval');
+    await ctx.editMessageText(`🕓 Your ${result.amount} pts daily reward was requested. It is added once an admin approves it.`, back);
+    return;
+  }
   await ctx.answerCbQuery(result.claimed ? `+${result.amount} pts!` : 'Already claimed today');
   await ctx.editMessageText(result.claimed ? `✅ +${result.amount} pts. Balance: ${points(result.balance)}` : 'Already claimed today.', back);
 });

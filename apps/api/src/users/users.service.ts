@@ -4,6 +4,7 @@ import { ECONOMY } from '@akukulu/shared';
 import { APP_CONFIG, type AppConfig } from '../config';
 import { UserEntity } from '../database/entities';
 import { LedgerService } from '../wallet/ledger.service';
+import { RewardsService } from '../wallet/rewards.service';
 import { telegramIdFromReferral } from '../common/util';
 
 export interface TelegramIdentity {
@@ -22,6 +23,7 @@ export class UsersService {
   constructor(
     private readonly dataSource: DataSource,
     private readonly ledger: LedgerService,
+    private readonly rewards: RewardsService,
     @Inject(APP_CONFIG) private readonly config: AppConfig,
   ) {}
 
@@ -75,13 +77,13 @@ export class UsersService {
     const referrer = await manager.getRepository(UserEntity).findOneBy({ telegramId: referrerTelegramId });
     if (!referrer || referrer.isBanned) return;
     await manager.getRepository(UserEntity).update(user.id, { referredById: referrer.id });
-    await this.ledger.apply(manager, {
+    const res = await this.rewards.grant(manager, {
       userId: referrer.id,
       amount: ECONOMY.referralReward,
       type: 'referral',
       description: `Referral reward — ${user.firstName} joined`,
       key: `referral:${user.id}`,
     });
-    this.logger.log(`Referral credited to ${referrer.id} for ${user.id}`);
+    this.logger.log(`Referral reward for ${referrer.id} (new user ${user.id}): ${res.status}`);
   }
 }

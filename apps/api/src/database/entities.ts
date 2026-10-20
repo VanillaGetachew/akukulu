@@ -170,7 +170,30 @@ export class PlayerStatsEntity {
   @UpdateDateColumn({ type: 'timestamptz' }) updatedAt: Date;
 }
 
+/** A reward (daily, referral) waiting for an administrator to approve it. */
+@Entity('reward_requests')
+@Index(['status', 'createdAt'])
+export class RewardRequestEntity {
+  @PrimaryGeneratedColumn('uuid') id: string;
+  @Index()
+  @Column({ type: 'uuid' })
+  userId: string;
+  @Column({ type: 'varchar' }) type: 'daily' | 'referral';
+  @Column({ type: 'integer' }) amount: number;
+  @Column({ type: 'varchar' }) status: 'pending' | 'approved' | 'rejected';
+  @Column({ type: 'varchar' }) description: string;
+  /** Same uniqueness rule as the ledger: one daily request per user per day, one per referral. */
+  @Index({ unique: true })
+  @Column({ type: 'varchar' })
+  key: string;
+  @Column({ type: 'varchar', nullable: true }) note: string | null;
+  @Column({ type: 'uuid', nullable: true }) decidedBy: string | null;
+  @Column({ type: 'timestamptz', nullable: true }) decidedAt: Date | null;
+  @CreateDateColumn({ type: 'timestamptz' }) createdAt: Date;
+}
+
 export const ENTITIES = [
+  RewardRequestEntity,
   UserEntity,
   LedgerEntryEntity,
   GameEntity,

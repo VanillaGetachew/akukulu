@@ -13,6 +13,8 @@ export interface AppConfig {
   allowDevAuth: boolean;
   adminTelegramIds: string[];
   internalApiKey: string | null;
+  /** Daily and referral rewards wait for an administrator's approval. */
+  rewardsRequireApproval: boolean;
   corsOrigins: string[];
 }
 
@@ -46,6 +48,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     allowDevAuth,
     adminTelegramIds: (env.ADMIN_TELEGRAM_IDS ?? '').split(',').map((s) => s.trim()).filter(Boolean),
     internalApiKey: env.INTERNAL_API_KEY || null,
+    rewardsRequireApproval: bool(env.REWARDS_REQUIRE_APPROVAL, true),
     corsOrigins: (env.CORS_ORIGINS ?? 'http://localhost:3000').split(',').map((s) => s.trim()).filter(Boolean),
   };
 }

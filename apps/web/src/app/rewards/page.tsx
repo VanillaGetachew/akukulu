@@ -9,6 +9,9 @@ import { Coin, ErrorState, LoadingState, Page, Toast } from '@/components/ui';
 interface Rewards {
   dailyAmount: number;
   dailyAvailable: boolean;
+  dailyPending: boolean;
+  pendingRewards: number;
+  requiresApproval: boolean;
   nextDailyAt: string;
   referralReward: number;
   referralsCount: number;
@@ -40,9 +43,15 @@ export default function RewardsPage() {
   async function claim() {
     setBusy(true);
     try {
-      const res = await api<{ claimed: boolean; amount: number }>('/rewards/daily', { body: {} });
+      const res = await api<{ claimed: boolean; pending: boolean; amount: number }>('/rewards/daily', { body: {} });
       haptic(res.claimed ? 'success' : 'error');
-      setToast(res.claimed ? { text: `+${res.amount} points added!`, tone: 'success' } : { text: 'Already claimed today', tone: 'error' });
+      setToast(
+        !res.claimed
+          ? { text: 'Already claimed today', tone: 'error' }
+          : res.pending
+            ? { text: 'Requested — an admin will approve it', tone: 'success' }
+            : { text: `+${res.amount} points added!`, tone: 'success' },
+      );
       await load();
     } catch (err) {
       setToast({ text: (err as Error).message, tone: 'error' });
@@ -69,11 +78,18 @@ export default function RewardsPage() {
               </div>
               <div>
                 <div className="font-display text-lg font-extrabold">Daily free reward</div>
-                <div className="text-sm text-muted">{data.dailyAmount} points every day</div>
+                <div className="text-sm text-muted">{data.dailyAmount} points every day{data.requiresApproval ? ' · approved by an admin' : ''}</div>
+                {data.pendingRewards > 0 && <div className="mt-0.5 text-xs font-bold text-gold">{data.pendingRewards} reward{data.pendingRewards === 1 ? '' : 's'} waiting for approval</div>}
               </div>
             </div>
             <button className="btn-primary py-3" disabled={busy || !data.dailyAvailable} onClick={claim}>
-              {data.dailyAvailable ? `Claim ${data.dailyAmount} points` : `Next reward ${new Date(data.nextDailyAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`}
+              {data.dailyAvailable
+                ? data.requiresApproval
+                  ? `Request ${data.dailyAmount} points`
+                  : `Claim ${data.dailyAmount} points`
+                : data.dailyPending
+                  ? 'Waiting for admin approval'
+                  : `Next reward ${new Date(data.nextDailyAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`}
             </button>
           </section>
 

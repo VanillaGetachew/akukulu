@@ -7,6 +7,8 @@ import { loadConfig } from '../config';
 import { signTelegramInitData } from '../auth/telegram-init-data';
 
 export const BOT_TOKEN = '999999:integration-test-token';
+/** The Telegram id configured as administrator in tests. */
+export const ADMIN_TELEGRAM_ID = '424242';
 
 export interface TestApp {
   app: INestApplication;
@@ -27,6 +29,7 @@ export async function startApp(databaseUrl: string, opts: { dropSchema: boolean 
     INTERNAL_API_KEY: 'internal-test-key',
     ALLOW_DEV_AUTH: 'true',
     TELEGRAM_BOT_USERNAME: 'akukulu_test_bot',
+    ADMIN_TELEGRAM_IDS: ADMIN_TELEGRAM_ID,
   });
   const moduleRef = await Test.createTestingModule({
     imports: [AppModule.forRoot({ config, redis: null, dataSource: { dropSchema: opts.dropSchema, logging: false } })],
