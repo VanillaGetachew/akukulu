@@ -145,9 +145,9 @@ suite('API integration', () => {
 
     const st = await internal();
     expect(handLengths(st)).toEqual({ [predictor.id]: 13, [other.id]: 14 });
-    expect(st.stock).toHaveLength(25);
+    expect(st.stock).toHaveLength(27); // 54 cards (two printed jokers) − 27 dealt
     expect(st.stock[0]).toBe(st.baseCard);
-    expect(st.wildCards).toHaveLength(2);
+    expect(st.wildCards).toHaveLength(4); // Up & Down picks two cards, plus the two printed jokers
     const handOf = (id: string): string[] => st.players.find((p: { playerId: string }) => p.playerId === id).hand;
     const viewA = (await state<ConquerView>(matchId, a)).view;
     expect(viewA.hand.sort()).toEqual([...handOf(a.id)].sort());

@@ -205,3 +205,37 @@ describe('joker choices', () => {
     expect(layoffOptions(run.meld, '8h', ctx())).toHaveLength(1);
   });
 });
+describe('printed jokers and the one-joker limit', () => {
+  const jokers = ['X1', 'X2', '8c', '8s'];
+  it('a printed joker substitutes like any joker', () => {
+    const run = okMeld('5h 6h X1', ctx(jokers));
+    expect(run.placed.find((p) => p.card === 'X1')).toMatchObject({ wild: true, as: '7h' });
+    expect(['9d', '9c']).toContain(okMeld('9s 9h X2', ctx(jokers)).placed.find((p) => p.card === 'X2')?.as);
+  });
+  it('never allows two jokers in one meld', () => {
+    expect(meld('5h 6h X1 X2', ctx(jokers)).ok).toBe(false);
+    expect(meld('9s 9h X1 8c', ctx(jokers)).ok).toBe(false);
+    expect(meld('5h X1 7h 8s', ctx(jokers)).ok).toBe(false);
+    expect(meldOptions(h('5h 6h X1 X2'), ctx(jokers))).toEqual([]);
+  });
+  it('a joker playing as itself does not count as a joker', () => {
+    // 8♣ is a predicted joker but sits naturally in 6♣-7♣-8♣, so the printed joker may join.
+    expect(okMeld('6c 7c 8c X1', ctx(jokers)).placed.filter((p) => p.wild)).toHaveLength(1);
+  });
+  it('rejects laying a second joker onto a meld', () => {
+    const run = okMeld('5h 6h X1', ctx(jokers));
+    expect(extendMeld(run, 'X2', ctx(jokers)).ok).toBe(false);
+    expect(extendMeld(run, '8h', ctx(jokers)).ok).toBe(true);
+  });
+  it('allows jokers in different melds', () => {
+    const melds = partitionIntoMelds(h('5h 6h X1 9s 9h X2'), ctx(jokers));
+    expect(melds).toHaveLength(2);
+  });
+  it('best order never puts two jokers in one meld', () => {
+    const { melds } = arrangeHand(h('5h 6h X1 X2 Kd 2c'), ctx(jokers));
+    for (const m of melds) expect(m.filter((c) => jokers.includes(c)).length).toBeLessThanOrEqual(1);
+  });
+  it('scores a printed joker left in hand', () => {
+    expect(penaltyValue('X1', new Set(jokers), rules())).toBe(DEFAULT_CONQUER_RULES.wild.printedJokerPenalty);
+  });
+});

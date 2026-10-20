@@ -13,6 +13,7 @@ import { LudoTable } from '@/components/games/ludo-table';
 import { PokerTable } from '@/components/games/poker-table';
 import { BlackjackTable } from '@/components/games/blackjack-table';
 import { ConquerTable } from '@/components/games/conquer-table';
+import { CardRain } from '@/components/fx';
 
 function WaitingRoom({ room, onAction, busy }: { room: RoomSummary; onAction: (path: string, body?: unknown) => void; busy: boolean }) {
   const { user } = useSession();
@@ -142,6 +143,7 @@ function ResultSheet({ summary, stake }: { summary: MatchSummary; stake: number 
               : 'Match over';
   return (
     <div className="fixed inset-0 z-40 grid place-items-end bg-black/60 p-4 backdrop-blur-sm sm:place-items-center" role="dialog" aria-modal="true">
+      {(delta > 0 || mine?.outcome === 'win') && <CardRain />}
       <div className="card w-full max-w-md animate-pop p-5">
         <h2 className={`font-display text-2xl font-extrabold ${delta > 0 || mine?.outcome === 'win' ? 'text-lime' : delta < 0 ? 'text-danger' : ''}`}>{title}</h2>
         <div className="mt-3 grid gap-1.5">

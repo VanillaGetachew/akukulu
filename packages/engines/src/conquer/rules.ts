@@ -7,6 +7,7 @@ import {
   SUITS,
   cardRank,
   cardSuit,
+  isPrintedJoker,
   type Card,
   type ConquerPrediction,
   type ConquerRules,
@@ -127,6 +128,9 @@ export type MeldResult = { ok: true; meld: Interpretation } | { ok: false; error
 const fail = (error: string): MeldResult => ({ ok: false, error });
 const total = (placed: Placed[]) => placed.reduce((s, p) => s + p.points, 0);
 const naturals = (placed: Placed[]) => placed.filter((p) => !p.wild).length;
+const jokersUsed = (placed: Placed[]) => placed.filter((p) => p.wild).length;
+/** A meld may hold at most `rules.wild.maxPerMeld` substituting jokers (one, by default). */
+const tooManyJokers = (placed: Placed[], ctx: MeldContext) => jokersUsed(placed) > ctx.rules.wild.maxPerMeld;
 
 function setCandidate(cards: Card[], rank: Rank, ctx: MeldContext, hint: Record<Card, Card>): Interpretation | null {
   if (cards.length < 3 || cards.length > 4) return null;
@@ -156,7 +160,7 @@ function setCandidate(cards: Card[], rank: Rank, ctx: MeldContext, hint: Record<
     used.add(cardSuit(as));
     placed.push({ card: c, as, wild: true, points: naturalValue(rank) });
   }
-  if (naturals(placed) < ctx.rules.wild.minNaturalPerMeld) return null;
+  if (naturals(placed) < ctx.rules.wild.minNaturalPerMeld || tooManyJokers(placed, ctx)) return null;
   if (placed.some((p) => !p.wild && ctx.taken.has(p.as))) return null;
   placed.sort(bySetOrder);
   return { kind: 'set', placed, points: total(placed) };
@@ -217,7 +221,7 @@ function runCandidates(cards: Card[], suit: Suit, ctx: MeldContext, hint: Record
     }
     if (!valid || filled.size !== L) continue;
     const placed = [...filled.values()].sort((a, b) => a.pos! - b.pos!);
-    if (naturals(placed) < ctx.rules.wild.minNaturalPerMeld) continue;
+    if (naturals(placed) < ctx.rules.wild.minNaturalPerMeld || tooManyJokers(placed, ctx)) continue;
     if (placed.some((p) => !p.wild && ctx.taken.has(p.as))) continue;
     out.push({ kind: 'run', placed, points: total(placed) });
   }
@@ -276,6 +280,7 @@ export function extendMeld(meld: Interpretation, card: Card, ctx: MeldContext, h
       as = hintAs ? (options.includes(hintAs) ? hintAs : null) : (options[0] ?? null);
       if (!as) return fail('No free position in this set');
     }
+    if (as !== card && jokersUsed(meld.placed) >= ctx.rules.wild.maxPerMeld) return fail('Only one joker may be used in a meld');
     const placed = [...meld.placed, { card, as, wild: as !== card, points: naturalValue(rank) }].sort(
       bySetOrder,
     );
@@ -299,6 +304,7 @@ export function extendMeld(meld: Interpretation, card: Card, ctx: MeldContext, h
     wild = true;
   }
   if (!wild && ctx.taken.has(card)) return fail(`A wildcard already represents ${card} — swap it instead`);
+  if (wild && jokersUsed(meld.placed) >= ctx.rules.wild.maxPerMeld) return fail('Only one joker may be used in a meld');
   const placed = [...meld.placed, { card, as: identity(pos), wild, points: runPoints(pos), pos }].sort((a, b) => a.pos! - b.pos!);
   return { ok: true, meld: { kind: 'run', placed, points: total(placed) } };
 }
@@ -311,6 +317,7 @@ export function openingPoints(meld: Interpretation, rules: ConquerRules): number
 
 /** Penalty for a card left in hand when the stock runs out. */
 export function penaltyValue(card: Card, wild: ReadonlySet<Card>, rules: ConquerRules): number {
+  if (isPrintedJoker(card)) return rules.wild.printedJokerPenalty;
   if (wild.has(card) && typeof rules.wild.penalty === 'number') return rules.wild.penalty;
   return cardRank(card) === 'A' ? rules.acePenalty : naturalValue(cardRank(card));
 }
@@ -376,7 +383,8 @@ function candidates(cards: Card[], ctx: MeldContext): Candidate[] {
     for (let mask = 1; mask < 1 << n; mask++) {
       const picked = group.filter((_, i) => mask & (1 << i));
       if (picked.length < minNat) continue;
-      for (let w = Math.max(0, 3 - picked.length); picked.length + w <= 4 && w <= wildCount; w++) {
+      const maxW = Math.min(wildCount, ctx.rules.wild.maxPerMeld);
+      for (let w = Math.max(0, 3 - picked.length); picked.length + w <= 4 && w <= maxW; w++) {
         out.push({ naturals: picked, wilds: w, points: naturalValue(rank) * (picked.length + w) });
       }
     }
@@ -404,7 +412,7 @@ function candidates(cards: Card[], ctx: MeldContext): Candidate[] {
         const len = end - start + 1;
         const missing = len - present.length;
         // Widening a window never closes a gap, so stop once there are too many.
-        if (missing > wildCount) break;
+        if (missing > Math.min(wildCount, ctx.rules.wild.maxPerMeld)) break;
         if (present.length >= minNat) out.push({ naturals: present, wilds: missing, points });
       }
     }

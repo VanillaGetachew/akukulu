@@ -87,3 +87,29 @@ body {
     url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120' viewBox='0 0 120 120'%3E%3Cg fill='%23000' fill-opacity='0.13'%3E%3Cpath d='M30 12c6 8 14 12 14 20a7 7 0 0 1-12 5l2 9h-8l2-9a7 7 0 0 1-12-5c0-8 8-12 14-20z'/%3E%3Cpath d='M90 14l12 16-12 16-12-16z'/%3E%3Cpath d='M30 92c-8-6-14-10-14-17a7 7 0 0 1 14-3 7 7 0 0 1 14 3c0 7-6 11-14 17z'/%3E%3Ccircle cx='90' cy='76' r='6'/%3E%3Ccircle cx='83' cy='86' r='6'/%3E%3Ccircle cx='97' cy='86' r='6'/%3E%3Cpath d='M88 86h4l2 12h-8z'/%3E%3C/g%3E%3C/svg%3E");
   background-size: auto, 120px 120px;
 }
+
+/* ---- Card animations: shuffle & deal, winner's card rain ---- */
+@keyframes fx-riffle-left {
+  0%, 100% { transform: translate(calc(-50% - 70px), -50%) rotate(-10deg); }
+  45% { transform: translate(calc(-50% - 6px), -50%) rotate(-2deg); }
+  55% { transform: translate(calc(-50% - 6px), -50%) rotate(-2deg); }
+}
+@keyframes fx-riffle-right {
+  0%, 100% { transform: translate(calc(-50% + 70px), -50%) rotate(10deg); }
+  45% { transform: translate(calc(-50% + 6px), -50%) rotate(2deg); }
+  55% { transform: translate(calc(-50% + 6px), -50%) rotate(2deg); }
+}
+@keyframes fx-deal {
+  0% { transform: translate(-50%, -50%) rotate(0deg) scale(1); opacity: 1; }
+  85% { opacity: 1; }
+  100% { transform: translate(calc(-50% + var(--tx)), calc(-50% + var(--ty))) rotate(var(--rot)) scale(0.85); opacity: 0; }
+}
+@keyframes fx-fall {
+  0% { transform: translate3d(0, -20vh, 0) rotate(var(--r0)); opacity: 0; }
+  10% { opacity: 1; }
+  100% { transform: translate3d(var(--drift), 115vh, 0) rotate(var(--r1)); opacity: 1; }
+}
+@keyframes fx-fade-out {
+  0%, 85% { opacity: 1; }
+  100% { opacity: 0; }
+}

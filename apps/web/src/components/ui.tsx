@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { HIDDEN_CARD, RANK_LABEL, SUIT_SYMBOL, type Card, type Rank, type Suit } from '@akukulu/shared';
+import { HIDDEN_CARD, RANK_LABEL, SUIT_SYMBOL, isPrintedJoker, type Card, type Rank, type Suit } from '@akukulu/shared';
 import { useSession } from '@/lib/session';
 import { Logo } from './art';
 
@@ -166,6 +166,14 @@ export function PlayingCard({ card, size = 'md', delay = 0, highlight = false }:
   if (card === HIDDEN_CARD) {
     return (
       <div style={style} className={`${dims} animate-dealIn rounded-lg border border-white/20 bg-[repeating-linear-gradient(45deg,#3a2d7a_0_6px,#2a2160_6px_12px)] shadow-card`} aria-label="Hidden card" />
+    );
+  }
+  if (isPrintedJoker(card)) {
+    return (
+      <div style={style} className={`${dims} animate-dealIn relative grid place-items-center rounded-lg bg-[linear-gradient(160deg,#fff7d6,#ffd36b)] font-black text-[#e3a008] shadow-card ring-1 ring-[#e3a008] ${highlight ? 'ring-2 ring-lime' : ''}`} aria-label="Joker">
+        <span className="text-[1.8em] leading-none">★</span>
+        <span className="absolute left-1 top-1 text-[0.6em] text-[#7c1424]">JKR</span>
+      </div>
     );
   }
   const rank = card[0] as Rank;

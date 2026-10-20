@@ -20,12 +20,20 @@ export function cardSuit(card: Card): Suit {
   return card[1] as Suit;
 }
 
+/** The two printed jokers of a 54-card deck (used by Conquer only). */
+export const PRINTED_JOKERS = ['X1', 'X2'] as const;
+
+export function isPrintedJoker(card: unknown): boolean {
+  return card === 'X1' || card === 'X2';
+}
+
 export function isValidCard(card: unknown): card is Card {
   return (
-    typeof card === 'string' &&
-    card.length === 2 &&
-    (RANKS as readonly string[]).includes(card[0]) &&
-    (SUITS as readonly string[]).includes(card[1])
+    isPrintedJoker(card) ||
+    (typeof card === 'string' &&
+      card.length === 2 &&
+      (RANKS as readonly string[]).includes(card[0]) &&
+      (SUITS as readonly string[]).includes(card[1]))
   );
 }
 
@@ -33,6 +41,11 @@ export function standardDeck(): Card[] {
   const deck: Card[] = [];
   for (const s of SUITS) for (const r of RANKS) deck.push(`${r}${s}`);
   return deck;
+}
+
+/** 52 cards plus the two printed jokers. */
+export function deckWithJokers(): Card[] {
+  return [...standardDeck(), ...PRINTED_JOKERS];
 }
 
 export const SUIT_SYMBOL: Record<Suit, string> = { s: '♠', h: '♥', d: '♦', c: '♣' };

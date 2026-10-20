@@ -14,6 +14,7 @@ import {
   CONQUER_PREDICTION_LABEL,
   RANK_LABEL,
   SUIT_SYMBOL,
+  isPrintedJoker,
   type Card,
   type ConquerMeldSpec,
   type ConquerMeldView,
@@ -24,13 +25,15 @@ import {
 } from '@akukulu/shared';
 import { useSession } from '@/lib/session';
 import { Coin, PlayingCard } from '@/components/ui';
+import { CardRain, ShuffleAndDeal } from '@/components/fx';
 import { nameOf, type TableProps } from './types';
 
 /** Order of the prediction buttons, as players know them. */
 const PREDICTION_ORDER: ConquerPrediction[] = ['upDown', 'up', 'down', 'side'];
-const label = (c: Card) => `${RANK_LABEL[c[0] as Rank]}${SUIT_SYMBOL[c[1] as 's']}`;
+const label = (c: Card) => (isPrintedJoker(c) ? 'Joker' : `${RANK_LABEL[c[0] as Rank]}${SUIT_SYMBOL[c[1] as 's']}`);
 const RUN_ORDER = 'A23456789TJQK';
-const bySuitRank = (a: Card, b: Card) => 'shdc'.indexOf(a[1]) - 'shdc'.indexOf(b[1]) || RUN_ORDER.indexOf(a[0]) - RUN_ORDER.indexOf(b[0]);
+const suitOrder = (c: Card) => (isPrintedJoker(c) ? 9 : 'shdc'.indexOf(c[1]));
+const bySuitRank = (a: Card, b: Card) => suitOrder(a) - suitOrder(b) || RUN_ORDER.indexOf(a[0]) - RUN_ORDER.indexOf(b[0]);
 
 /** Tracks an element's width; the callback ref re-attaches whenever the element mounts. */
 function useWidth<T extends HTMLElement>() {
@@ -54,6 +57,20 @@ const HAND_H = 78;
  * top-left corner, the only part of each card that stays visible.
  */
 function FanCard({ card, selected, joker, marked }: { card: Card; selected?: boolean; joker?: boolean; marked?: boolean }) {
+  if (isPrintedJoker(card)) {
+    return (
+      <div
+        className={`relative rounded-lg bg-[linear-gradient(160deg,#fff7d6,#ffd36b)] text-[#7c1424] shadow-[0_2px_6px_rgba(0,0,0,.45)] ${selected ? 'ring-[3px] ring-lime' : marked ? 'ring-[3px] ring-gold' : 'ring-1 ring-[#e3a008]'}`}
+        style={{ width: HAND_W, height: HAND_H }}
+      >
+        <div className="absolute left-[3px] top-[3px] flex w-[17px] flex-col items-center leading-none">
+          <span className="text-[15px] text-[#e3a008]">★</span>
+          <span className="text-[8px] font-black tracking-tighter">JKR</span>
+        </div>
+        <span className="absolute bottom-1 right-1 text-[24px] leading-none text-[#e3a008]">★</span>
+      </div>
+    );
+  }
   const rank = RANK_LABEL[card[0] as Rank];
   const suit = SUIT_SYMBOL[card[1] as 's'];
   const red = card[1] === 'h' || card[1] === 'd';
@@ -73,7 +90,7 @@ function FanCard({ card, selected, joker, marked }: { card: Card; selected?: boo
 }
 
 /** Cards on a shallow arc that always fits its box. `flip` is the opponent's fan at the top. */
-function Fan({ cards, width, flip, selected, wild, marked, onTap, floatAction }: { cards: Card[]; width: number; flip?: boolean; selected?: Card[]; wild?: Set<Card>; marked?: Card | null; onTap?: (c: Card) => void; floatAction?: { am: string; en: string; onClick: () => void } | null }) {
+function Fan({ cards, width, flip, selected, wild, marked, onTap }: { cards: Card[]; width: number; flip?: boolean; selected?: Card[]; wild?: Set<Card>; marked?: Card | null; onTap?: (c: Card) => void }) {
   const n = cards.length;
   const cw = flip ? 36 : HAND_W;
   const ch = flip ? 48 : HAND_H;
@@ -111,22 +128,6 @@ function Fan({ cards, width, flip, selected, wild, marked, onTap, floatAction }:
           </button>
         );
       })}
-      {floatAction && selected && selected.length > 0 && (() => {
-        // Centred above the selected (lifted) cards.
-        const idx = cards.map((c, i) => (selected.includes(c) ? i - mid : null)).filter((d): d is number => d !== null);
-        const centre = idx.reduce((s, d) => s + d, 0) / idx.length;
-        return (
-          <button
-            type="button"
-            onClick={floatAction.onClick}
-            className="absolute left-1/2 z-[100] flex animate-pop flex-col items-center rounded-xl border-2 border-white/80 bg-lime px-4 py-1 text-ink shadow-glow"
-            style={{ bottom: 6 + maxDrop + ch + lift + 6, transform: `translateX(calc(-50% + ${centre * spacing}px))` }}
-          >
-            <span className="font-ethiopic text-base font-black leading-tight">{floatAction.am}</span>
-            <span className="text-[9px] font-bold uppercase tracking-wide">{floatAction.en}</span>
-          </button>
-        );
-      })()}
     </div>
   );
 }
@@ -136,6 +137,13 @@ function Fan({ cards, width, flip, selected, wild, marked, onTap, floatAction }:
  */
 function MiniCard({ placed, highlight }: { placed: Pick<ConquerPlacedCard, 'card' | 'as' | 'wild'>; highlight?: boolean }) {
   const shown = placed.wild ? placed.as : placed.card;
+  if (isPrintedJoker(shown)) {
+    return (
+      <div className="relative grid h-[46px] w-[33px] shrink-0 place-items-center rounded-md bg-[linear-gradient(160deg,#fff7d6,#ffd36b)] text-[#e3a008] shadow-[0_1px_3px_rgba(0,0,0,.5)] ring-1 ring-[#e3a008]" title="Joker">
+        <span className="text-lg leading-none">★</span>
+      </div>
+    );
+  }
   const rank = RANK_LABEL[shown[0] as Rank];
   const suit = SUIT_SYMBOL[shown[1] as 's'];
   const red = shown[1] === 'h' || shown[1] === 'd';
@@ -263,6 +271,14 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
   const [selected, setSelected] = useState<Card[]>([]);
   const [choice, setChoice] = useState<JokerChoice | null>(null);
   const [confirmBase, setConfirmBase] = useState(false);
+  // Shuffle-and-deal plays when this client sees the prediction end (not on a mid-round reconnect).
+  const [dealing, setDealing] = useState(false);
+  const prevPhase = useRef(view.phase);
+  useEffect(() => {
+    if (prevPhase.current === 'predict' && (view.phase === 'meld' || view.phase === 'draw')) setDealing(true);
+    prevPhase.current = view.phase;
+  }, [view.phase]);
+  const endDeal = useCallback(() => setDealing(false), []);
   const [hint, setHint] = useState<string | null>(null);
   const [handRef, handWidth] = useWidth<HTMLDivElement>();
   const [oppRef, oppWidth] = useWidth<HTMLDivElement>();
@@ -272,9 +288,8 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
     setOrder((prev) => {
       const kept = prev.filter((c) => view.hand.includes(c));
       const added = view.hand.filter((c) => !kept.includes(c));
-      if (!added.length && kept.length === view.hand.length) return kept;
-      // Whenever the hand changes (deal, draw, meld), lay it out in the best order.
-      return arrangeHand(view.hand, { wild: new Set(view.wildCards), rules: view.config.rules, taken: new Set(view.melds.flatMap((m) => m.cards.map((x) => x.as))) }).order;
+      // A new deal is sorted by suit; drawn cards are added on the right. ደርድር arranges the best order.
+      return kept.length ? [...kept, ...added] : [...view.hand].sort(bySuitRank);
     });
     setSelected((s) => s.filter((c) => view.hand.includes(c)));
   }, [view.hand]);
@@ -289,11 +304,6 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
   const toggle = (c: Card) => setSelected((s) => (s.includes(c) ? s.filter((x) => x !== c) : [...s, c]));
   const swapTarget = selected.length === 1 ? view.melds.find((m) => m.cards.some((c) => c.wild && c.as === selected[0])) : undefined;
   const canLayOff = myTurn && me?.opened && view.phase === 'meld' && selected.length === 1;
-  /** The floating ውረድ (meld) button appears only when the selected cards form valid melds. */
-  const canMeld = useMemo(
-    () => myTurn && view.phase === 'meld' && selected.length >= 3 && partitionIntoMelds(selected, meldCtx) !== null,
-    [myTurn, view.phase, selected, meldCtx],
-  );
 
   const sendMelds = (melds: Card[][], hints: Record<Card, Card>[]) => {
     const specs: ConquerMeldSpec[] = melds.map((cards, i) => ({ cards, as: hints[i] }));
@@ -378,6 +388,7 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
         ← Lobby
       </Link>
       {children}
+      {dealing && <ShuffleAndDeal onDone={endDeal} />}
       {choice && <JokerChooser choice={choice} onPick={pick} onCancel={() => setChoice(null)} />}
       {confirmBase && (
         <div className="absolute inset-0 z-40 grid place-items-center bg-black/60 p-6 backdrop-blur-sm" role="dialog" aria-modal="true">
@@ -567,10 +578,10 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
               wild={wild}
               marked={myTurn ? view.pendingPickup : null}
               onTap={myTurn ? toggle : undefined}
-              floatAction={canMeld && !pending ? { am: 'ውረድ', en: 'meld', onClick: enter } : null}
             />
           </div>
           <div className="mt-1 flex flex-wrap justify-center gap-1.5 px-2">
+            <ActionButton am="ገቢ" en="meld" onClick={enter} disabled={!myTurn || pending || view.phase !== 'meld' || selected.length < 3} />
             <ActionButton am="ጨምር" en="open" onClick={addToMeld} disabled={!canLayOff || pending} />
             <ActionButton am="ጆከር መተካት" en="swap joker" tone="gold" onClick={() => swapTarget && void act({ type: 'swapWild', meldId: swapTarget.id, card: selected[0] })} disabled={!view.legal.swapWild || !swapTarget || pending} />
             <ActionButton am="ጣል" en="discard" tone="red" onClick={() => void act({ type: 'discard', card: selected[0] })} disabled={!view.legal.discard || selected.length !== 1 || pending} />
@@ -580,6 +591,7 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
       )}
 
       {/* Round result */}
+      {result && (view.phase === 'roundOver' || view.phase === 'finished') && result.winnerId === user?.id && <CardRain />}
       {result && (view.phase === 'roundOver' || view.phase === 'finished') && (
         <div className="absolute inset-0 z-30 grid place-items-center bg-black/55 p-4">
           <div className="card grid w-full max-w-md gap-3 p-5 text-fg">

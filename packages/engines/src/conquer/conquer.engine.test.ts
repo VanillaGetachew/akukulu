@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CONQUER_PREDICTIONS, DEFAULT_CONQUER_CONFIG, DEFAULT_CONQUER_RULES, HIDDEN_CARD, standardDeck, type ConquerConfig, type ConquerRules } from '@akukulu/shared';
+import { CONQUER_PREDICTIONS, DEFAULT_CONQUER_CONFIG, DEFAULT_CONQUER_RULES, HIDDEN_CARD, PRINTED_JOKERS, deckWithJokers, type ConquerConfig, type ConquerRules } from '@akukulu/shared';
 import { seededRng, type EngineContext, type EngineResult, type LedgerIntent } from '../core';
 import { conquerEngine, conquerInventory, isCompleteDeck, type ConquerState } from './conquer.engine';
 import { interpretMeld, openingPoints, penaltyValue, selectWildcards, suggestNaturalMelds, type MeldContext } from './rules';
@@ -39,7 +39,7 @@ function rigged(opts: { a: string; b: string; stockTop?: string; discard?: strin
   s.players[0].hand = a;
   s.players[1].hand = b;
   s.discard = discard;
-  s.stock = [...standardDeck().filter((c) => !used.has(c)), ...[...top].reverse()];
+  s.stock = [...deckWithJokers().filter((c) => !used.has(c)), ...[...top].reverse()];
   s.wildCards = opts.wild ?? [];
   s.current = opts.current === 'b' ? 1 : 0;
   s.phase = 'draw';
@@ -58,7 +58,8 @@ describe('Conquer setup and prediction', () => {
     const { state } = started();
     expect(state.phase).toBe('predict');
     expect(state.baseSetAside).toBe(true);
-    expect(state.stock).toHaveLength(51);
+    expect(state.stock).toHaveLength(53); // 54 cards (two printed jokers) minus the base card
+    expect(state.baseCard!.startsWith('X')).toBe(false);
     expect(state.players.every((p) => p.hand.length === 0)).toBe(true);
   });
 
@@ -79,10 +80,10 @@ describe('Conquer setup and prediction', () => {
       const { state } = started();
       const base = state.baseCard!;
       const s = run(state, state.players[state.predictor].playerId, { type: 'predict', choice });
-      expect(s.wildCards).toEqual(selectWildcards(base, choice, s.config.rules).cards);
+      expect(s.wildCards).toEqual([...selectWildcards(base, choice, s.config.rules).cards, ...PRINTED_JOKERS]);
       expect(s.players[1 - s.predictor].hand).toHaveLength(14);
       expect(s.players[s.predictor].hand).toHaveLength(13);
-      expect(s.stock).toHaveLength(52 - 27);
+      expect(s.stock).toHaveLength(54 - 27);
       expect(s.stock[0]).toBe(base); // bottom of the stock, face up
       expect(s.discard).toHaveLength(0);
       expect(s.current).toBe(1 - s.predictor);
@@ -369,7 +370,7 @@ describe('Conquer round end', () => {
   it('shuffles the discard pile (except its top card) back in when the deck runs out', () => {
     let s = rigged({ a: '2s 3s 4s 2h 3h 4h 2d 3d 4d 5c 6c 7c 8c 9c', b: 'Ks Kh Kd Qs Qh Qd Js Jh Jd Ts Th Td 9s 9h', stockTop: '2c' });
     s.stock = ['2c'];
-    s.discard = standardDeck().filter((c) => !new Set([...s.players[0].hand, ...s.players[1].hand, '2c']).has(c));
+    s.discard = deckWithJokers().filter((c) => !new Set([...s.players[0].hand, ...s.players[1].hand, '2c']).has(c));
     const before = new Set(s.discard);
     s = run(s, 'a', { type: 'drawStock' });
     s = run(s, 'a', { type: 'discard', card: '9c' });
@@ -386,7 +387,7 @@ describe('Conquer round end', () => {
   it('ends on stock exhaustion with the lower-penalty option', () => {
     let s = rigged({ a: '2s 3s 4s 2h 3h 4h 2d 3d 4d 5c 6c 7c 8c 9c', b: 'Ks Kh Kd Qs Qh Qd Js Jh Jd Ts Th Td 9s 9h', stockTop: '2c', config: withRules({ exhaustion: 'lowerPenaltyWins' }) });
     s.stock = ['2c'];
-    s.discard = standardDeck().filter((c) => !new Set([...s.players[0].hand, ...s.players[1].hand, '2c']).has(c));
+    s.discard = deckWithJokers().filter((c) => !new Set([...s.players[0].hand, ...s.players[1].hand, '2c']).has(c));
     s = run(s, 'a', { type: 'drawStock' });
     s = run(s, 'a', { type: 'discard', card: '9c' });
     expect(s.phase).toBe('roundOver');
@@ -397,7 +398,7 @@ describe('Conquer round end', () => {
   it('records a draw and refunds stakes when penalties are equal', () => {
     let s = rigged({ a: '2s 3s 4s 5s 6s 7s 8s 2h 3h 4h 5h 6h 7h 9s', b: '2d 3d 4d 5d 6d 7d 8d 2c 3c 4c 5c 6c 7c 9h', stockTop: 'Ts', config: { stake: 30, ...withRules({ exhaustion: 'lowerPenaltyWins' }) } });
     s.stock = ['Ts'];
-    s.discard = standardDeck().filter((c) => !new Set([...s.players[0].hand, ...s.players[1].hand, 'Ts']).has(c));
+    s.discard = deckWithJokers().filter((c) => !new Set([...s.players[0].hand, ...s.players[1].hand, 'Ts']).has(c));
     s = run(s, 'a', { type: 'drawStock' });
     const res = expectOk(act(s, 'a', { type: 'discard', card: 'Ts' }));
     expect(res.state.roundResult).toMatchObject({ winnerId: null, reason: 'exhaustion' });

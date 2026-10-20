@@ -32,6 +32,12 @@ export interface ConquerRules {
   wild: {
     /** Minimum natural (non-substituting) cards in every meld. */
     minNaturalPerMeld: number;
+    /** Maximum jokers substituting in one meld (owner-confirmed: two jokers never share a meld). */
+    maxPerMeld: number;
+    /** The deck includes the two printed jokers, which are always wild (54 cards). */
+    printedJokers: boolean;
+    /** Penalty for a printed joker left in hand. */
+    printedJokerPenalty: number;
     /** Opening value of a substituting wildcard: the card it represents, or a fixed number. */
     openingValue: 'represented' | number;
     /** An opened player may give the natural card a wildcard represents and take the wildcard. */
@@ -77,7 +83,16 @@ export const DEFAULT_CONQUER_RULES: ConquerRules = {
     },
     boundary: 'wrap',
   },
-  wild: { minNaturalPerMeld: 2, openingValue: 'represented', allowSwap: true, swappedMustBeUsedSameTurn: true, penalty: 'natural' },
+  wild: {
+    minNaturalPerMeld: 2,
+    maxPerMeld: 1,
+    printedJokers: true,
+    printedJokerPenalty: 20,
+    openingValue: 'represented',
+    allowSwap: true,
+    swappedMustBeUsedSameTurn: true,
+    penalty: 'natural',
+  },
   runs: { aceHigh: true },
   discardPickup: 'mustMeldBeforeDiscard',
   layoffRequiresOpen: true,
@@ -91,7 +106,7 @@ export const DEFAULT_CONQUER_RULES: ConquerRules = {
 /** Rule options not yet verified against authoritative Ethiopian rules. */
 export const CONQUER_UNVERIFIED_RULES: readonly string[] = [
   'prediction.boundary',
-  'wild.minNaturalPerMeld',
+  'wild.printedJokerPenalty',
   'wild.openingValue',
   'wild.allowSwap',
   'wild.swappedMustBeUsedSameTurn',

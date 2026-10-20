@@ -8,6 +8,9 @@ import {
   RANK_LABEL,
   SUIT_SYMBOL,
   isValidCard,
+  PRINTED_JOKERS,
+  deckWithJokers,
+  isPrintedJoker,
   standardDeck,
   type Card,
   type ConquerConfig,
@@ -114,8 +117,9 @@ interface Out {
   ledger: LedgerIntent[];
 }
 
-const PHYSICAL_DECK = new Set(standardDeck());
-const cardLabel = (c: Card) => `${RANK_LABEL[c[0] as Rank]}${SUIT_SYMBOL[c[1] as Suit]}`;
+const cardLabel = (c: Card) => (isPrintedJoker(c) ? 'Joker' : `${RANK_LABEL[c[0] as Rank]}${SUIT_SYMBOL[c[1] as Suit]}`);
+/** The physical deck for a rule set: 54 cards with the printed jokers, otherwise 52. */
+const physicalDeck = (rules: ConquerConfig['rules']) => (rules.wild.printedJokers ? deckWithJokers() : standardDeck());
 
 function meldContext(state: ConquerState, excludeMeldId?: string): MeldContext {
   const taken = new Set<Card>();
@@ -157,8 +161,10 @@ function beginRound(state: ConquerState, predictor: number, ctx: EngineContext, 
     }
     Object.assign(p, { hand: [], opened: false, missedTurns: 0, wantsRematch: false, revealedHand: null, penalty: null });
   }
-  const deck = shuffle(standardDeck(), ctx.rng);
-  const baseIndex = ctx.rng.int(deck.length);
+  const deck = shuffle(physicalDeck(state.config.rules), ctx.rng);
+  // The base card is always a regular card (a printed joker cannot set the prediction).
+  const regular = deck.map((c, i) => (isPrintedJoker(c) ? -1 : i)).filter((i) => i >= 0);
+  const baseIndex = regular[ctx.rng.int(regular.length)];
   state.baseCard = deck[baseIndex];
   deck.splice(baseIndex, 1);
   state.baseSetAside = true;
@@ -192,7 +198,8 @@ function beginRound(state: ConquerState, predictor: number, ctx: EngineContext, 
 function applyPrediction(state: ConquerState, choice: ConquerPrediction, ctx: EngineContext, out: Out) {
   const sel = selectWildcards(state.baseCard!, choice, state.config.rules);
   state.prediction = choice;
-  state.wildCards = sel.cards;
+  // Printed jokers are always wild, in addition to the predicted cards.
+  state.wildCards = [...sel.cards, ...(state.config.rules.wild.printedJokers ? PRINTED_JOKERS : [])];
   state.wildRanks = sel.ranks;
   state.wildSuits = sel.suits;
   state.baseSetAside = false;
@@ -740,6 +747,7 @@ export function conquerInventory(s: ConquerState): Card[] {
   ];
 }
 
-export function isCompleteDeck(cards: Card[]): boolean {
-  return cards.length === 52 && new Set(cards).size === 52 && cards.every((c) => PHYSICAL_DECK.has(c));
+export function isCompleteDeck(cards: Card[], withJokers = true): boolean {
+  const deck = new Set(withJokers ? deckWithJokers() : standardDeck());
+  return cards.length === deck.size && new Set(cards).size === deck.size && cards.every((c) => deck.has(c));
 }
