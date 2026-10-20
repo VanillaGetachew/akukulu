@@ -24,15 +24,16 @@ function HandFan({
   selected,
   playable,
   onTap,
-  wildEights,
+  wildRanks,
 }: {
   cards: Card[];
   width: number;
   cardWidth: number;
-  selected: Card | null;
+  /** Lifted cards: the played card first, then the cards a 7 carries (numbered). */
+  selected: Card[];
   playable: Set<Card> | null;
   onTap?: (c: Card) => void;
-  wildEights: boolean;
+  wildRanks: string[];
 }) {
   const n = cards.length;
   const cw = cardWidth;
@@ -47,8 +48,10 @@ function HandFan({
     <div className="relative mx-auto w-full" style={{ height: ch + maxDrop + lift + 2 }}>
       {cards.map((c, i) => {
         const d = i - mid;
-        const lifted = c === selected;
-        const dim = playable !== null && !playable.has(c);
+        const pick = selected.indexOf(c);
+        const lifted = pick >= 0;
+        // On your turn, unplayable cards are dimmed, except cards a lifted 7 can carry.
+        const dim = playable !== null && !playable.has(c) && !lifted;
         return (
           <button
             key={c}
@@ -69,8 +72,11 @@ function HandFan({
               className={`rounded-[9px] shadow-[0_1px_4px_rgba(0,0,0,.3)] transition ${lifted ? 'outline outline-[3px] outline-lime' : ''} ${dim ? 'brightness-[.6]' : ''}`}
               style={{ width: cw, height: ch }}
             >
-              <CardFace card={c} width={cw} star={wildEights && c[0] === '8'} />
+              <CardFace card={c} width={cw} star={wildRanks.includes(c[0])} />
             </div>
+            {pick > 0 && (
+              <span className="absolute -top-2 left-1/2 grid h-5 w-5 -translate-x-1/2 place-items-center rounded-full bg-lime text-[11px] font-black text-[#07071a] shadow">{pick + 1}</span>
+            )}
           </button>
         );
       })}
@@ -159,8 +165,13 @@ function describe(e: CrazyLastEvent | null, name: (id: string) => string): strin
   if (!e) return null;
   const who = name(e.playerId);
   switch (e.kind) {
-    case 'play':
-      return e.suit ? `${who} played ${label(e.card!)} — the suit is now ${SUIT_SYMBOL[e.suit]}` : `${who} played ${label(e.card!)}`;
+    case 'play': {
+      const cards = e.cards ? e.cards.map(label).join(' ') : label(e.card!);
+      const suit = e.suit ? ` — the suit is now ${SUIT_SYMBOL[e.suit]}` : '';
+      const skipped = e.skipped ? name(e.skipped) : null;
+      const skip = skipped ? ` — ${skipped} ${skipped === 'You' ? 'are' : 'is'} skipped` : '';
+      return `${who} played ${cards}${suit}${skip}`;
+    }
     case 'draw':
       return `${who} drew a card`;
     case 'penalty':
@@ -189,8 +200,8 @@ export function CrazyTable({ state, view, act, pending, serverNow }: TableProps<
   const name = useCallback((id: string) => (id === user?.id ? 'You' : nameOf(state, id)), [state, user?.id]);
 
   const [order, setOrder] = useState<Card[]>([]);
-  const [selected, setSelected] = useState<Card | null>(null);
-  const [choosing, setChoosing] = useState<Card | null>(null);
+  const [selected, setSelected] = useState<Card[]>([]);
+  const [choosing, setChoosing] = useState<Card[] | null>(null);
   const [hint, setHint] = useState<string | null>(null);
   const [handRef, handWidth] = useWidth<HTMLDivElement>();
   const vh = useViewportHeight();
@@ -203,9 +214,12 @@ export function CrazyTable({ state, view, act, pending, serverNow }: TableProps<
       const added = view.hand.filter((c) => !kept.includes(c));
       return kept.length ? [...kept, ...added] : [...view.hand].sort(bySuitRank);
     });
-    setSelected((s) => (s && view.hand.includes(s) ? s : null));
+    setSelected((s) => (s.every((c) => view.hand.includes(c)) ? s : []));
   }, [view.hand]);
-  useEffect(() => setChoosing(null), [view.currentPlayerId]);
+  useEffect(() => {
+    setChoosing(null);
+    setSelected([]);
+  }, [view.currentPlayerId, view.turn]);
   useEffect(() => {
     if (!hint) return;
     const t = setTimeout(() => setHint(null), 3000);
@@ -235,22 +249,38 @@ export function CrazyTable({ state, view, act, pending, serverNow }: TableProps<
   const landed = deal ? deal.seq.slice(0, dealtCount(dealElapsed, deal.seq.length)) : null;
   const dealtTo = (id: string, count: number) => (landed ? Math.min(count, landed.filter((x) => x === id).length) : count);
 
+  const rules = view.config.rules;
   const playable = useMemo(() => new Set(view.legal.play), [view.legal.play]);
-  const play = (card: Card, suit?: Suit) => {
-    setSelected(null);
+  const isWild = (c: Card) => rules.wildRanks.includes(c[0] as Rank);
+  const wildNames = rules.wildRanks.map((r) => RANK_LABEL[r]).join(' or ');
+  const play = (cards: Card[], suit?: Suit) => {
+    setSelected([]);
     setChoosing(null);
-    void act({ type: 'play', card, ...(suit ? { suit } : {}) });
+    const [card, ...carry] = cards;
+    void act({ type: 'play', card, ...(carry.length ? { carry } : {}), ...(suit ? { suit } : {}) });
   };
-  const tryPlay = (card: Card) => {
-    if (!playable.has(card)) {
-      setHint(view.pendingDraw > 0 ? `Answer with a 2 or draw ${view.pendingDraw}` : `Play a ${SUIT_SYMBOL[view.activeSuit]} card, a ${RANK_LABEL[view.topCard[0] as Rank]} or an 8`);
+  const tryPlay = (cards: Card[]) => {
+    if (!cards.length) return;
+    if (!playable.has(cards[0])) {
+      setHint(view.pendingDraw > 0 ? `Answer with a 2 or draw ${view.pendingDraw}` : `Play a ${SUIT_SYMBOL[view.activeSuit]} card, a ${RANK_LABEL[view.topCard[0] as Rank]} or ${wildNames}`);
       return;
     }
-    if (card[0] === '8' && view.config.rules.eightsWild) setChoosing(card);
-    else play(card);
+    // The last card dropped decides the effect: a wild card asks for the next suit.
+    if (isWild(cards[cards.length - 1])) setChoosing(cards);
+    else play(cards);
   };
-  // First tap lifts a card; tapping the lifted card plays it.
-  const tap = (c: Card) => (selected === c ? tryPlay(c) : setSelected(c));
+  const lead = selected[0];
+  const canCarry = (c: Card) => !!lead && rules.carryRank !== null && lead[0] === rules.carryRank && playable.has(lead) && c[1] === lead[1] && c !== lead;
+  /**
+   * First tap lifts a card; tapping it again plays it. With a 7 lifted, tapping more
+   * cards of its suit adds them to drop together (tap one again to take it back).
+   */
+  const tap = (c: Card) => {
+    if (c === lead) return tryPlay(selected);
+    if (selected.includes(c)) return setSelected(selected.filter((x) => x !== c));
+    if (canCarry(c)) return setSelected([...selected, c]);
+    setSelected([c]);
+  };
 
   const status = describe(view.lastEvent, name);
   const turnText = myTurn
@@ -292,9 +322,14 @@ export function CrazyTable({ state, view, act, pending, serverNow }: TableProps<
               className="relative disabled:cursor-default"
               aria-label={view.pendingDraw > 0 ? `Draw ${view.pendingDraw} cards` : `Draw a card (${view.stockCount} left)`}
             >
-              <DeckStack count={view.stockCount} active={myTurn && view.legal.draw && playable.size === 0} />
+              <DeckStack count={view.stockCount} active={myTurn && view.legal.draw && !pending} />
+              {myTurn && view.pendingDraw > 0 && (
+                <span className="absolute -left-3 -top-2 z-10 rounded-full bg-danger px-2 py-0.5 text-xs font-black shadow">ውሰድ {view.pendingDraw}</span>
+              )}
             </button>
-            <span className="text-[10px] font-bold uppercase tracking-widest text-white/70">Deck</span>
+            <span className="text-[10px] font-bold uppercase tracking-widest text-white/70">
+              {myTurn && view.legal.draw ? <span className="font-ethiopic normal-case tracking-normal text-lime">ለመውሰድ ይንኩ · tap to draw</span> : 'Deck'}
+            </span>
           </div>
           <div className="flex flex-col items-center gap-1">
             <div className="relative">
@@ -334,13 +369,17 @@ export function CrazyTable({ state, view, act, pending, serverNow }: TableProps<
               selected={selected}
               playable={myTurn ? playable : null}
               onTap={myTurn && !pending && !finished ? tap : undefined}
-              wildEights={view.config.rules.eightsWild}
+              wildRanks={rules.wildRanks}
             />
           </div>
           {!finished && me.status === 'active' && (
-            <div className="mx-auto mt-1 grid w-full max-w-md grid-cols-4 gap-1 px-2">
-              <ActionButton am="ጣል" en="play" onClick={() => selected && tryPlay(selected)} disabled={!myTurn || pending || !selected || !playable.has(selected)} />
-              <ActionButton am="ውሰድ" en={view.pendingDraw > 0 && myTurn ? `draw ${view.pendingDraw}` : 'draw'} tone="gold" onClick={() => void act({ type: 'draw' })} disabled={!myTurn || pending || !view.legal.draw} />
+            <div className="mx-auto mt-1 grid w-full max-w-sm grid-cols-3 gap-1 px-2">
+              <ActionButton
+                am="ጣል"
+                en={selected.length > 1 ? `play ${selected.length}` : 'play'}
+                onClick={() => tryPlay(selected)}
+                disabled={!myTurn || pending || !lead || !playable.has(lead)}
+              />
               <ActionButton am="እለፍ" en="pass" tone="red" onClick={() => void act({ type: 'pass' })} disabled={!myTurn || pending || !view.legal.pass} />
               <ActionButton am="ደርድር" en="sort" onClick={() => setOrder([...view.hand].sort(bySuitRank))} disabled={view.hand.length === 0} />
             </div>
@@ -349,7 +388,7 @@ export function CrazyTable({ state, view, act, pending, serverNow }: TableProps<
       )}
 
       {deal && <ShuffleAndDeal onDone={endDeal} sequence={deal.seq.map((id) => (id === user?.id ? 'me' : 'opp'))} />}
-      {choosing && <SuitChooser card={choosing} onPick={(s) => play(choosing, s)} onCancel={() => setChoosing(null)} />}
+      {choosing && <SuitChooser card={choosing[choosing.length - 1]} onPick={(s) => play(choosing, s)} onCancel={() => setChoosing(null)} />}
       {hint && (
         <div className="pointer-events-none absolute inset-x-0 bottom-36 z-40 flex justify-center px-4">
           <div className="animate-pop rounded-xl bg-danger px-4 py-2 text-sm font-semibold">{hint}</div>

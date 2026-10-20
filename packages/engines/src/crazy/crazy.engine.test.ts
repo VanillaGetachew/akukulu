@@ -48,13 +48,13 @@ function rigged(opts: { a: string; b: string; top: string; stockTop?: string; cu
 }
 
 describe('Crazy setup', () => {
-  it('deals 7 cards each to two players and 5 each to three or more, and turns a starter that is not an 8', () => {
+  it('deals 7 cards each to two players and 5 each to three or more, and turns a starter that is not wild (8 or J)', () => {
     for (const [n, size] of [[2, 7], [3, 5], [5, 5]] as const) {
       for (let seed = 1; seed < 40; seed++) {
         const s = started(n, {}, seed).state;
         expect(s.players.every((p) => p.hand.length === size)).toBe(true);
         expect(s.discard).toHaveLength(1);
-        expect(s.discard[0][0]).not.toBe('8');
+        expect(['8', 'J']).not.toContain(s.discard[0][0]);
         expect(s.activeSuit).toBe(s.discard[0][1]);
       }
     }
@@ -118,6 +118,77 @@ describe('Crazy play', () => {
     expect(crazyEngine.view(s, 'b').legal.play).toEqual([]);
   });
 
+  it('a Jack is wild like an 8', () => {
+    const s = rigged({ a: 'Jc Kc', b: '4c 4d', top: '7h' });
+    expect(crazyEngine.view(s, 'a').legal.play).toEqual(['Jc']);
+    expect(act(s, 'a', { type: 'play', card: 'Jc' })).toMatchObject({ ok: false, code: 'NAME_A_SUIT' });
+    expect(run(s, 'a', { type: 'play', card: 'Jc', suit: 'd' }).activeSuit).toBe('d');
+  });
+
+  it('a 5 skips the next player: with two players you play again', () => {
+    let s = rigged({ a: '5h 9h Kc', b: '4c 4d', top: '7h' });
+    s = run(s, 'a', { type: 'play', card: '5h' });
+    expect(s.current).toBe(0);
+    expect(s.lastEvent).toMatchObject({ kind: 'play', card: '5h', skipped: 'b' });
+    s = run(s, 'a', { type: 'play', card: '9h' });
+    expect(s.current).toBe(1);
+  });
+
+  it('a 5 skips one player of three', () => {
+    let s = started(3).state;
+    s.players[0].hand = ['5h', 'Kc'];
+    s.players[1].hand = ['4c', '4d'];
+    s.players[2].hand = ['9s', '3d'];
+    s.stock = standardDeck().filter((c) => !['5h', 'Kc', '4c', '4d', '9s', '3d', '7h'].includes(c));
+    s.discard = ['7h'];
+    s.activeSuit = 'h';
+    s.current = 0;
+    s = run(s, 'a', { type: 'play', card: '5h' });
+    expect(s.players[s.current].playerId).toBe('c');
+  });
+
+  it('a 7 carries more cards of its suit, dropped together; the last card counts', () => {
+    let s = rigged({ a: '7h Kh 3h 2h 9c', b: '4c 4d Qs', top: '7s' });
+    // The 7 is played on the 7♠ (same rank) and carries K♥ and 3♥.
+    s = run(s, 'a', { type: 'play', card: '7h', carry: ['Kh', '3h'] });
+    expect(s.discard.slice(-3)).toEqual(['7h', 'Kh', '3h']);
+    expect(s.players[0].hand).toEqual(['2h', '9c']);
+    expect(s.activeSuit).toBe('h');
+    expect(s.lastEvent).toMatchObject({ card: '3h', cards: ['7h', 'Kh', '3h'] });
+    expect(s.current).toBe(1);
+  });
+
+  it('a carried 2, 5 or wild at the end of a 7 play takes effect', () => {
+    const base = { a: '7h 2h 5h Jh 9c', b: '4c 4d Qs', top: '7s' };
+    expect(run(rigged(base), 'a', { type: 'play', card: '7h', carry: ['2h'] }).pendingDraw).toBe(2);
+    expect(run(rigged(base), 'a', { type: 'play', card: '7h', carry: ['5h'] }).current).toBe(0);
+    expect(act(rigged(base), 'a', { type: 'play', card: '7h', carry: ['Jh'] })).toMatchObject({ ok: false, code: 'NAME_A_SUIT' });
+    expect(run(rigged(base), 'a', { type: 'play', card: '7h', carry: ['Jh'], suit: 'c' }).activeSuit).toBe('c');
+  });
+
+  it('rejects a bad carry: wrong suit, not a 7, not held, or twice', () => {
+    const s = rigged({ a: '7h Kh 9c 9h', b: '4c 4d', top: '7s' });
+    expect(act(s, 'a', { type: 'play', card: '7h', carry: ['9c'] })).toMatchObject({ ok: false, code: 'BAD_CARRY' });
+    const onHeart = rigged({ a: '9h Kh', b: '4c 4d', top: '7h' });
+    expect(act(onHeart, 'a', { type: 'play', card: '9h', carry: ['Kh'] })).toMatchObject({ ok: false, code: 'BAD_CARRY' });
+    expect(act(s, 'a', { type: 'play', card: '7h', carry: ['Qh'] })).toMatchObject({ ok: false, code: 'BAD_CARRY' });
+    expect(act(s, 'a', { type: 'play', card: '7h', carry: ['Kh', 'Kh'] })).toMatchObject({ ok: false, code: 'BAD_CARRY' });
+  });
+
+  it('a 7 can carry the last cards to win', () => {
+    const s = run(rigged({ a: '7h Kh 3h', b: '4c 4d', top: '7s' }), 'a', { type: 'play', card: '7h', carry: ['Kh', '3h'] });
+    expect(s).toMatchObject({ phase: 'finished', winnerId: 'a', finishReason: 'out' });
+  });
+
+  it('lets a player pass after drawing one card', () => {
+    let s = rigged({ a: 'Kc 9d', b: '4c 4d', top: '7h', stockTop: '3s' });
+    expect(crazyEngine.view(s, 'a').legal.pass).toBe(false);
+    s = run(s, 'a', { type: 'draw' });
+    expect(crazyEngine.view(s, 'a').legal).toMatchObject({ draw: true, pass: true });
+    s = run(s, 'a', { type: 'pass' });
+    expect(s.current).toBe(1);
+  });
+
   it('draws up to three cards a turn, then lets the player pass', () => {
     let s = rigged({ a: 'Kc 9d', b: '4c 4d', top: '7h', stockTop: '3s 5s 6c Ah' });
     expect(act(s, 'a', { type: 'pass' })).toMatchObject({ ok: false, code: 'CANNOT_PASS' });
@@ -151,7 +222,7 @@ describe('Crazy play', () => {
 
   it('ends a blocked game when nobody can play or draw: the lowest hand wins', () => {
     // Nothing left to draw; a and b hold no heart, 7 or 8, so neither can follow 7♥.
-    const fits = (c: string) => c[1] === 'h' || c[0] === '7' || c[0] === '8';
+    const fits = (c: string) => c[1] === 'h' || c[0] === '7' || c[0] === '8' || c[0] === 'J';
     const others = standardDeck().filter((c) => c !== '7h' && !fits(c));
     let s = rigged({ a: '', b: '', top: '7h' });
     s.players[0].hand = others.slice(0, 5); // low cards
@@ -176,8 +247,21 @@ describe('Crazy play', () => {
     expect(crazyEngine.view(end, 'a').players[1]).toMatchObject({ revealedHand: ['4c', '4d'], points: 8 });
   });
 
-  it('scores cards left in hand: 8 = 50, picture cards and 10 = 10, Ace = 1', () => {
-    expect(['8s', 'Kh', 'Td', 'Ac', '7c'].map(crazyCardPoints)).toEqual([50, 10, 10, 1, 7]);
+  it('scores cards left in hand: wild 8 and J = 50, K Q 10 = 10, Ace = 1', () => {
+    expect(['8s', 'Jd', 'Kh', 'Td', 'Ac', '7c'].map((c) => crazyCardPoints(c))).toEqual([50, 50, 10, 10, 1, 7]);
+  });
+});
+
+describe('Crazy saved games', () => {
+  it('a game saved before the 7 / 5 / J rules keeps playing by its old rules', () => {
+    const s = rigged({ a: 'Jh 5h 9c', b: '4c 4d', top: '7h' });
+    s.config = { ...s.config, rules: { eightsWild: true, drawTwo: true, stackDrawTwo: true, maxDraws: 3, handSizeTwoPlayers: 7, handSizeMorePlayers: 5 } as never };
+    const v = crazyEngine.view(s, 'a');
+    expect(v.config.rules).toMatchObject({ wildRanks: ['8'], skipRank: null, carryRank: null });
+    // J is not wild and 5 does not skip in the old game.
+    const next = run(s, 'a', { type: 'play', card: '5h' });
+    expect(next.current).toBe(1);
+    expect(act(s, 'a', { type: 'play', card: 'Jh' }).ok).toBe(true);
   });
 });
 
@@ -227,7 +311,8 @@ describe('Crazy simulated games', () => {
         if (rng.int(40) === 0) action = { type: 'leave' };
         else if (v.legal.play.length > 0 && rng.int(4) > 0) {
           const card = v.legal.play[rng.int(v.legal.play.length)];
-          action = { type: 'play', card, suit: ['s', 'h', 'd', 'c'][rng.int(4)] };
+          const carry = card[0] === '7' ? v.hand.filter((c) => c !== card && c[1] === card[1] && rng.int(2) === 0) : [];
+          action = { type: 'play', card, suit: ['s', 'h', 'd', 'c'][rng.int(4)], ...(carry.length ? { carry } : {}) };
         } else if (v.legal.draw) action = { type: 'draw' };
         else if (v.legal.pass) action = { type: 'pass' };
         else action = { type: 'play', card: v.legal.play[0], suit: 'h' };

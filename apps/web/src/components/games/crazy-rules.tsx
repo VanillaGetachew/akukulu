@@ -8,7 +8,7 @@ export const CRAZY_RULES: { am: string; en: string; items: string[] }[] = [
     items: [
       'Two to five players with a normal 52-card deck.',
       'With 2 players everyone gets 7 cards. With 3 or more players everyone gets 5.',
-      'One card is turned face-up to start the pile. If it is an 8, it goes back into the deck and another card is turned.',
+      'One card is turned face-up to start the pile. If it is an 8 or a J, it goes back into the deck and another card is turned.',
       'The first player to get rid of all their cards wins the pot.',
     ],
   },
@@ -17,8 +17,8 @@ export const CRAZY_RULES: { am: string; en: string; items: string[] }[] = [
     en: 'Your turn',
     items: [
       'Play one card that matches the top card of the pile by suit (♥ on ♥) or by rank (7 on 7).',
-      'If you cannot play, or do not want to, draw from the deck. You can play a drawn card straight away if it fits.',
-      'You can draw up to 3 cards in a turn. If you still cannot play, pass (እለፍ).',
+      'If you cannot play, or do not want to, tap the deck to draw. You can play a drawn card straight away if it fits.',
+      'Once you have drawn a card you may pass (እለፍ). You can draw up to 3 cards in a turn.',
       'When the deck runs out, the pile is shuffled to make a new deck. The top card stays where it is.',
       'You have 30 seconds per turn. If time runs out, a move is made for you. After 3 missed turns in a row you leave the game.',
     ],
@@ -27,7 +27,9 @@ export const CRAZY_RULES: { am: string; en: string; items: string[] }[] = [
     am: 'ልዩ ካርታዎች',
     en: 'Special cards',
     items: [
-      '8 is wild (★): play it on any card and choose the next suit. The next player must follow that suit or play another 8.',
+      '8 and J are wild (★): play one on any card and choose the next suit. The next player must follow that suit or play another 8 or J.',
+      '7 carries cards: when you play a 7, you can drop more cards of the same suit with it in one go (7♥ K♥ 3♥). The last card you drop is the new top card, and its effect counts.',
+      '5 skips the next player. With two players, you play again.',
       '2 is draw two: the next player draws 2 cards and misses their turn.',
       'You can answer a 2 with your own 2. Then the next player draws 4, then 6, and so on.',
     ],
@@ -36,8 +38,8 @@ export const CRAZY_RULES: { am: string; en: string; items: string[] }[] = [
     am: 'መጨረሻ',
     en: 'Winning',
     items: [
-      'The game ends as soon as someone plays their last card. You can finish with an 8.',
-      'If nobody can play or draw, the player with the fewest points in hand wins. An 8 is worth 50, K Q J and 10 are 10, an A is 1, and other cards are their number.',
+      'The game ends as soon as someone plays their last card. You can finish with an 8, a J, or a 7 carrying your last cards.',
+      'If nobody can play or draw, the player with the fewest points in hand wins. An 8 or J is worth 50, K Q and 10 are 10, an A is 1, and other cards are their number.',
       'Everyone pays the table stake, and the winner takes the whole pot. Points are virtual and have no cash value.',
     ],
   },
@@ -46,8 +48,9 @@ export const CRAZY_RULES: { am: string; en: string; items: string[] }[] = [
     en: 'Buttons',
     items: [
       'Tap a card to lift it, then tap it again (or press ጣል) to play it. Cards you cannot play are dimmed.',
-      'ውሰድ: draw a card, or take the cards from 2s.',
-      'እለፍ: pass when you cannot play.',
+      'With a 7 lifted, tap more cards of its suit to add them (they are numbered in the order they will drop), then tap the 7 or press ጣል.',
+      'Tap the deck in the middle to draw a card, or to take the cards from 2s.',
+      'እለፍ: pass your turn after drawing a card.',
       'ደርድር: sort your hand by suit and rank.',
     ],
   },
