@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CONQUER_PREDICTIONS, DEFAULT_CONQUER_CONFIG, DEFAULT_CONQUER_RULES, HIDDEN_CARD, PRINTED_JOKERS, deckWithJokers, type ConquerConfig, type ConquerRules } from '@akukulu/shared';
+import { CONQUER_PREDICTIONS, DEFAULT_CONQUER_CONFIG, DEFAULT_CONQUER_RULES, HIDDEN_CARD, deckWithJokers, type ConquerConfig, type ConquerRules } from '@akukulu/shared';
 import { seededRng, type EngineContext, type EngineResult, type LedgerIntent } from '../core';
 import { conquerEngine, conquerInventory, isCompleteDeck, type ConquerState } from './conquer.engine';
 import { interpretMeld, openingPoints, penaltyValue, selectWildcards, suggestNaturalMelds, type MeldContext } from './rules';
@@ -80,7 +80,7 @@ describe('Conquer setup and prediction', () => {
       const { state } = started();
       const base = state.baseCard!;
       const s = run(state, state.players[state.predictor].playerId, { type: 'predict', choice });
-      expect(s.wildCards).toEqual([...selectWildcards(base, choice, s.config.rules).cards, ...PRINTED_JOKERS]);
+      expect(s.wildCards).toEqual(selectWildcards(base, choice, s.config.rules).cards);
       expect(s.players[1 - s.predictor].hand).toHaveLength(14);
       expect(s.players[s.predictor].hand).toHaveLength(13);
       expect(s.stock).toHaveLength(54 - 27);
@@ -550,7 +550,7 @@ describe('Conquer simulated matches', () => {
             if (took) pickups++;
             else expect(step(id, { type: 'drawStock' })).toBe(true);
           }
-          const meldCtx: MeldContext = { wild: new Set(s.wildCards), rules: s.config.rules, taken: new Set(s.melds.flatMap((m) => m.placed.map((p) => p.as))) };
+          const meldCtx: MeldContext = { wild: new Set(s.wildCards), rules: s.config.rules, taken: new Set(s.melds.flatMap((m) => m.placed.map((p) => p.as))), falseJokerAs: s.wildCards };
           const melds = bestOpening(s.players[s.current].hand, meldCtx, me.opened ? 0 : s.config.rules.openingThreshold, 1);
           if (melds.length) expect(step(id, { type: 'meld', melds: melds.map((m) => ({ cards: m.placed.map((p) => p.card) })) })).toBe(true);
           if (s.players[s.current].opened) {
@@ -568,7 +568,8 @@ describe('Conquer simulated matches', () => {
         if (s.roundResult!.reason === 'out') outs++;
         else if (s.roundResult!.reason === 'timeout') timeouts++;
         for (const m of s.melds) {
-          expect(interpretMeld(m.placed.map((p) => p.card), { wild: new Set(s.wildCards), rules: s.config.rules, taken: new Set() }).ok).toBe(true);
+          const check = interpretMeld(m.placed.map((p) => p.card), { wild: new Set(s.wildCards), rules: s.config.rules, taken: new Set(), falseJokerAs: s.wildCards });
+          expect(check.ok).toBe(true);
         }
         if (round === 0) {
           step('a', { type: 'rematch' });

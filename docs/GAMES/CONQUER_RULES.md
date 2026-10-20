@@ -8,7 +8,7 @@ This specification replaces the earlier 40-card Conquian draft. That draft was n
 
 ## 1. Mode
 - Strictly **1v1**: two human players.
-- A **54-card** deck: the standard 52 plus **two printed jokers** (owner-confirmed), which are always wild. The **starter gets 14 cards, the predictor 13**; the starter opens the game by discarding. **41-point** opening.
+- A **54-card** deck: the standard 52 plus **two printed (false) jokers** (owner-confirmed). The **starter gets 14 cards, the predictor 13**; the starter opens the game by discarding. **41-point** opening.
 
 ## 2. Card values and Aces
 | Card | Value |
@@ -43,16 +43,17 @@ An Ace's value always comes from its **role in the meld** being validated; it ne
 
 Boundaries (`prediction.boundary`, still unconfirmed): by default ranks **wrap** (K Up → A, A Down → K). With `clamp`, a step past the edge falls back to the base rank.
 ## 4. Wildcards
-- Jokers are the cards selected by the prediction **plus the two printed jokers**. A joker substitutes for **any rank and suit** that makes the meld valid. A predicted joker that fits a meld as itself counts as a natural card there.
+- The **jokers** are the cards selected by the prediction. A joker substitutes for **any rank and suit** that makes the meld valid; a joker that fits a meld as itself counts as a natural card there.
+- **False (printed) jokers are not jokers** (owner-confirmed): each is a copy of one of this round's chosen joker cards and can only be played *as that card*. Example: base 5♦ + Up → the jokers are 6♦ and 6♥, so a false joker can only be 6♦ or 6♥ (e.g. in 5♦-6♦-7♦ or a set of 6s). It counts as a natural card, never substitutes for anything else, and never shares a meld with the real card it copies. On the table it shows the card it copies with a violet tint.
 - **At most one joker per meld** (owner-confirmed, `wild.maxPerMeld: 1`): two jokers can never be used in the same set or run, but different melds may each have one. Every meld also needs at least 2 natural cards.
-- A printed joker left in hand at the end of a round scores `wild.printedJokerPenalty` (20, unconfirmed).
+- A false joker left in hand scores as the highest card it may copy.
 - **Opening value:** a substituting wildcard counts the value of the card it represents (`wild.openingValue: 'represented'`; a fixed number is supported).
 - **Identity is fixed when laid down.** Lay-offs never re-interpret cards already on the table. Each meld stores `{ card, as }` for every card, which is how identities survive rearrangements.
 - **No duplicate identities.** A wildcard cannot represent a card that is already represented on the table. A player cannot lay down or lay off a natural card whose identity a wildcard already represents; the server answers "swap it instead".
 - **Swap** (`wild.allowSwap`): an opened player may give the natural card a table wildcard represents and take that wildcard into hand. The swap is atomic. The wildcard must be melded or laid off **before that turn's discard** (`wild.swappedMustBeUsedSameTurn`).
 
 ## 5. Melds
-- **Set:** 3–4 cards of one rank, all suits distinct.
+- **Set:** 3–4 cards of one rank, all suits distinct, laid out alternating red and black: ♥ ♣ ♦ ♠ (owner-confirmed).
 - **Run:** 3 or more consecutive cards of one suit (A low or high; no wrap).
 - Every proposed meld is validated on the server (`interpretMeld`, `extendMeld`). Claimed point totals from clients are ignored.
 
@@ -100,8 +101,8 @@ Each player receives only their own hand. Opponent hand sizes, the deck count an
 - Tap the **deck** to draw, the **discard** to take it into your hand (it glows gold), or the **base card** peeking under the deck (rank and suit visible) to take it after confirming.
 - Progress toward 41 is shown as a pill (e.g. `ከመሬት ካርታ ወስደዋል — 30/41`).
 - Table melds show each card's rank and suit; a joker shows the card it stands for in gold, so you can see what to swap.
-- **ገቢ** (Meld): select cards and press it; the app splits the selection into sets and runs (asking which card a joker stands for when there is a choice).
-- **ጨምር** (Open): select one card to add it to the meld on the table it fits (or tap the meld directly).
+- **ውረድ** (Meld): select cards and press it; the app splits the selection into sets and runs (asking which card a joker stands for when there is a choice).
+- **ጨምር** (Open): enabled only when the one selected card can be added to a meld on the table; only the melds it fits light up.
 - **ጆከር መተካት** (swap joker): select the natural card a table joker stands for.
 - **ጣል** (discard): select one card.
 - **Animations:** both players see the deck shuffled and dealt when the prediction ends; the round winner (and the match winner) sees cards falling from the sky.
@@ -112,7 +113,7 @@ Each player receives only their own hand. Opponent hand sizes, the deck count an
 | Option | Default | Question to confirm |
 |---|---|---|
 | `prediction.boundary` | Wrap K↔A | What happens at K (Up) and A (Down)? |
-| `wild.printedJokerPenalty` | 20 | Penalty for a printed joker left in hand? |
+| False-joker penalty | Value of the card it copies | Penalty for a false joker left in hand? |
 | `wild.openingValue` | Value represented | Do wildcards count toward 41, and at what value? |
 | `wild.allowSwap` / `swappedMustBeUsedSameTurn` | Allowed / yes | Can a natural replace a table wildcard, and must the wildcard be used at once? |
 | `wild.penalty` | Natural value | Penalty for a wildcard left in hand? |

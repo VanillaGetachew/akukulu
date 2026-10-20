@@ -136,7 +136,8 @@ function Fan({ cards, width, flip, selected, wild, marked, onTap }: { cards: Car
  * it stands for, in gold, so the matching natural card can be swapped in.
  */
 function MiniCard({ placed, highlight }: { placed: Pick<ConquerPlacedCard, 'card' | 'as' | 'wild'>; highlight?: boolean }) {
-  const shown = placed.wild ? placed.as : placed.card;
+  const copy = isPrintedJoker(placed.card) && !placed.wild;
+  const shown = placed.wild || copy ? placed.as : placed.card;
   if (isPrintedJoker(shown)) {
     return (
       <div className="relative grid h-[46px] w-[33px] shrink-0 place-items-center rounded-md bg-[linear-gradient(160deg,#fff7d6,#ffd36b)] text-[#e3a008] shadow-[0_1px_3px_rgba(0,0,0,.5)] ring-1 ring-[#e3a008]" title="Joker">
@@ -149,13 +150,14 @@ function MiniCard({ placed, highlight }: { placed: Pick<ConquerPlacedCard, 'card
   const red = shown[1] === 'h' || shown[1] === 'd';
   return (
     <div
-      className={`relative h-[46px] w-[33px] shrink-0 rounded-md shadow-[0_1px_3px_rgba(0,0,0,.5)] ${placed.wild ? 'bg-[#ffe7a0] ring-2 ring-[#e3a008]' : 'bg-[#fbfaff]'} ${highlight ? 'outline outline-2 outline-lime' : ''} ${red ? 'text-[#e0284f]' : 'text-[#16161f]'}`}
-      title={placed.wild ? `Joker (${label(placed.card)}) playing as ${label(placed.as)}` : label(placed.card)}
+      className={`relative h-[46px] w-[33px] shrink-0 rounded-md shadow-[0_1px_3px_rgba(0,0,0,.5)] ${placed.wild ? 'bg-[#ffe7a0] ring-2 ring-[#e3a008]' : copy ? 'bg-[#efe7ff] ring-2 ring-violet' : 'bg-[#fbfaff]'} ${highlight ? 'outline outline-2 outline-lime' : ''} ${red ? 'text-[#e0284f]' : 'text-[#16161f]'}`}
+      title={placed.wild ? `Joker (${label(placed.card)}) playing as ${label(placed.as)}` : copy ? `False joker copying ${label(placed.as)}` : label(placed.card)}
     >
       <div className="absolute left-[2px] top-[2px] flex w-[14px] flex-col items-center leading-none">
         <span className={`font-black ${rank === '10' ? 'text-[10px] tracking-tighter' : 'text-[12px]'}`}>{rank}</span>
         <span className="text-[11px]">{suit}</span>
         {placed.wild && <span className="text-[9px] text-[#b45309]">★</span>}
+        {copy && <span className="text-[7px] font-black text-violet">JK</span>}
       </div>
       <span className="absolute bottom-0.5 right-1 text-[15px] leading-none">{suit}</span>
     </div>
@@ -263,7 +265,7 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
   const myTurn = view.currentPlayerId === user?.id;
   const wild = useMemo(() => new Set(view.wildCards), [view.wildCards]);
   const meldCtx: MeldContext = useMemo(
-    () => ({ wild, rules: view.config.rules, taken: new Set(view.melds.flatMap((m) => m.cards.map((c) => c.as))) }),
+    () => ({ wild, rules: view.config.rules, taken: new Set(view.melds.flatMap((m) => m.cards.map((c) => c.as))), falseJokerAs: view.config.rules.wild.printedJokers ? view.wildCards : [] }),
     [wild, view.config.rules, view.melds],
   );
 
@@ -303,7 +305,19 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
 
   const toggle = (c: Card) => setSelected((s) => (s.includes(c) ? s.filter((x) => x !== c) : [...s, c]));
   const swapTarget = selected.length === 1 ? view.melds.find((m) => m.cards.some((c) => c.wild && c.as === selected[0])) : undefined;
-  const canLayOff = myTurn && me?.opened && view.phase === 'meld' && selected.length === 1;
+  /** Melds the single selected card can be added to (drives the ጨምር button and meld highlights). */
+  const openTargets = useMemo(() => {
+    if (!(myTurn && me?.opened && view.phase === 'meld' && selected.length === 1)) return [] as string[];
+    const card = selected[0];
+    return view.melds
+      .filter((m) => {
+        if (m.ownerId !== user?.id && !view.config.rules.layoffOnOpponentMelds) return false;
+        const others = new Set(view.melds.filter((x) => x.id !== m.id).flatMap((x) => x.cards.map((c) => c.as)));
+        return layoffOptions(toInterpretation(m), card, { ...meldCtx, taken: others }).length > 0;
+      })
+      .map((m) => m.id);
+  }, [myTurn, me?.opened, view.phase, view.melds, view.config.rules, selected, meldCtx, user?.id]);
+  const canLayOff = openTargets.length > 0;
 
   const sendMelds = (melds: Card[][], hints: Record<Card, Card>[]) => {
     const specs: ConquerMeldSpec[] = melds.map((cards, i) => ({ cards, as: hints[i] }));
@@ -358,14 +372,8 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
   /** "Open": add the selected card to the meld it fits (asks which meld when several fit). */
   const addToMeld = () => {
     if (selected.length !== 1) return;
-    const card = selected[0];
-    const fits = view.melds.filter((m) => {
-      if (m.ownerId !== user?.id && !view.config.rules.layoffOnOpponentMelds) return false;
-      const others = new Set(view.melds.filter((x) => x.id !== m.id).flatMap((x) => x.cards.map((c) => c.as)));
-      return layoffOptions(toInterpretation(m), card, { ...meldCtx, taken: others }).length > 0;
-    });
-    if (fits.length === 0) setHint(`${label(card)} does not fit any meld on the table`);
-    else if (fits.length === 1) layOff(fits[0]);
+    const fits = view.melds.filter((m) => openTargets.includes(m.id));
+    if (fits.length === 1) layOff(fits[0]);
     else setHint('It fits more than one meld — tap the one to add it to');
   };
 
@@ -455,7 +463,7 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
   const oppMelds = view.melds.filter((m) => m.ownerId !== user?.id);
   const myMelds = view.melds.filter((m) => m.ownerId === user?.id);
   const meldTap = (m: ConquerMeldView) =>
-    canLayOff && (m.ownerId === user?.id || view.config.rules.layoffOnOpponentMelds) ? () => layOff(m) : undefined;
+    openTargets.includes(m.id) ? () => layOff(m) : undefined;
 
   return shell(
     <>
@@ -469,15 +477,19 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
           {oppInfo?.displayName ?? 'Opponent'}
           <span className="font-normal text-white/60">· {opp?.handCount} · {opp?.opened ? 'ገብቷል' : 'አልገባም'}</span>
         </div>
-        <div className="mt-1 flex max-h-24 max-w-full flex-wrap justify-center gap-1 overflow-y-auto px-2">
-          {oppMelds.map((m) => (
-            <MeldRow key={m.id} meld={m} onTap={meldTap(m)} />
-          ))}
-        </div>
       </div>
 
-      {/* Deck and discard */}
-      <div className="flex min-h-0 flex-1 items-center justify-center gap-10">
+      {/* Table: opponent melds, deck and discard, my melds — scrolls instead of overlapping. */}
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden px-2">
+        <div className="my-auto flex w-full flex-col items-center gap-2 py-1">
+          {oppMelds.length > 0 && (
+            <div className="flex max-w-full flex-wrap justify-center gap-1">
+              {oppMelds.map((m) => (
+                <MeldRow key={m.id} meld={m} onTap={meldTap(m)} />
+              ))}
+            </div>
+          )}
+      <div className="flex shrink-0 items-center justify-center gap-10">
         <div className="flex flex-col items-center gap-1">
           <div className="relative pt-11">
             {/* The base card lies face-up under the deck; its corner (rank and suit) stays visible. */}
@@ -533,13 +545,17 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
           <span className="text-[10px] font-bold uppercase tracking-widest text-white/70">Discard {view.discardCount || ''}</span>
         </div>
       </div>
-
-      {/* My melds, turn bar */}
-      <div className="flex max-h-24 flex-wrap justify-center gap-1 overflow-y-auto px-2">
-        {myMelds.map((m) => (
-          <MeldRow key={m.id} meld={m} onTap={meldTap(m)} />
-        ))}
+          {myMelds.length > 0 && (
+            <div className="flex max-w-full flex-wrap justify-center gap-1">
+              {myMelds.map((m) => (
+                <MeldRow key={m.id} meld={m} onTap={meldTap(m)} />
+              ))}
+            </div>
+          )}
+        </div>
       </div>
+
+      {/* Turn bar */}
       {view.phase !== 'roundOver' && view.phase !== 'finished' && (
         <div className="py-2">
           {myTurn && !me?.opened && (view.mustOpen || view.openingProgress > 0) && (
@@ -581,7 +597,7 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
             />
           </div>
           <div className="mt-1 flex flex-wrap justify-center gap-1.5 px-2">
-            <ActionButton am="ገቢ" en="meld" onClick={enter} disabled={!myTurn || pending || view.phase !== 'meld' || selected.length < 3} />
+            <ActionButton am="ውረድ" en="meld" onClick={enter} disabled={!myTurn || pending || view.phase !== 'meld' || selected.length < 3} />
             <ActionButton am="ጨምር" en="open" onClick={addToMeld} disabled={!canLayOff || pending} />
             <ActionButton am="ጆከር መተካት" en="swap joker" tone="gold" onClick={() => swapTarget && void act({ type: 'swapWild', meldId: swapTarget.id, card: selected[0] })} disabled={!view.legal.swapWild || !swapTarget || pending} />
             <ActionButton am="ጣል" en="discard" tone="red" onClick={() => void act({ type: 'discard', card: selected[0] })} disabled={!view.legal.discard || selected.length !== 1 || pending} />

@@ -21,8 +21,8 @@ const RED: readonly Suit[] = ['h', 'd'];
 
 export const isRed = (s: Suit) => RED.includes(s);
 
-/** Sets are laid out alternating black and red: ♠ ♥ ♣ ♦. */
-const SET_ORDER: readonly Suit[] = ['s', 'h', 'c', 'd'];
+/** Sets are laid out alternating red and black, as players lay them: ♥ ♣ ♦ ♠. */
+const SET_ORDER: readonly Suit[] = ['h', 'c', 'd', 's'];
 const bySetOrder = (a: { as: Card }, b: { as: Card }) => SET_ORDER.indexOf(cardSuit(a.as)) - SET_ORDER.indexOf(cardSuit(b.as));
 
 /** Natural value: Ace 11, 2–10 face value, J/Q/K 10. */
@@ -121,6 +121,8 @@ export interface MeldContext {
   rules: ConquerRules;
   /** Identities already represented on the table (natural or wild). */
   taken: ReadonlySet<Card>;
+  /** Cards a printed (false) joker may copy this round — the chosen joker cards. */
+  falseJokerAs?: readonly Card[];
 }
 
 export type MeldResult = { ok: true; meld: Interpretation } | { ok: false; error: string };
@@ -234,7 +236,7 @@ function runCandidates(cards: Card[], suit: Suit, ctx: MeldContext, hint: Record
  * `hint` pins what each wildcard represents; otherwise the highest-scoring
  * reading is chosen.
  */
-export function interpretMeld(cards: Card[], ctx: MeldContext, hint: Record<Card, Card> = {}): MeldResult {
+function interpretMeldPlain(cards: Card[], ctx: MeldContext, hint: Record<Card, Card> = {}): MeldResult {
   if (cards.length < 3) return fail('A meld needs at least three cards');
   if (new Set(cards).size !== cards.length) return fail('A card cannot appear twice in a meld');
   const represented = cards.find((c) => !ctx.wild.has(c) && ctx.taken.has(c));
@@ -261,7 +263,7 @@ export function interpretMeld(cards: Card[], ctx: MeldContext, hint: Record<Card
 }
 
 /** Adds one card to an existing meld, keeping every existing identity fixed. */
-export function extendMeld(meld: Interpretation, card: Card, ctx: MeldContext, hintAs?: Card): MeldResult {
+function extendMeldPlain(meld: Interpretation, card: Card, ctx: MeldContext, hintAs?: Card): MeldResult {
   const isWild = ctx.wild.has(card);
   if (hintAs && !isWild && hintAs !== card) return fail(`${card} is not a wildcard this round`);
   if (meld.kind === 'set') {
@@ -316,8 +318,7 @@ export function openingPoints(meld: Interpretation, rules: ConquerRules): number
 }
 
 /** Penalty for a card left in hand when the stock runs out. */
-export function penaltyValue(card: Card, wild: ReadonlySet<Card>, rules: ConquerRules): number {
-  if (isPrintedJoker(card)) return rules.wild.printedJokerPenalty;
+function penaltyValuePlain(card: Card, wild: ReadonlySet<Card>, rules: ConquerRules): number {
   if (wild.has(card) && typeof rules.wild.penalty === 'number') return rules.wild.penalty;
   return cardRank(card) === 'A' ? rules.acePenalty : naturalValue(cardRank(card));
 }
@@ -331,7 +332,7 @@ export function suggestNaturalMelds(hand: Card[], ctx: MeldContext): Interpretat
   const left = new Set(hand);
   const found: Interpretation[] = [];
   const take = (cards: Card[]) => {
-    const res = interpretMeld(cards, ctx);
+    const res = interpretMeldPlain(cards, ctx);
     if (res.ok) {
       found.push(res.meld);
       for (const c of cards) left.delete(c);
@@ -469,12 +470,12 @@ function materialise(choice: Choice, cards: Card[], ctx: MeldContext): Card[][] 
  * Splits `cards` into valid melds that use every card, or returns null.
  * Lets a player simply select the cards to lay down.
  */
-export function partitionIntoMelds(cards: Card[], ctx: MeldContext): Card[][] | null {
+function partitionIntoMeldsPlain(cards: Card[], ctx: MeldContext): Card[][] | null {
   if (cards.length < 3) return null;
   const choice = bestCover(cards, ctx, true);
   if (!choice) return null;
   const melds = materialise(choice, cards, ctx);
-  return melds.every((m) => interpretMeld(m, ctx).ok) ? melds : null;
+  return melds.every((m) => interpretMeldPlain(m, ctx).ok) ? melds : null;
 }
 
 /**
@@ -482,11 +483,11 @@ export function partitionIntoMelds(cards: Card[], ctx: MeldContext): Card[][] | 
  * playing order, wildcards in the gap they fill), then the remaining cards by
  * suit and rank, wildcards last.
  */
-export function arrangeHand(hand: Card[], ctx: MeldContext): { order: Card[]; melds: Card[][] } {
+function arrangeHandPlain(hand: Card[], ctx: MeldContext): { order: Card[]; melds: Card[][] } {
   const choice = bestCover(hand, ctx, false)!;
   const melds: Card[][] = [];
   for (const cards of materialise(choice, hand, ctx)) {
-    const res = interpretMeld(cards, ctx);
+    const res = interpretMeldPlain(cards, ctx);
     if (res.ok) melds.push(res.meld.placed.map((p) => p.card));
   }
   const inMelds = new Set(melds.flat());
@@ -515,7 +516,7 @@ function* combinations<T>(items: T[], k: number, start = 0, acc: T[] = []): Gene
  * Every distinct valid reading of a meld (what each joker stands for), best
  * first. A single entry means there is nothing for the player to choose.
  */
-export function meldOptions(cards: Card[], ctx: MeldContext): Interpretation[] {
+function meldOptionsPlain(cards: Card[], ctx: MeldContext): Interpretation[] {
   if (cards.length < 3 || new Set(cards).size !== cards.length) return [];
   if (cards.some((c) => !ctx.wild.has(c) && ctx.taken.has(c))) return [];
   const found = new Map<string, Interpretation>();
@@ -542,10 +543,10 @@ export function meldOptions(cards: Card[], ctx: MeldContext): Interpretation[] {
 }
 
 /** Every distinct way to lay `card` off on `meld` (a joker may fit either end of a run, or any free suit of a set). */
-export function layoffOptions(meld: Interpretation, card: Card, ctx: MeldContext): Interpretation[] {
+function layoffOptionsPlain(meld: Interpretation, card: Card, ctx: MeldContext): Interpretation[] {
   const results = new Map<string, Interpretation>();
   const tryAs = (as?: Card) => {
-    const r = extendMeld(meld, card, ctx, as);
+    const r = extendMeldPlain(meld, card, ctx, as);
     if (r.ok && !results.has(identityKey(r.meld))) results.set(identityKey(r.meld), r.meld);
   };
   tryAs(undefined);
@@ -561,4 +562,133 @@ export function layoffOptions(meld: Interpretation, card: Card, ctx: MeldContext
     }
   }
   return [...results.values()].sort((a, b) => b.points - a.points);
+}
+
+/* ------------------------------------------------------------------ */
+/* False (printed) jokers                                              */
+/* ------------------------------------------------------------------ */
+//
+// A printed joker is not a joker: it is a copy of one of this round's chosen
+// joker cards (owner-confirmed). With base 5♦ and "Up", a printed joker can only
+// be 6♦ or 6♥, played as that card. Each function below resolves every printed
+// joker to each card it may copy, runs the ordinary rules, and maps back.
+
+interface Resolution {
+  cards: Card[];
+  ctx: MeldContext;
+  /** identity → physical printed joker */
+  back: Map<Card, Card>;
+}
+
+/** Every way to read the printed jokers in `cards` as distinct chosen cards. */
+function resolutions(cards: Card[], ctx: MeldContext, pinned: Record<Card, Card> = {}): Resolution[] {
+  const printed = cards.filter((c) => isPrintedJoker(c));
+  if (printed.length === 0) return [{ cards, ctx, back: new Map() }];
+  const options = (ctx.falseJokerAs ?? []).filter((id) => !cards.includes(id));
+  const out: Resolution[] = [];
+  const walk = (i: number, chosen: Card[]) => {
+    if (i === printed.length) {
+      const back = new Map(chosen.map((id, k) => [id, printed[k]]));
+      // The copied cards play as themselves: they are not jokers here.
+      const wild = new Set([...ctx.wild].filter((w) => !back.has(w)));
+      out.push({ cards: cards.map((c) => (isPrintedJoker(c) ? chosen[printed.indexOf(c)] : c)), ctx: { ...ctx, wild }, back });
+      return;
+    }
+    const allowed = pinned[printed[i]] ? options.filter((o) => o === pinned[printed[i]]) : options;
+    for (const id of allowed) if (!chosen.includes(id)) walk(i + 1, [...chosen, id]);
+  };
+  walk(0, []);
+  return out;
+}
+
+const mapBack = (m: Interpretation, back: Map<Card, Card>): Interpretation =>
+  back.size ? { ...m, placed: m.placed.map((p) => (back.has(p.card) ? { ...p, card: back.get(p.card)! } : p)) } : m;
+
+const unhint = (hint: Record<Card, Card>) => Object.fromEntries(Object.entries(hint).filter(([k]) => !isPrintedJoker(k)));
+
+const noCopyError = 'A false joker can only be played as one of this round\u2019s chosen cards';
+
+export function interpretMeld(cards: Card[], ctx: MeldContext, hint: Record<Card, Card> = {}): MeldResult {
+  const res = resolutions(cards, ctx, hint);
+  if (res.length === 0) return fail(noCopyError);
+  let firstError: string | null = null;
+  let best: Interpretation | null = null;
+  for (const r of res) {
+    const out = interpretMeldPlain(r.cards, r.ctx, unhint(hint));
+    if (!out.ok) {
+      firstError ??= out.error;
+      continue;
+    }
+    const m = mapBack(out.meld, r.back);
+    if (!best || m.points > best.points) best = m;
+  }
+  return best ? { ok: true, meld: best } : fail(firstError ?? noCopyError);
+}
+
+export function meldOptions(cards: Card[], ctx: MeldContext): Interpretation[] {
+  const seen = new Map<string, Interpretation>();
+  for (const r of resolutions(cards, ctx)) {
+    for (const m of meldOptionsPlain(r.cards, r.ctx)) {
+      const mapped = mapBack(m, r.back);
+      const key = `${mapped.kind}:${mapped.placed.map((p) => `${p.card}=${p.as}`).sort().join(',')}`;
+      if (!seen.has(key)) seen.set(key, mapped);
+    }
+  }
+  return [...seen.values()].sort((a, b) => b.points - a.points);
+}
+
+/** Adds one card to a meld; a printed joker goes on as one of the chosen cards. */
+export function extendMeld(meld: Interpretation, card: Card, ctx: MeldContext, hintAs?: Card): MeldResult {
+  if (!isPrintedJoker(card)) {
+    // A card and a false joker copying it never share a meld.
+    if (meld.placed.some((p) => isPrintedJoker(p.card) && p.as === card)) return fail(`A false joker in this meld already copies ${card}`);
+    return extendMeldPlain(meld, card, ctx, hintAs);
+  }
+  const inMeld = new Set(meld.placed.map((p) => p.card));
+  const ids = (ctx.falseJokerAs ?? []).filter((id) => (!hintAs || id === hintAs) && !inMeld.has(id));
+  let firstError: string | null = null;
+  for (const id of ids) {
+    const out = extendMeldPlain(meld, id, { ...ctx, wild: new Set([...ctx.wild].filter((w) => w !== id)) });
+    if (out.ok) return { ok: true, meld: mapBack(out.meld, new Map([[id, card]])) };
+    firstError ??= out.error;
+  }
+  return fail(firstError ?? noCopyError);
+}
+
+export function layoffOptions(meld: Interpretation, card: Card, ctx: MeldContext): Interpretation[] {
+  if (!isPrintedJoker(card)) return layoffOptionsPlain(meld, card, ctx);
+  const found: Interpretation[] = [];
+  for (const id of ctx.falseJokerAs ?? []) {
+    const out = extendMeld(meld, card, ctx, id);
+    if (out.ok) found.push(out.meld);
+  }
+  return found.sort((a, b) => b.points - a.points);
+}
+
+export function partitionIntoMelds(cards: Card[], ctx: MeldContext): Card[][] | null {
+  for (const r of resolutions(cards, ctx)) {
+    const melds = partitionIntoMeldsPlain(r.cards, r.ctx);
+    if (melds) return melds.map((m) => m.map((c) => r.back.get(c) ?? c));
+  }
+  return null;
+}
+
+export function arrangeHand(hand: Card[], ctx: MeldContext): { order: Card[]; melds: Card[][] } {
+  let best: { order: Card[]; melds: Card[][] } | null = null;
+  for (const r of resolutions(hand, ctx)) {
+    const out = arrangeHandPlain(r.cards, r.ctx);
+    const mapped = { order: out.order.map((c) => r.back.get(c) ?? c), melds: out.melds.map((m) => m.map((c) => r.back.get(c) ?? c)) };
+    if (!best || mapped.melds.flat().length > best.melds.flat().length) best = mapped;
+  }
+  // Printed jokers that could not copy anything (no chosen cards known) stay at the end.
+  return best ?? arrangeHandPlain(hand, ctx);
+}
+
+/** Penalty for a card left in hand; a printed joker scores as the highest card it may copy. */
+export function penaltyValue(card: Card, wild: ReadonlySet<Card>, rules: ConquerRules, falseJokerAs: readonly Card[] = []): number {
+  if (isPrintedJoker(card)) {
+    if (falseJokerAs.length === 0) return rules.wild.printedJokerPenalty;
+    return Math.max(...falseJokerAs.map((id) => (cardRank(id) === 'A' ? rules.acePenalty : naturalValue(cardRank(id)))));
+  }
+  return penaltyValuePlain(card, wild, rules);
 }

@@ -57,8 +57,8 @@ describe('card values and Aces', () => {
 });
 
 describe('sets and runs', () => {
-  it('lays sets out alternating black and red', () => {
-    expect(okMeld('9d 9c 9h 9s').placed.map((p) => p.as)).toEqual(['9s', '9h', '9c', '9d']);
+  it('lays sets out alternating red and black: ♥ ♣ ♦ ♠', () => {
+    expect(okMeld('9d 9c 9h 9s').placed.map((p) => p.as)).toEqual(['9h', '9c', '9d', '9s']);
   });
 
   it('accepts sets of three or four distinct suits', () => {
@@ -100,7 +100,7 @@ describe('wildcards in melds', () => {
   });
   it('substitutes for a missing suit in a set', () => {
     const set = okMeld('9s 9h 8c', ctx(wild));
-    expect(set.placed.map((p) => p.as)).toEqual(['9s', '9h', '9d']);
+    expect(set.placed.map((p) => p.as)).toEqual(['9h', '9d', '9s']);
     expect(set.points).toBe(27);
   });
   it('requires at least two natural cards per meld', () => {
@@ -108,7 +108,7 @@ describe('wildcards in melds', () => {
     expect(res.ok).toBe(false);
   });
   it('never represents a card already on the table', () => {
-    expect(okMeld('9s 9h 8c', ctx(wild, ['9d'])).placed.map((p) => p.as)).toEqual(['9s', '9h', '9c']);
+    expect(okMeld('9s 9h 8c', ctx(wild, ['9d'])).placed.map((p) => p.as)).toEqual(['9h', '9c', '9s']);
     const res = meld('7h 7s 7d', ctx(wild, ['7h']));
     expect(res.ok === false && res.error).toMatch(/already represents 7h/);
   });
@@ -205,37 +205,55 @@ describe('joker choices', () => {
     expect(layoffOptions(run.meld, '8h', ctx())).toHaveLength(1);
   });
 });
-describe('printed jokers and the one-joker limit', () => {
-  const jokers = ['X1', 'X2', '8c', '8s'];
-  it('a printed joker substitutes like any joker', () => {
-    const run = okMeld('5h 6h X1', ctx(jokers));
-    expect(run.placed.find((p) => p.card === 'X1')).toMatchObject({ wild: true, as: '7h' });
-    expect(['9d', '9c']).toContain(okMeld('9s 9h X2', ctx(jokers)).placed.find((p) => p.card === 'X2')?.as);
+describe('false (printed) jokers and the one-joker limit', () => {
+  // Base 5♦ + Up → the chosen jokers are 6♦ and 6♥; a printed joker can only be 6♦ or 6♥.
+  const chosen = ['6d', '6h'];
+  const fx = (extraWild: string[] = [], taken: string[] = []): MeldContext => ({ ...ctx([...chosen, ...extraWild], taken), falseJokerAs: chosen });
+  const of = (m: { placed: { card: string; as: string; wild: boolean }[] }, card: string) => m.placed.find((p) => p.card === card)!;
+
+  it('plays only as one of the chosen cards, as a natural card', () => {
+    const run = okMeld('5d X1 7d', fx());
+    expect(of(run, 'X1')).toMatchObject({ as: '6d', wild: false });
+    expect(['6d', '6h']).toContain(of(okMeld('6s 6c X1', fx()), 'X1').as);
   });
-  it('never allows two jokers in one meld', () => {
-    expect(meld('5h 6h X1 X2', ctx(jokers)).ok).toBe(false);
-    expect(meld('9s 9h X1 8c', ctx(jokers)).ok).toBe(false);
-    expect(meld('5h X1 7h 8s', ctx(jokers)).ok).toBe(false);
-    expect(meldOptions(h('5h 6h X1 X2'), ctx(jokers))).toEqual([]);
+  it('cannot stand in for any other card', () => {
+    expect(meld('Kh Kd X1', fx()).ok).toBe(false);
+    expect(meld('5h X1 8h', fx()).ok).toBe(false);
+    expect(meld('5d 6d X1', fx()).ok).toBe(false); // 6♦ is already in the meld, 6♥ does not fit
   });
-  it('a joker playing as itself does not count as a joker', () => {
-    // 8♣ is a predicted joker but sits naturally in 6♣-7♣-8♣, so the printed joker may join.
-    expect(okMeld('6c 7c 8c X1', ctx(jokers)).placed.filter((p) => p.wild)).toHaveLength(1);
+  it('does not count as a joker, so a real joker can join the same meld', () => {
+    const run = okMeld('5d X1 7d 6h', fx());
+    expect(run.placed.filter((p) => p.wild).map((p) => p.card)).toEqual(['6h']);
+    expect(okMeld('6s X1 X2', fx()).placed.every((p) => !p.wild)).toBe(true);
   });
-  it('rejects laying a second joker onto a meld', () => {
-    const run = okMeld('5h 6h X1', ctx(jokers));
-    expect(extendMeld(run, 'X2', ctx(jokers)).ok).toBe(false);
-    expect(extendMeld(run, '8h', ctx(jokers)).ok).toBe(true);
+  it('never allows two real jokers in one meld', () => {
+    const jokers = ['8c', '8s'];
+    expect(meld('5h 6h 8c 8s', ctx(jokers)).ok).toBe(false);
+    expect(meld('9s 9h 8c 8s', ctx(jokers)).ok).toBe(false);
+    expect(meldOptions(h('5h 6h 8c 8s'), ctx(jokers))).toEqual([]);
+    const run = okMeld('5h 6h 8c', ctx(jokers));
+    expect(extendMeld(run, '8s', ctx(jokers)).ok).toBe(false);
   });
-  it('allows jokers in different melds', () => {
-    const melds = partitionIntoMelds(h('5h 6h X1 9s 9h X2'), ctx(jokers));
-    expect(melds).toHaveLength(2);
+  it('lays a false joker off as a chosen card', () => {
+    const run = okMeld('3d 4d 5d', fx());
+    const res = extendMeld(run, 'X2', fx());
+    expect(res.ok && of(res.meld, 'X2')).toMatchObject({ as: '6d', wild: false });
+    expect(layoffOptions(run, 'X2', fx()).length).toBe(1);
+    expect(extendMeld(okMeld('9s 9h 9c'), 'X1', fx()).ok).toBe(false);
   });
-  it('best order never puts two jokers in one meld', () => {
-    const { melds } = arrangeHand(h('5h 6h X1 X2 Kd 2c'), ctx(jokers));
-    for (const m of melds) expect(m.filter((c) => jokers.includes(c)).length).toBeLessThanOrEqual(1);
+  it('never puts a card and the false joker copying it in one meld', () => {
+    // 6♦ is a joker; a false joker copying 6♦ cannot share a meld with the real 6♦.
+    const run = okMeld('4d 5d X1', fx());
+    expect(of(run, 'X1').as).toBe('6d');
+    expect(extendMeld(run, '6d', fx()).ok).toBe(false);
   });
-  it('scores a printed joker left in hand', () => {
-    expect(penaltyValue('X1', new Set(jokers), rules())).toBe(DEFAULT_CONQUER_RULES.wild.printedJokerPenalty);
+
+  it('partitions and arranges hands containing false jokers', () => {
+    expect(partitionIntoMelds(h('5d X1 7d 6s 6c X2'), fx())).toHaveLength(2);
+    const { melds } = arrangeHand(h('5d X1 7d Kd 2c'), fx());
+    expect(melds).toEqual([['5d', 'X1', '7d']]);
+  });
+  it('scores a false joker left in hand as the card it copies', () => {
+    expect(penaltyValue('X1', new Set(chosen), rules(), chosen)).toBe(6);
   });
 });

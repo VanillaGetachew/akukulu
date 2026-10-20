@@ -8,7 +8,6 @@ import {
   RANK_LABEL,
   SUIT_SYMBOL,
   isValidCard,
-  PRINTED_JOKERS,
   deckWithJokers,
   isPrintedJoker,
   standardDeck,
@@ -118,13 +117,15 @@ interface Out {
 }
 
 const cardLabel = (c: Card) => (isPrintedJoker(c) ? 'Joker' : `${RANK_LABEL[c[0] as Rank]}${SUIT_SYMBOL[c[1] as Suit]}`);
+/** Cards a printed joker may copy this round: the chosen joker cards. */
+export const falseJokerAs = (state: ConquerState): Card[] => (state.config.rules.wild.printedJokers ? state.wildCards : []);
 /** The physical deck for a rule set: 54 cards with the printed jokers, otherwise 52. */
 const physicalDeck = (rules: ConquerConfig['rules']) => (rules.wild.printedJokers ? deckWithJokers() : standardDeck());
 
 function meldContext(state: ConquerState, excludeMeldId?: string): MeldContext {
   const taken = new Set<Card>();
   for (const m of state.melds) if (m.id !== excludeMeldId) for (const p of m.placed) taken.add(p.as);
-  return { wild: new Set(state.wildCards), rules: state.config.rules, taken };
+  return { wild: new Set(state.wildCards), rules: state.config.rules, taken, falseJokerAs: falseJokerAs(state) };
 }
 
 const toInterp = (m: MeldState): Interpretation => ({
@@ -198,8 +199,8 @@ function beginRound(state: ConquerState, predictor: number, ctx: EngineContext, 
 function applyPrediction(state: ConquerState, choice: ConquerPrediction, ctx: EngineContext, out: Out) {
   const sel = selectWildcards(state.baseCard!, choice, state.config.rules);
   state.prediction = choice;
-  // Printed jokers are always wild, in addition to the predicted cards.
-  state.wildCards = [...sel.cards, ...(state.config.rules.wild.printedJokers ? PRINTED_JOKERS : [])];
+  // Printed jokers are not wild: each is a copy of one of these chosen cards (see falseJokerAs).
+  state.wildCards = sel.cards;
   state.wildRanks = sel.ranks;
   state.wildSuits = sel.suits;
   state.baseSetAside = false;
@@ -220,7 +221,7 @@ function applyPrediction(state: ConquerState, choice: ConquerPrediction, ctx: En
 
 function penaltyOf(state: ConquerState, hand: Card[]): number {
   const wild = new Set(state.wildCards);
-  return hand.reduce((s, c) => s + penaltyValue(c, wild, state.config.rules), 0);
+  return hand.reduce((s, c) => s + penaltyValue(c, wild, state.config.rules, falseJokerAs(state)), 0);
 }
 
 function endRound(state: ConquerState, winner: number | null, reason: ConquerRoundResult['reason'], ctx: EngineContext, out: Out) {
@@ -376,7 +377,8 @@ function autoDiscardCard(state: ConquerState, hand: Card[]): Card {
   const wild = new Set(state.wildCards);
   const candidates = hand.filter((c) => !wild.has(c));
   const pool = candidates.length ? candidates : hand;
-  return pool.reduce((best, c) => (penaltyValue(c, wild, state.config.rules) > penaltyValue(best, wild, state.config.rules) ? c : best), pool[0]);
+  const value = (x: Card) => penaltyValue(x, wild, state.config.rules, falseJokerAs(state));
+  return pool.reduce((best, c) => (value(c) > value(best) ? c : best), pool[0]);
 }
 
 function discardCard(state: ConquerState, index: number, card: Card, ctx: EngineContext, out: Out) {
