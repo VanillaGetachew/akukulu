@@ -13,8 +13,8 @@ const nextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
   images: { unoptimized: true },
-  // Lets the dev server be opened through a Cloudflare quick tunnel (Telegram testing).
-  allowedDevOrigins: ['*.trycloudflare.com'],
+  // Lets the dev server be opened through a public tunnel (Telegram testing).
+  allowedDevOrigins: ['*.trycloudflare.com', '*.ngrok-free.dev', '*.ngrok-free.app'],
   // Socket.IO requests end in "/socket.io/"; don't redirect them to drop the slash.
   skipTrailingSlashRedirect: true,
   /**
