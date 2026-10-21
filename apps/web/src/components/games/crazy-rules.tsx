@@ -28,7 +28,7 @@ export const CRAZY_RULES: { am: string; en: string; items: string[] }[] = [
     en: 'Special cards',
     items: [
       '8 and J are wild (★): play one on any card and choose the next suit.',
-      'Right after the suit is changed, the next player cannot change it again: they must follow the new suit (an 8 or J of that suit plays as a normal card). One turn later, the suit can be changed again.',
+      'Right after the suit is changed, the next player cannot change it again. They can follow the new suit or still play an 8 or J, but the suit stays the same. One turn later, the suit can be changed again.',
       '7 carries cards: when you play a 7, you can drop more cards of the same suit with it in one go (7♥ K♥ 3♥). A J or 8 of any suit can be carried too, because they are jokers (7♥ J♣ K♥). The last card you drop is the new top card, and its effect counts.',
       'A 7 played on its own skips the next player, like a 5.',
       '5 skips the next player. With two players, you play again.',

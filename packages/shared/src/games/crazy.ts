@@ -6,7 +6,7 @@ export interface CrazyRules {
   wildRanks: Rank[];
   /**
    * After someone changes the suit with a wild card, the next player cannot change it
-   * again: they follow the named suit (a wild card of that suit plays as a normal card).
+   * again: they may still play a wild card (on anything), but the named suit stays.
    */
   suitChangeCooldown: boolean;
   /** A 2 makes the next player draw two cards and lose their turn. */

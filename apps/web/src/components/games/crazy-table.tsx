@@ -273,7 +273,7 @@ export function CrazyTable({ state, view, act, pending, serverNow }: TableProps<
           ? `Answer with ${answer} or pick up ${view.pendingDraw}`
           : view.topCard && view.activeSuit
             ? view.suitLocked
-              ? `The suit was just changed — follow ${SUIT_SYMBOL[view.activeSuit]} this turn`
+              ? `Follow ${SUIT_SYMBOL[view.activeSuit]} or play a joker (${wildNames}) — the suit cannot be changed this turn`
               : `Play a ${SUIT_SYMBOL[view.activeSuit]} card, a ${RANK_LABEL[view.topCard[0] as Rank]} or ${wildNames}`
             : 'That card cannot be played now',
       );

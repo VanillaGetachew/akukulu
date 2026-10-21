@@ -196,32 +196,30 @@ describe('Crazy play', () => {
     expect(crazyEngine.view(s, 'b').legal.play).toEqual([]);
   });
 
-  it('right after a suit change, the next player cannot change it again', () => {
+  it('right after a suit change, the next player can play a joker but cannot change the suit', () => {
     let s = rigged({ a: 'Jc 9h 3d', b: '8s Jh 4c', top: '7h' });
     s = run(s, 'a', { type: 'play', card: 'Jc', suit: 'd' });
     expect(crazyEngine.view(s, 'b')).toMatchObject({ suitLocked: true, activeSuit: 'd' });
-    // b's 8♠ and J♥ cannot change the suit now: b has nothing that follows ♦, so b draws.
-    expect(crazyEngine.view(s, 'b').legal.play).toEqual([]);
-    expect(act(s, 'b', { type: 'play', card: '8s', suit: 'h' })).toMatchObject({ ok: false, code: 'ILLEGAL_CARD' });
-    s = run(s, 'b', { type: 'draw' });
-    s = run(s, 'b', { type: 'pass' });
-    // One turn has passed: a plays the 3♦, and then b may change the suit again.
+    // b's 8♠ and J♥ can still be played (they are jokers), but the suit stays ♦.
+    expect(crazyEngine.view(s, 'b').legal.play.sort()).toEqual(['8s', 'Jh']);
+    s = run(s, 'b', { type: 'play', card: '8s', suit: 'h' });
+    expect(s.activeSuit).toBe('d');
+    expect(s.lastEvent).toMatchObject({ card: '8s' });
+    expect(s.lastEvent?.suit).toBeUndefined();
+    // The lock was b's turn only: a may now change the suit again.
     expect(crazyEngine.view(s, 'a').suitLocked).toBe(false);
-    s = run(s, 'a', { type: 'play', card: '3d' });
-    expect(crazyEngine.view(s, 'b').legal.play).toEqual(expect.arrayContaining(['8s', 'Jh']));
-    s = run(s, 'b', { type: 'play', card: '8s', suit: 'c' });
-    expect(s.activeSuit).toBe('c');
   });
 
-  it('a wild card of the named suit plays as a normal card during the lock', () => {
-    let s = rigged({ a: 'Jc 9h 3d', b: 'Jd 4c 5c', top: '7h' });
+  it('a locked joker needs no suit, and the lock ends after one turn even with a draw and pass', () => {
+    let s = rigged({ a: 'Jc 9h 3d', b: 'Jh 4c 5c', top: '7h' });
     s = run(s, 'a', { type: 'play', card: 'Jc', suit: 'd' });
-    expect(crazyEngine.view(s, 'b').legal.play).toEqual(['Jd']);
-    // No suit is named: the suit stays ♦, and a may change it next turn.
-    s = run(s, 'b', { type: 'play', card: 'Jd' });
-    expect(s.activeSuit).toBe('d');
-    expect(s.lastEvent?.suit).toBeUndefined();
+    expect(act(s, 'b', { type: 'play', card: 'Jh' })).toMatchObject({ ok: true });
+    s = run(s, 'b', { type: 'draw' });
+    s = run(s, 'b', { type: 'pass' });
     expect(crazyEngine.view(s, 'a').suitLocked).toBe(false);
+    s = run(s, 'a', { type: 'play', card: '3d' });
+    s = run(s, 'b', { type: 'play', card: 'Jh', suit: 'c' });
+    expect(s.activeSuit).toBe('c');
   });
 
   it('a wild carried at the end of a 7 play also locks the next player', () => {
@@ -229,13 +227,15 @@ describe('Crazy play', () => {
     let s = rigged({ a: '7c Jd 9c', b: '8h 4s', top: '7h' });
     s = run(s, 'a', { type: 'play', card: '7c', carry: ['Jd'], suit: 's' });
     expect(s.current).toBe(1);
-    expect(crazyEngine.view(s, 'b')).toMatchObject({ suitLocked: true, legal: { play: ['4s'] } });
+    expect(crazyEngine.view(s, 'b')).toMatchObject({ suitLocked: true });
+    expect(run(s, 'b', { type: 'play', card: '8h', suit: 'd' }).activeSuit).toBe('s');
   });
 
   it('the cooldown can be turned off (option)', () => {
     let s = rigged({ a: 'Jc 9h', b: '8s 4c', top: '7h', rules: { suitChangeCooldown: false } });
     s = run(s, 'a', { type: 'play', card: 'Jc', suit: 'd' });
-    expect(crazyEngine.view(s, 'b').legal.play).toEqual(['8s']);
+    expect(crazyEngine.view(s, 'b').suitLocked).toBe(false);
+    expect(run(s, 'b', { type: 'play', card: '8s', suit: 'h' }).activeSuit).toBe('h');
   });
 
   it('a Jack is wild like an 8', () => {

@@ -103,9 +103,8 @@ export function playableCards(state: CrazyState, hand: Card[]): Card[] {
   }
   // The starter opens an empty pile with any card.
   if (!top) return [...hand];
-  // Right after a suit change, a wild card only plays if it is of the named suit (and then cannot change it).
-  const locked = suitLocked(state);
-  return hand.filter((c) => (isWild(c, rules) ? !locked || cardSuit(c) === state.activeSuit : cardSuit(c) === state.activeSuit || cardRank(c) === cardRank(top)));
+  // Wild cards always play; right after a suit change they just cannot change it (see play()).
+  return hand.filter((c) => isWild(c, rules) || cardSuit(c) === state.activeSuit || cardRank(c) === cardRank(top));
 }
 
 /** The suit was just changed with a wild card, so the current player cannot change it again this turn. */
@@ -487,7 +486,7 @@ export const crazyEngine: GameEngine<CrazyState, CrazyConfig, CrazyView> = {
               : 'That card does not match the suit or rank on the pile',
           );
         }
-        // Right after a suit change the wild card plays as its own suit, so no suit is named.
+        // Right after a suit change a wild card still plays, but names no suit: the named suit stays.
         if (isWild(last, state.config.rules) && !suitLocked(state) && !(SUITS as readonly unknown[]).includes(suit)) {
           return fail('NAME_A_SUIT', `Name the suit for your ${RANK_NAME[cardRank(last)]}`);
         }
