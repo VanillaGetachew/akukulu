@@ -34,6 +34,12 @@ export interface ConquerRules {
     minNaturalPerMeld: number;
     /** Maximum jokers substituting in one meld (owner-confirmed: two jokers never share a meld). */
     maxPerMeld: number;
+    /**
+     * A joker may not stand for a card already represented on the table. Off by default
+     * (owner-confirmed): a joker may be the 10♥ even when the real 10♥ is already melded.
+     * Optional because games saved before it existed keep the check.
+     */
+    uniqueIdentities?: boolean;
     /** The deck includes the two printed jokers, which are always wild (54 cards). */
     printedJokers: boolean;
     /** Penalty for a printed joker left in hand. */
@@ -86,6 +92,7 @@ export const DEFAULT_CONQUER_RULES: ConquerRules = {
   wild: {
     minNaturalPerMeld: 2,
     maxPerMeld: 1,
+    uniqueIdentities: false,
     printedJokers: true,
     printedJokerPenalty: 20,
     openingValue: 'represented',
@@ -165,6 +172,8 @@ export type ConquerAction =
   | { type: 'swapWild'; meldId: string; card: Card }
   | { type: 'discard'; card: Card }
   | { type: 'rematch' }
+  /** Give up the current round (the opponent wins it; a rematch is still offered). */
+  | { type: 'giveUp' }
   | { type: 'leave' };
 
 export interface ConquerPlacedCard {
@@ -215,7 +224,7 @@ export interface ConquerLastEvent {
 export interface ConquerRoundResult {
   round: number;
   winnerId: string | null;
-  reason: 'out' | 'exhaustion' | 'forfeit' | 'timeout';
+  reason: 'out' | 'exhaustion' | 'forfeit' | 'timeout' | 'gaveUp';
   penalties: Record<string, number>;
 }
 

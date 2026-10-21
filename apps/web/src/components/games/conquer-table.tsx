@@ -246,8 +246,8 @@ function TurnBar({ view, serverNow, state, mine }: { view: ConquerView; serverNo
   );
 }
 
-/** Shown to the player whose turn timer ran out: return within the grace period or lose the round. */
-function GracePopup({ view, serverNow }: { view: ConquerView; serverNow: () => number }) {
+/** Shown to the player whose turn timer ran out: return within the grace period, or give up the round. */
+function GracePopup({ view, serverNow, onGiveUp, pending }: { view: ConquerView; serverNow: () => number; onGiveUp: () => void; pending: boolean }) {
   const [now, setNow] = useState(serverNow());
   const [dismissed, setDismissed] = useState<number | null>(null);
   useEffect(() => {
@@ -270,6 +270,9 @@ function GracePopup({ view, serverNow }: { view: ConquerView; serverNow: () => n
         </p>
         <button className="btn-primary py-3" onClick={() => setDismissed(graceAt)}>
           <span className="font-ethiopic">ወደ ጨዋታው ተመለስ</span> · Return to game
+        </button>
+        <button className="btn-ghost py-2.5 text-danger" disabled={pending} onClick={onGiveUp}>
+          <span className="font-ethiopic">ተሸንፌያለሁ</span> · Give up this round
         </button>
       </div>
     </div>
@@ -442,7 +445,7 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
       </Link>
       {children}
       {deal && <ShuffleAndDeal onDone={endDeal} sequence={deal.seq} />}
-      {myTurn && (view.phase === 'draw' || view.phase === 'meld') && <GracePopup view={view} serverNow={serverNow} />}
+      {myTurn && (view.phase === 'draw' || view.phase === 'meld') && <GracePopup view={view} serverNow={serverNow} pending={pending} onGiveUp={() => void act({ type: 'giveUp' })} />}
       {choice && <JokerChooser choice={choice} onPick={pick} onCancel={() => setChoice(null)} />}
       {confirmBase && (
         <div className="absolute inset-0 z-40 grid place-items-center bg-black/60 p-6 backdrop-blur-sm" role="dialog" aria-modal="true">
@@ -674,9 +677,11 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
                 ? 'Went out by melding every card and discarding the last.'
                 : result.reason === 'timeout'
                   ? `${result.winnerId === user?.id ? 'Your opponent' : 'You'} ran out of time.`
-                  : result.reason === 'forfeit'
-                    ? 'Won by forfeit.'
-                    : 'The deck ran out.'}
+                  : result.reason === 'gaveUp'
+                    ? `${result.winnerId === user?.id ? 'Your opponent' : 'You'} gave up the round.`
+                    : result.reason === 'forfeit'
+                      ? 'Won by forfeit.'
+                      : 'The deck ran out.'}
             </div>
             {(() => {
               const stake = view.config.stake;

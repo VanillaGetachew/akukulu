@@ -457,6 +457,25 @@ describe('Conquer round end', () => {
 });
 
 describe('Conquer timeouts, leaving and privacy', () => {
+  it('giving up loses only the round: the opponent wins it and a rematch is offered', () => {
+    let s = started().state;
+    s = run(s, s.players[s.predictor].playerId, { type: 'predict', choice: 'up' });
+    const quitter = s.players[s.current].playerId;
+    const other = s.players[1 - s.current].playerId;
+    const res = expectOk(act(s, quitter, { type: 'giveUp' }));
+    expect(res.state.phase).toBe('roundOver');
+    expect(res.state.roundResult).toMatchObject({ winnerId: other, reason: 'gaveUp' });
+    expect(res.state.players.every((p) => p.status === 'active')).toBe(true);
+    expect(conquerEngine.view(res.state, quitter).legal.rematch).toBe(true);
+    expect(act(res.state, quitter, { type: 'giveUp' })).toMatchObject({ ok: false, code: 'WRONG_PHASE' });
+  });
+
+  it('can give up while the prediction is still open, keeping the deck whole', () => {
+    const s = started().state;
+    const res = expectOk(act(s, s.players[0].playerId, { type: 'giveUp' }));
+    expect(res.state.roundResult).toMatchObject({ reason: 'gaveUp', winnerId: s.players[1].playerId });
+  });
+
   it('gives a 1-minute turn, then a 30-second grace before the round is lost', () => {
     let s = started().state;
     s = run(s, s.players[s.predictor].playerId, { type: 'predict', choice: 'up' });

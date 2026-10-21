@@ -49,7 +49,7 @@ Boundaries (`prediction.boundary`, still unconfirmed): by default ranks **wrap**
 - A false joker left in hand scores as the highest card it may copy.
 - **Opening value:** a substituting wildcard counts the value of the card it represents (`wild.openingValue: 'represented'`; a fixed number is supported).
 - **Identity is fixed when laid down.** Lay-offs never re-interpret cards already on the table. Each meld stores `{ card, as }` for every card, which is how identities survive rearrangements.
-- **No duplicate identities.** A wildcard cannot represent a card that is already represented on the table. A player cannot lay down or lay off a natural card whose identity a wildcard already represents; the server answers "swap it instead".
+- **A joker may stand for a card that is already on the table** (owner-confirmed, `wild.uniqueIdentities: false`). Example: the joker can be the 10♥ in 8♥ 9♥ [10♥] even though the real 10♥ is already melded. With `uniqueIdentities: true`, the old check applies: a wildcard cannot represent a card already represented on the table, and a natural card whose identity a wildcard already represents cannot be laid down ("swap it instead"). Games saved before the option existed keep that check.
 - **Swap** (`wild.allowSwap`): an opened player may give the natural card a table wildcard represents and take that wildcard into hand. The swap is atomic. The wildcard must be melded or laid off **before that turn's discard** (`wild.swappedMustBeUsedSameTurn`).
 
 ## 5. Melds
@@ -93,6 +93,7 @@ The server tracks each player's hand, every table meld (with who contributed eac
 
 ## 11. Timeouts and disconnection
 - **Running out of time loses the round** (confirmed by the owner, `timeoutLoses`): prediction 30 s, turn **60 s**, then a **30 s grace period** (`graceSeconds`): a "time is up · ጊዜዎ አልቋል" popup counts down and the player can return and finish the turn. The round is lost only when the grace runs out too (`turnDeadline`; the popup starts at `graceAt`). The opponent wins the round and its stakes; a rematch is still offered.
+- **Give up** (`giveUp`, owner-requested): the time-up popup also has a *ተሸንፌያለሁ · Give up this round* button. The opponent wins the round straight away (reason `gaveUp`), and unlike leaving the table, the rematch is still offered.
 - Leaving mid-round forfeits the round to the opponent and ends the match.
 - (With `timeoutLoses: false` the server would instead auto-play timed-out turns and forfeit after `maxMissedTurns`.)
 - Disconnected players keep their seat. The opponent sees an online/offline badge, and on reconnect the client re-subscribes and receives its private state. All state lives in PostgreSQL, and an integration test restarts the API mid-turn and continues the round.

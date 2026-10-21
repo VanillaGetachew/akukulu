@@ -140,6 +140,13 @@ export interface MeldContext {
   falseJokerAs?: readonly Card[];
 }
 
+/**
+ * Whether `card` is already represented on the table, so a joker may not stand for it.
+ * With `wild.uniqueIdentities: false` (the default, owner-confirmed) a joker may stand for
+ * any card, even one already on the table. Older saves, which lack the option, keep the check.
+ */
+export const isTaken = (ctx: MeldContext, card: Card) => ctx.rules.wild.uniqueIdentities !== false && ctx.taken.has(card);
+
 export type MeldResult = { ok: true; meld: Interpretation } | { ok: false; error: string };
 
 const fail = (error: string): MeldResult => ({ ok: false, error });
@@ -171,14 +178,14 @@ function setCandidate(cards: Card[], rank: Rank, ctx: MeldContext, hint: Record<
     } else substitutes.push(c);
   }
   for (const c of substitutes) {
-    const options = SUITS.filter((s) => !used.has(s) && !ctx.taken.has(`${rank}${s}`)).map((s) => `${rank}${s}`);
+    const options = SUITS.filter((s) => !used.has(s) && !isTaken(ctx, `${rank}${s}`)).map((s) => `${rank}${s}`);
     const as = hint[c] ? (options.includes(hint[c]) ? hint[c] : null) : options[0];
     if (!as) return null;
     used.add(cardSuit(as));
     placed.push({ card: c, as, wild: true, points: naturalValue(rank) });
   }
   if (naturals(placed) < ctx.rules.wild.minNaturalPerMeld || tooManyJokers(placed, ctx)) return null;
-  if (placed.some((p) => !p.wild && ctx.taken.has(p.as))) return null;
+  if (placed.some((p) => !p.wild && isTaken(ctx, p.as))) return null;
   return { kind: 'set', placed: setOrder(placed), points: total(placed) };
 }
 
@@ -227,7 +234,7 @@ function runCandidates(cards: Card[], suit: Suit, ctx: MeldContext, hint: Record
     const pinned = substitutes.filter((c) => hint[c]);
     const rest = substitutes.filter((c) => !hint[c]);
     for (const c of [...pinned, ...rest]) {
-      const free = open().filter((p) => !ctx.taken.has(`${rankAtPosition(p)}${suit}`));
+      const free = open().filter((p) => !isTaken(ctx, `${rankAtPosition(p)}${suit}`));
       const pos = hint[c] ? free.find((p) => `${rankAtPosition(p)}${suit}` === hint[c]) : free[0];
       if (pos === undefined) {
         valid = false;
@@ -238,7 +245,7 @@ function runCandidates(cards: Card[], suit: Suit, ctx: MeldContext, hint: Record
     if (!valid || filled.size !== L) continue;
     const placed = [...filled.values()].sort((a, b) => a.pos! - b.pos!);
     if (naturals(placed) < ctx.rules.wild.minNaturalPerMeld || tooManyJokers(placed, ctx)) continue;
-    if (placed.some((p) => !p.wild && ctx.taken.has(p.as))) continue;
+    if (placed.some((p) => !p.wild && isTaken(ctx, p.as))) continue;
     out.push({ kind: 'run', placed, points: total(placed) });
   }
   return out;
@@ -253,7 +260,7 @@ function runCandidates(cards: Card[], suit: Suit, ctx: MeldContext, hint: Record
 function interpretMeldPlain(cards: Card[], ctx: MeldContext, hint: Record<Card, Card> = {}): MeldResult {
   if (cards.length < 3) return fail('A meld needs at least three cards');
   if (new Set(cards).size !== cards.length) return fail('A card cannot appear twice in a meld');
-  const represented = cards.find((c) => !ctx.wild.has(c) && ctx.taken.has(c));
+  const represented = cards.find((c) => !ctx.wild.has(c) && isTaken(ctx, c));
   if (represented) return fail(`A wildcard already represents ${represented} — swap it instead`);
   for (const [c, as] of Object.entries(hint)) {
     if (!cards.includes(c)) return fail(`Hint refers to ${c}, which is not in the meld`);
@@ -288,11 +295,11 @@ function extendMeldPlain(meld: Interpretation, card: Card, ctx: MeldContext, hin
     let as: Card | null;
     if (fitsAsItself && (!hintAs || hintAs === card)) {
       as = card;
-      if (ctx.taken.has(card)) return fail(`A wildcard already represents ${card} — swap it instead`);
+      if (isTaken(ctx, card)) return fail(`A wildcard already represents ${card} — swap it instead`);
     } else if (!isWild) {
       return fail(`${card} does not fit this set`);
     } else {
-      const options = SUITS.filter((s) => !used.has(s) && !ctx.taken.has(`${rank}${s}`)).map((s) => `${rank}${s}`);
+      const options = SUITS.filter((s) => !used.has(s) && !isTaken(ctx, `${rank}${s}`)).map((s) => `${rank}${s}`);
       as = hintAs ? (options.includes(hintAs) ? hintAs : null) : (options[0] ?? null);
       if (!as) return fail('No free position in this set');
     }
@@ -312,12 +319,12 @@ function extendMeldPlain(meld: Interpretation, card: Card, ctx: MeldContext, hin
   if (pos === undefined && !isWild) return fail(`${card} does not extend this run`);
   let wild = false;
   if (pos === undefined) {
-    const free = ends.filter((p) => !ctx.taken.has(identity(p)));
+    const free = ends.filter((p) => !isTaken(ctx, identity(p)));
     pos = hintAs ? free.find((p) => identity(p) === hintAs) : free[0];
     if (pos === undefined) return fail('This run cannot be extended');
     wild = true;
   }
-  if (!wild && ctx.taken.has(card)) return fail(`A wildcard already represents ${card} — swap it instead`);
+  if (!wild && isTaken(ctx, card)) return fail(`A wildcard already represents ${card} — swap it instead`);
   if (wild && jokersUsed(meld.placed) >= ctx.rules.wild.maxPerMeld) return fail('Only one joker may be used in a meld');
   const placed = [...meld.placed, { card, as: identity(pos), wild, points: runPoints(pos), pos }].sort((a, b) => a.pos! - b.pos!);
   return { ok: true, meld: { kind: 'run', placed, points: total(placed) } };
@@ -569,7 +576,7 @@ function* combinations<T>(items: T[], k: number, start = 0, acc: T[] = []): Gene
  */
 function meldOptionsPlain(cards: Card[], ctx: MeldContext): Interpretation[] {
   if (cards.length < 3 || new Set(cards).size !== cards.length) return [];
-  if (cards.some((c) => !ctx.wild.has(c) && ctx.taken.has(c))) return [];
+  if (cards.some((c) => !ctx.wild.has(c) && isTaken(ctx, c))) return [];
   const found = new Map<string, Interpretation>();
   const add = (m: Interpretation | null) => {
     if (m && !found.has(identityKey(m))) found.set(identityKey(m), m);
@@ -581,7 +588,7 @@ function meldOptionsPlain(cards: Card[], ctx: MeldContext): Interpretation[] {
     const selfPlaying = jokers.filter((c) => cardRank(c) === rank && !naturalSuits.has(cardSuit(c)));
     const substitutes = jokers.filter((c) => !selfPlaying.includes(c));
     const used = new Set([...naturalSuits, ...selfPlaying.map(cardSuit)]);
-    const free = SUITS.filter((s) => !used.has(s) && !ctx.taken.has(`${rank}${s}`));
+    const free = SUITS.filter((s) => !used.has(s) && !isTaken(ctx, `${rank}${s}`));
     if (substitutes.length === 0) add(setCandidate(cards, rank, ctx, {}));
     for (const suits of combinations(free, substitutes.length)) {
       const hint: Record<Card, Card> = {};

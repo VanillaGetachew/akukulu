@@ -251,7 +251,7 @@ function endRound(state: ConquerState, winner: number | null, reason: ConquerRou
   resetTurn(state);
   state.phase = 'roundOver';
   setDeadline(state, ctx);
-  const text = winner === null ? 'Round drawn' : reason === 'out' ? 'went out and won the round' : reason === 'forfeit' ? 'won by forfeit' : 'won on lower penalty';
+  const text = winner === null ? 'Round drawn' : reason === 'out' ? 'went out and won the round' : reason === 'forfeit' ? 'won by forfeit' : reason === 'gaveUp' ? 'won — the opponent gave up' : reason === 'timeout' ? 'won on time' : 'won on lower penalty';
   event(state, out, winner === null ? null : state.players[winner].playerId, 'round_over', text, { ...state.roundResult });
 }
 
@@ -524,6 +524,18 @@ export const conquerEngine: GameEngine<ConquerState, ConquerConfig, ConquerView>
       } else {
         forfeit(state, index, 'left the match', ctx, out);
       }
+      return ok(state, out.events, out.ledger);
+    }
+
+    if (type === 'giveUp') {
+      if (state.phase !== 'predict' && state.phase !== 'draw' && state.phase !== 'meld') return fail('WRONG_PHASE', 'There is no round to give up');
+      if (state.baseSetAside) {
+        // Nothing was dealt yet: return the base card so the inventory stays whole.
+        state.stock.push(state.baseCard!);
+        state.baseSetAside = false;
+      }
+      event(state, out, playerId, 'gave_up', 'gave up the round');
+      endRound(state, 1 - index, 'gaveUp', ctx, out);
       return ok(state, out.events, out.ledger);
     }
 

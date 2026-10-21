@@ -107,10 +107,19 @@ describe('wildcards in melds', () => {
     const res = meld('5h 8c 8d', ctx(wild));
     expect(res.ok).toBe(false);
   });
-  it('never represents a card already on the table', () => {
-    expect(okMeld('9s 9h 8c', ctx(wild, ['9d'])).placed.map((p) => p.as)).toEqual(['9c', '9h', '9s']);
-    const res = meld('7h 7s 7d', ctx(wild, ['7h']));
+  it('a joker may stand for a card that is already on the table (owner-confirmed)', () => {
+    // 10♥ is already melded, but the joker can still be the 10♥ in a 8♥ 9♥ run.
+    const res = meldOptions(h('8h 9h 6c'), ctx(['6c'], ['Th']));
+    expect(res.map((o) => o.placed.find((p) => p.card === '6c')!.as).sort()).toEqual(['7h', 'Th']);
+  });
+  it('with uniqueIdentities on (games saved before the change), never represents a card already on the table', () => {
+    const strict = rules({ wild: { ...DEFAULT_CONQUER_RULES.wild, uniqueIdentities: true } });
+    expect(okMeld('9s 9h 8c', ctx(wild, ['9d'], strict)).placed.map((p) => p.as)).toEqual(['9c', '9h', '9s']);
+    const res = meld('7h 7s 7d', ctx(wild, ['7h'], strict));
     expect(res.ok === false && res.error).toMatch(/already represents 7h/);
+    // Older saves have no such option at all: the check stays on for them.
+    const { uniqueIdentities: _, ...olderWild } = DEFAULT_CONQUER_RULES.wild;
+    expect(okMeld('9s 9h 8c', ctx(wild, ['9d'], rules({ wild: olderWild as ConquerRules['wild'] }))).placed.map((p) => p.as)).toEqual(['9c', '9h', '9s']);
   });
   it('rejects hints for non-wild cards', () => expect(meld('5h 6h 7h', ctx(), { '7h': '4h' }).ok).toBe(false));
   it('values wildcards for the opening by what they represent, or a fixed value', () => {
@@ -192,7 +201,10 @@ describe('joker choices', () => {
   });
   it('offers every free suit for a joker in a set', () => {
     expect(meldOptions(h('9s 9h 8c'), ctx(['8c'])).map((o) => asOf(o, '8c')).sort()).toEqual(['9c', '9d']);
-    expect(meldOptions(h('9s 9h 8c'), ctx(['8c'], ['9d'])).map((o) => asOf(o, '8c'))).toEqual(['9c']);
+    // A card already on the table is still offered (owner-confirmed); with the old check it is not.
+    expect(meldOptions(h('9s 9h 8c'), ctx(['8c'], ['9d'])).map((o) => asOf(o, '8c')).sort()).toEqual(['9c', '9d']);
+    const strict = rules({ wild: { ...DEFAULT_CONQUER_RULES.wild, uniqueIdentities: true } });
+    expect(meldOptions(h('9s 9h 8c'), ctx(['8c'], ['9d'], strict)).map((o) => asOf(o, '8c'))).toEqual(['9c']);
   });
   it('has a single option when nothing is ambiguous', () => {
     expect(meldOptions(h('5h 6h 7h'), ctx())).toHaveLength(1);
