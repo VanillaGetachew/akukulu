@@ -7,8 +7,8 @@ Engine: `packages/engines/src/conquer/conquer.engine.ts` · Rules module: `packa
 This specification replaces the earlier 40-card Conquian draft. That draft was never implemented, so no logic was carried over.
 
 ## 1. Mode
-- Strictly **1v1**: two human players.
-- A **54-card** deck: the standard 52 plus **two printed (false) jokers** (owner-confirmed). The **starter gets 14 cards, the predictor 13**; the starter opens the game by discarding. **41-point** opening.
+- **1v1** (default) or **4 players** (owner-requested, room option `config.players: 4`, chosen in the lobby). See *4-player tables and ዶቤ* below.
+- 1v1: a **54-card** deck: the standard 52 plus **two printed (false) jokers** (owner-confirmed). The **starter gets 14 cards, the predictor 13**; the starter opens the game by discarding. **41-point** opening.
 
 ## 2. Card values and Aces
 | Card | Value |
@@ -85,6 +85,21 @@ The server tracks each player's hand, every table meld (with who contributed eac
 - **Deck runs out** (confirmed by the owner, `exhaustion: 'reshuffle'`): the last deck card may be drawn. When the deck is empty at the end of a turn, the discard pile **except its top card** is shuffled (`crypto.randomInt`) and becomes the new deck; play continues. The base card is no longer shown once it has been drawn or reshuffled.
 - Alternative options kept for configuration: `'lowerPenaltyWins'` (reveal hands, lower penalty wins, equal is a draw; Ace = 11, joker in hand = natural value) and `'dead'` (exhausted round is a draw).
 - **Penalties** are still computed for the `lowerPenaltyWins` option, but the round result no longer shows them (owner request).
+
+## 4-player tables and ዶቤ
+- **Two decks, 108 cards** (four printed jokers). Second-deck cards carry a `2` suffix (`Th2`, `X3`, `X4`) so each physical card is unique; rank and suit are still the first two characters (`cardIdentity`). Melds, joker identities, swaps and the on-table checks compare identities, so `Th` and `Th2` are the same card. A set still needs different suits.
+- **Every player for themselves.** Both copies of each chosen joker card are jokers. The starter is the seat after the predictor and gets 14 cards; the others get 13. Turns go round the table, and the predictor moves one seat each round.
+- All the 1v1 rules apply (41 to go in, pick-ups, protected discards, filling means finishing, base card, reshuffle).
+- **Out of the round:** a timeout (after the grace popup), giving up or leaving takes only that player out of the round. Their hand goes under the deck, their melds stay, and the others play on. The last player in wins, as does the first to go out. A predictor who drops out passes the prediction on.
+- **Stakes:** the winner takes all four stakes. Rematch needs all four players; if someone left, the table closes after the round.
+- **ጆከር ለመሬት** also works at 4-player tables: each loser's held stake goes to the winner on a joker finish.
+
+### ዶቤ (4-player option `config.dobe`, not together with ጆከር ለመሬት)
+- A **whole hand** of **five pairs of identical cards** (same rank and suit, e.g. 2♥ 2♥) plus **one three-card meld** and one card to discard is laid down **at once** with the ዶቤ button (`{ type: 'dobe', discard }`).
+- The **41 rule does not apply**: it works from an unopened hand, straight after drawing.
+- A **real joker can stand in for one card of a pair** (never both; two copies of the same joker card are a natural pair). A false joker counts as a card it may copy.
+- The winner **wins double**: everyone needed twice the stake, held for the round, and each loser's held stake goes to the winner. The result lists the pairs and the set (`roundResult.dobe`). The server finds the split (`findDobe`). The table only shows the ዶቤ button when the hand is one, and asks which card to discard if more than one works.
+- **Table:** the three opponents sit in a row at the top, each with name, card count (or *out*) and a narrow fan of their melds and hidden cards. The player on turn is ringed; chips show *ጆከር ለመሬት ×2* or *ዶቤ ×2*.
 
 ## 10. Rounds, rematches and points
 - An optional stake per player per round (room stake) is debited at the start of each round. The round winner receives both stakes; a draw refunds both. Ledger keys `match:<id>:r<n>:stake|payout|refund:<player>` make settlement idempotent.

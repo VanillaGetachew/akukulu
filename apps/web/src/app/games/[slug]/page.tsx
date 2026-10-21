@@ -27,6 +27,27 @@ const RULES: Record<GameSlug, string[]> = {
   crazy: [],
 };
 
+/** A table option switch (ጆከር ለመሬት, ዶቤ). */
+function OptionToggle({ on, onToggle, title, body }: { on: boolean; onToggle: () => void; title: string; body: string }) {
+  return (
+    <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-line bg-black/10 p-3">
+      <button
+        type="button"
+        role="switch"
+        aria-checked={on}
+        onClick={onToggle}
+        className={`relative h-7 w-12 shrink-0 rounded-full transition ${on ? 'bg-gold' : 'bg-white/20'}`}
+      >
+        <span className={`absolute top-0.5 h-6 w-6 rounded-full bg-white shadow transition-all ${on ? 'left-[1.375rem]' : 'left-0.5'}`} />
+      </button>
+      <span className="min-w-0">
+        <span className="block font-ethiopic text-base font-extrabold text-gold">{title}</span>
+        <span className="block text-xs text-muted">{body}</span>
+      </span>
+    </label>
+  );
+}
+
 export default function GameLobby() {
   const params = useParams<{ slug: string }>();
   const slug = params.slug;
@@ -44,6 +65,9 @@ export default function GameLobby() {
   const [code, setCode] = useState('');
   // Conquer's ጆከር ለመሬት option: players need twice the stake; a joker finish wins double.
   const [jokerToGround, setJokerToGround] = useState(false);
+  // Conquer table size (4 players play with two decks) and the 4-player ዶቤ option.
+  const [conquerPlayers, setConquerPlayers] = useState<2 | 4>(2);
+  const [dobe, setDobe] = useState(false);
 
   const load = useCallback(async () => {
     if (!isGameSlug(slug)) return;
@@ -89,11 +113,12 @@ export default function GameLobby() {
   }
   const stakes = STAKES[slug];
   const balance = user?.balance ?? 0;
-  const joker = slug === 'conquer' && jokerToGround;
-  // Points needed to sit at a table with this stake (twice the stake for ጆከር ለመሬት).
-  const need = (s: number, jtg = joker) => s * (jtg ? 2 : 1);
+  const joker = slug === 'conquer' && (jokerToGround || (dobe && conquerPlayers === 4));
+  // Points needed to sit at a table with this stake (twice the stake for ጆከር ለመሬት or ዶቤ).
+  const need = (s: number, double = joker) => s * (double ? 2 : 1);
   const affordable = balance >= need(stake);
-  const roomConfig = slug === 'conquer' ? { jokerToGround } : undefined;
+  const roomConfig =
+    slug === 'conquer' ? { jokerToGround, ...(conquerPlayers === 4 ? { players: 4, dobe } : {}) } : undefined;
   const customValue = custom.trim() === '' ? null : Number(custom);
   const customError =
     customValue === null
@@ -102,7 +127,7 @@ export default function GameLobby() {
         ? `Enter a whole number of at least ${stakes.min}`
         : need(customValue) > balance
           ? joker
-            ? `ጆከር ለመሬት needs twice the stake (${need(customValue).toLocaleString()}); you have ${balance.toLocaleString()}`
+            ? `${dobe ? 'ዶቤ' : 'ጆከር ለመሬት'} needs twice the stake (${need(customValue).toLocaleString()}); you have ${balance.toLocaleString()}`
             : `You only have ${balance.toLocaleString()} points`
           : null;
   const compact = (n: number) => (n >= 1000 ? `${n % 1000 === 0 ? n / 1000 : (n / 1000).toFixed(1)}K` : String(n));
@@ -169,29 +194,52 @@ export default function GameLobby() {
                   {customError && <p className="mt-2 text-xs text-danger">{customError}</p>}
                   {!customError && !affordable && (
                     <p className="mt-2 text-xs text-danger">
-                      You need {need(stake).toLocaleString()} points for this table{joker ? ' (ጆከር ለመሬት: twice the stake)' : ''}.
+                      You need {need(stake).toLocaleString()} points for this table{joker ? ` (${dobe ? 'ዶቤ' : 'ጆከር ለመሬት'}: twice the stake)` : ''}.
                     </p>
                   )}
                 </div>
 
                 {slug === 'conquer' && (
-                  <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-line bg-black/10 p-3">
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={jokerToGround}
-                      onClick={() => setJokerToGround((v) => !v)}
-                      className={`relative h-7 w-12 shrink-0 rounded-full transition ${jokerToGround ? 'bg-gold' : 'bg-white/20'}`}
-                    >
-                      <span className={`absolute top-0.5 h-6 w-6 rounded-full bg-white shadow transition-all ${jokerToGround ? 'left-[1.375rem]' : 'left-0.5'}`} />
-                    </button>
-                    <span className="min-w-0">
-                      <span className="block font-ethiopic text-base font-extrabold text-gold">ጆከር ለመሬት</span>
-                      <span className="block text-xs text-muted">
-                        Both players need twice the stake. Go out with a joker as your last card to win double the stake.
-                      </span>
-                    </span>
-                  </label>
+                  <div className="grid gap-2">
+                    <div>
+                      <div className="mb-2 text-xs font-bold uppercase tracking-wide text-muted">Players</div>
+                      <div className="grid grid-cols-2 gap-2">
+                        {([2, 4] as const).map((n) => (
+                          <button
+                            key={n}
+                            onClick={() => {
+                              setConquerPlayers(n);
+                              if (n === 2) setDobe(false);
+                            }}
+                            className={`rounded-xl border py-2 text-sm font-bold ${conquerPlayers === n ? 'border-lime bg-lime/10 text-lime' : 'border-line bg-black/20 text-fg'}`}
+                          >
+                            {n === 2 ? '1 v 1' : '4 players · 2 decks'}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <OptionToggle
+                      on={jokerToGround}
+                      onToggle={() => {
+                        setJokerToGround((v) => !v);
+                        setDobe(false);
+                      }}
+                      title="ጆከር ለመሬት"
+                      body="Everyone needs twice the stake. Go out with a joker as your last card to win double the stake."
+                    />
+                    {conquerPlayers === 4 && (
+                      <OptionToggle
+                        on={dobe}
+                        onToggle={() => {
+                          setDobe((v) => !v);
+                          setJokerToGround(false);
+                        }}
+                        title="ዶቤ"
+                        body="Everyone needs twice the stake. Five pairs of identical cards and one set of three, laid down at once (no 41 needed), win double."
+                      />
+                    )}
+                    {conquerPlayers === 4 && <p className="text-xs text-muted">ጆከር ለመሬት and ዶቤ cannot both be on.</p>}
+                  </div>
                 )}
 
                 {slug !== 'blackjack' && slug !== 'conquer' && (
@@ -260,12 +308,13 @@ export default function GameLobby() {
                               <div className="flex items-center gap-1 text-xs text-muted">
                                 {r.stake === 0 ? 'Free' : (<><Coin className="h-3 w-3" /> {r.stake}</>)} · {r.code}
                                 {r.config.jokerToGround === true && <span className="ml-1 rounded-full bg-gold/20 px-1.5 font-ethiopic font-bold text-gold">ጆከር ለመሬት</span>}
+                                {r.config.dobe === true && <span className="ml-1 rounded-full bg-gold/20 px-1.5 font-ethiopic font-bold text-gold">ዶቤ</span>}
                               </div>
                             </div>
                           </div>
                           <button
                             className="btn-primary px-3 py-1.5 text-xs"
-                            disabled={busy || balance < need(r.stake, r.config.jokerToGround === true)}
+                            disabled={busy || balance < need(r.stake, r.config.jokerToGround === true || r.config.dobe === true)}
                             onClick={() => run(() => api(`/rooms/${r.code}/join`, { body: {} }))}
                           >
                             Join

@@ -22,19 +22,35 @@ export function cardSuit(card: Card): Suit {
 
 /** The two printed jokers of a 54-card deck (used by Conquer only). */
 export const PRINTED_JOKERS = ['X1', 'X2'] as const;
+/** The second deck's printed jokers in a two-deck (4-player Conquer) game. */
+export const SECOND_DECK_JOKERS = ['X3', 'X4'] as const;
 
 export function isPrintedJoker(card: unknown): boolean {
-  return card === 'X1' || card === 'X2';
+  return card === 'X1' || card === 'X2' || card === 'X3' || card === 'X4';
 }
 
+/**
+ * Two-deck games give the second deck's cards a `2` suffix ("Th" and "Th2") so every
+ * physical card stays unique. Rank and suit are still `card[0]` and `card[1]`.
+ */
 export function isValidCard(card: unknown): card is Card {
   return (
     isPrintedJoker(card) ||
     (typeof card === 'string' &&
-      card.length === 2 &&
+      (card.length === 2 || (card.length === 3 && card[2] === '2')) &&
       (RANKS as readonly string[]).includes(card[0]) &&
       (SUITS as readonly string[]).includes(card[1]))
   );
+}
+
+/** What a card is, ignoring which deck it came from: "Th2" → "Th". Printed jokers keep their own id. */
+export function cardIdentity(card: Card): Card {
+  return isPrintedJoker(card) ? card : card.slice(0, 2);
+}
+
+/** Two 54-card decks (108 cards, four printed jokers) for 4-player Conquer. */
+export function doubleDeckWithJokers(): Card[] {
+  return [...deckWithJokers(), ...standardDeck().map((c) => `${c}2`), ...SECOND_DECK_JOKERS];
 }
 
 export function standardDeck(): Card[] {

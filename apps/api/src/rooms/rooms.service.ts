@@ -28,8 +28,8 @@ function requiredBalance(slug: GameSlug, config: Record<string, unknown>): numbe
   if (slug === 'ludo') return Number(config.stake ?? 0);
   if (slug === 'poker') return Number(config.buyIn ?? 0);
   if (slug === 'blackjack') return Number(config.minBet ?? 0);
-  // A ጆከር ለመሬት Conquer table needs twice the stake.
-  if (slug === 'conquer') return conquerRequiredBalance({ stake: Number(config.stake ?? 0), jokerToGround: config.jokerToGround === true });
+  // A ጆከር ለመሬት or ዶቤ Conquer table needs twice the stake.
+  if (slug === 'conquer') return conquerRequiredBalance({ stake: Number(config.stake ?? 0), jokerToGround: config.jokerToGround === true, dobe: config.dobe === true });
   if (slug === 'crazy') return Number(config.stake ?? 0);
   return 0;
 }
@@ -222,25 +222,30 @@ export class RoomsService {
   }
 
   /**
-   * Joins the fullest open public room with the same stake (and the same ጆከር ለመሬት
-   * setting for Conquer), or opens a new one.
+   * Joins the fullest open public room with the same stake (and, for Conquer, the same
+   * table size and ጆከር ለመሬት / ዶቤ settings), or opens a new one.
    */
   async quickPlay(user: UserEntity, slug: string, stake?: number, config: Record<string, unknown> = {}): Promise<RoomSummary> {
     if (!isGameSlug(slug)) throw new GameError('UNKNOWN_GAME', 'Unknown game', 404);
     const game = await this.games.requirePlayable(slug);
     if (game.solo) return this.create(user, { gameSlug: slug, stake });
     const wanted = Number.isInteger(stake) ? stake! : DEFAULT_STAKE[slug];
-    const jokerToGround = slug === 'conquer' && config.jokerToGround === true;
+    const conquer = slug === 'conquer';
+    const players = conquer && config.players === 4 ? 4 : 2;
+    const jokerToGround = conquer && config.jokerToGround === true;
+    const dobe = conquer && players === 4 && config.dobe === true;
     const candidates: { code: string }[] = await this.dataSource.query(
       `SELECT r.code FROM rooms r
        LEFT JOIN room_players rp ON rp."roomId" = r.id
        WHERE r."gameSlug" = $1 AND r.status = 'waiting' AND r.visibility = 'public' AND r.stake = $2
          AND COALESCE((r.config->>'jokerToGround')::boolean, false) = $4
+         AND COALESCE((r.config->>'dobe')::boolean, false) = $5
+         AND ($1 <> 'conquer' OR COALESCE((r.config->>'players')::int, 2) = $6)
        GROUP BY r.id
        HAVING COUNT(rp.id) < r."maxPlayers" AND BOOL_AND(rp."userId" IS DISTINCT FROM $3)
        ORDER BY COUNT(rp.id) DESC, r."createdAt" ASC
        LIMIT 5`,
-      [slug, wanted, user.id, jokerToGround],
+      [slug, wanted, user.id, jokerToGround, dobe, players],
     );
     for (const c of candidates) {
       try {
@@ -249,7 +254,8 @@ export class RoomsService {
         if (!(err instanceof GameError) || !['ROOM_FULL', 'ROOM_CLOSED'].includes(err.code)) throw err;
       }
     }
-    return this.create(user, { gameSlug: slug, stake: wanted, ...(jokerToGround ? { config: { jokerToGround: true } } : {}) });
+    const options = { ...(players === 4 ? { players } : {}), ...(jokerToGround ? { jokerToGround } : {}), ...(dobe ? { dobe } : {}) };
+    return this.create(user, { gameSlug: slug, stake: wanted, ...(Object.keys(options).length ? { config: options } : {}) });
   }
 
   async roomsForUser(userId: string): Promise<RoomSummary[]> {

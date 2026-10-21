@@ -92,7 +92,7 @@ suite('API integration', () => {
     expect(res.body.map((g: { slug: string }) => g.slug)).toEqual([...GAME_SLUGS]);
     const bySlug = Object.fromEntries(res.body.map((g: { slug: string }) => [g.slug, g]));
     expect(bySlug.ludo.playable).toBe(true);
-    expect(bySlug.conquer).toMatchObject({ playable: true, maintenance: false, beta: false, minPlayers: 2, maxPlayers: 2 });
+    expect(bySlug.conquer).toMatchObject({ playable: true, maintenance: false, beta: false, minPlayers: 2, maxPlayers: 4 });
     expect(bySlug.crazy).toMatchObject({ playable: true, maintenance: false, minPlayers: 2, maxPlayers: 5 });
   });
 
@@ -448,6 +448,36 @@ suite('API integration', () => {
     expect(await act(a, matchId, { type: 'giveUp' })).toEqual({ ok: true });
     expect(await balance(a)).toBe(900);
     expect(await balance(b)).toBe(1100);
+  });
+
+  it('runs a 4-player Conquer table with two decks and ዶቤ: private hands, held stakes, the last one in takes the pot', async () => {
+    const four = [await login('Abebe'), await login('Bontu'), await login('Chala'), await login('Desta')];
+    const created = await api('POST', '/rooms', four[0].token, { gameSlug: 'conquer', stake: 50, visibility: 'private', config: { players: 4, dobe: true } });
+    expect(created.status).toBe(201);
+    expect(created.body).toMatchObject({ maxPlayers: 4, minPlayers: 4 });
+    for (const p of four.slice(1)) expect((await api('POST', `/rooms/${created.body.code}/join`, p.token)).status).toBe(200);
+    for (const p of four) await api('POST', `/rooms/${created.body.code}/ready`, p.token, { ready: true });
+    const matchId = (await api('GET', `/rooms/${created.body.code}`, four[0].token)).body.matchId;
+    expect(matchId).toBeTruthy();
+    // Stake + held stake are off every balance during the round.
+    for (const p of four) expect(await balance(p)).toBe(900);
+    const byId = new Map(four.map((p) => [p.id, p]));
+    let s = await state<ConquerView>(matchId, four[0]);
+    await act(byId.get(s.view.currentPlayerId!)!, matchId, { type: 'predict', choice: 'up' });
+    s = await state<ConquerView>(matchId, four[0]);
+    expect(s.view.players.map((p) => p.handCount).sort()).toEqual([13, 13, 13, 14]);
+    expect(s.view.hand).toHaveLength(s.view.players[0].handCount);
+    expect(s.view.config).toMatchObject({ players: 4, dobe: true });
+    // Three players give up in turn: the fourth wins all four stakes, and the held stakes come back.
+    for (let k = 0; k < 3; k++) {
+      s = await state<ConquerView>(matchId, four[0]);
+      expect(await act(byId.get(s.view.currentPlayerId!)!, matchId, { type: 'giveUp' })).toEqual({ ok: true });
+    }
+    s = await state<ConquerView>(matchId, four[0]);
+    expect(s.view.phase).toBe('roundOver');
+    const winner = byId.get(s.view.roundResult!.winnerId!)!;
+    expect(await balance(winner)).toBe(1000 + 150);
+    for (const p of four) if (p !== winner) expect(await balance(p)).toBe(950);
   });
 
   it('recovers active matches from PostgreSQL after a restart', async () => {

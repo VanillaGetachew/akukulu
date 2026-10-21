@@ -3,13 +3,16 @@ import {
   CONQUER_PREDICTION_LABEL,
   CONQUER_UNVERIFIED_RULES,
   DEFAULT_CONQUER_CONFIG,
+  conquerDoubleStakes,
   conquerRequiredBalance,
   DEFAULT_CONQUER_RULES,
   HIDDEN_CARD,
   RANK_LABEL,
   SUIT_SYMBOL,
+  cardIdentity,
   isValidCard,
   deckWithJokers,
+  doubleDeckWithJokers,
   isPrintedJoker,
   standardDeck,
   type Card,
@@ -42,6 +45,7 @@ import {
 } from '../core';
 import {
   extendMeld,
+  findDobe,
   interpretMeld,
   openingPoints,
   penaltyValue,
@@ -62,6 +66,8 @@ export interface ConquerPlayerState {
   status: 'active' | 'left';
   revealedHand: Card[] | null;
   penalty: number | null;
+  /** 4-player: out of this round (timeout, gave up or left); the others play on. Missing in older saves. */
+  out?: boolean;
 }
 
 export interface MeldState {
@@ -82,7 +88,7 @@ export interface ConquerState {
   /** During prediction the base card is physically set aside; afterwards it is only a record. */
   baseCard: Card | null;
   baseSetAside: boolean;
-  /** ጆከር ለመሬት: a second stake is held from each player this round. Missing in older saves. */
+  /** ጆከር ለመሬት / ዶቤ: a second stake is held from each player this round. Missing in older saves. */
   reserveHeld?: boolean;
   prediction: ConquerPrediction | null;
   wildCards: Card[];
@@ -122,10 +128,27 @@ interface Out {
 }
 
 const cardLabel = (c: Card) => (isPrintedJoker(c) ? 'Joker' : `${RANK_LABEL[c[0] as Rank]}${SUIT_SYMBOL[c[1] as Suit]}`);
-/** Cards a printed joker may copy this round: the chosen joker cards. */
-export const falseJokerAs = (state: ConquerState): Card[] => (state.config.rules.wild.printedJokers ? state.wildCards : []);
-/** The physical deck for a rule set: 54 cards with the printed jokers, otherwise 52. */
-const physicalDeck = (rules: ConquerConfig['rules']) => (rules.wild.printedJokers ? deckWithJokers() : standardDeck());
+/** Cards a printed joker may copy this round: the chosen joker cards (as identities, once each). */
+export const falseJokerAs = (state: ConquerState): Card[] => (state.config.rules.wild.printedJokers ? [...new Set(state.wildCards.map(cardIdentity))] : []);
+/** Players at the table: 2, or 4 with two decks. Older saves are 2-player. */
+export const tableSize = (config: ConquerConfig): number => config.players ?? 2;
+/**
+ * The physical deck: 54 cards (with the printed jokers) for 2 players; two of them
+ * (108 cards, the second deck's cards suffixed "2") for 4 players.
+ */
+const physicalDeck = (config: ConquerConfig) => {
+  const two = tableSize(config) === 4;
+  if (config.rules.wild.printedJokers) return two ? doubleDeckWithJokers() : deckWithJokers();
+  return two ? [...standardDeck(), ...standardDeck().map((c) => `${c}2`)] : standardDeck();
+};
+/** Still playing this round: seated, and not out. */
+const inRound = (p: ConquerPlayerState) => p.status === 'active' && !p.out;
+/** The next seat after `from` that is still in the round. */
+function nextInRound(state: ConquerState, from: number): number {
+  const n = state.players.length;
+  for (let k = 1; k <= n; k++) if (inRound(state.players[(from + k) % n])) return (from + k) % n;
+  return from;
+}
 
 function meldContext(state: ConquerState, excludeMeldId?: string): MeldContext {
   const taken = new Set<Card>();
@@ -167,19 +190,19 @@ function beginRound(state: ConquerState, predictor: number, ctx: EngineContext, 
     }
   }
   state.round += 1;
-  // ጆከር ለመሬት: a second stake is held from each player for the whole round, so it cannot be
-  // spent elsewhere. It is given back at the end, except the loser's after a joker finish.
-  state.reserveHeld = !!state.config.jokerToGround && stake > 0;
+  // ጆከር ለመሬት / ዶቤ: a second stake is held from each player for the whole round, so it cannot
+  // be spent elsewhere. It is given back at the end, except the losers' after a double finish.
+  state.reserveHeld = conquerDoubleStakes(state.config) && stake > 0;
   for (const p of state.players) {
     if (stake > 0) {
       out.ledger.push({ playerId: p.playerId, amount: -stake, key: `r${state.round}:stake:${p.playerId}`, type: 'stake', description: `Conquer round ${state.round} stake` });
     }
     if (state.reserveHeld) {
-      out.ledger.push({ playerId: p.playerId, amount: -stake, key: `r${state.round}:hold:${p.playerId}`, type: 'stake', description: `Conquer round ${state.round} — ጆከር ለመሬት stake held` });
+      out.ledger.push({ playerId: p.playerId, amount: -stake, key: `r${state.round}:hold:${p.playerId}`, type: 'stake', description: `Conquer round ${state.round} — double-stake table: stake held` });
     }
-    Object.assign(p, { hand: [], opened: false, missedTurns: 0, wantsRematch: false, revealedHand: null, penalty: null });
+    Object.assign(p, { hand: [], opened: false, missedTurns: 0, wantsRematch: false, revealedHand: null, penalty: null, out: false });
   }
-  const deck = shuffle(physicalDeck(state.config.rules), ctx.rng);
+  const deck = shuffle(physicalDeck(state.config), ctx.rng);
   // The base card is always a regular card (a printed joker cannot set the prediction).
   const regular = deck.map((c, i) => (isPrintedJoker(c) ? -1 : i)).filter((i) => i >= 0);
   const baseIndex = regular[ctx.rng.int(regular.length)];
@@ -208,24 +231,26 @@ function beginRound(state: ConquerState, predictor: number, ctx: EngineContext, 
 }
 
 /**
- * Applies the (blind) prediction and deals: the starter (non-predictor) gets
- * handSize cards, the predictor one fewer. The base card is placed face-up at
- * the bottom of the stock so both players can see what set the wildcards. The
- * starter opens the game by discarding, so the discard pile starts empty.
+ * Applies the (blind) prediction and deals: the starter (the seat after the
+ * predictor) gets handSize cards, everyone else one fewer. The base card is placed
+ * face-up at the bottom of the stock so everyone can see what set the wildcards.
+ * The starter opens the game by discarding, so the discard pile starts empty.
  */
 function applyPrediction(state: ConquerState, choice: ConquerPrediction, ctx: EngineContext, out: Out) {
   const sel = selectWildcards(state.baseCard!, choice, state.config.rules);
   state.prediction = choice;
   // Printed jokers are not wild: each is a copy of one of these chosen cards (see falseJokerAs).
-  state.wildCards = sel.cards;
+  // With two decks, both copies of each chosen card are wild.
+  state.wildCards = tableSize(state.config) === 4 ? sel.cards.flatMap((c) => [c, `${c}2`]) : sel.cards;
   state.wildRanks = sel.ranks;
   state.wildSuits = sel.suits;
   state.baseSetAside = false;
   const deck = shuffle(state.stock, ctx.rng);
-  const first = 1 - state.predictor;
+  const first = nextInRound(state, state.predictor);
   const size = state.config.rules.handSize;
-  for (let i = 0; i < size * 2 - 1; i++) {
-    state.players[(first + i) % 2].hand.push(deck.pop()!);
+  const seats = state.players.map((_, i) => (first + i) % state.players.length).filter((i) => inRound(state.players[i]));
+  for (let i = 0; i < size * seats.length - (seats.length - 1); i++) {
+    state.players[seats[i % seats.length]].hand.push(deck.pop()!);
   }
   state.stock = [state.baseCard!, ...deck];
   state.baseVisible = true;
@@ -241,7 +266,7 @@ function penaltyOf(state: ConquerState, hand: Card[]): number {
   return hand.reduce((s, c) => s + penaltyValue(c, wild, state.config.rules, falseJokerAs(state)), 0);
 }
 
-function endRound(state: ConquerState, winner: number | null, reason: ConquerRoundResult['reason'], ctx: EngineContext, out: Out) {
+function endRound(state: ConquerState, winner: number | null, reason: ConquerRoundResult['reason'], ctx: EngineContext, out: Out, dobe?: ConquerRoundResult['dobe']) {
   const penalties: Record<string, number> = {};
   for (const p of state.players) {
     p.revealedHand = [...p.hand];
@@ -252,29 +277,37 @@ function endRound(state: ConquerState, winner: number | null, reason: ConquerRou
   // ጆከር ለመሬት: going out with a real joker as the last discard wins double the stake.
   const top = state.discard[state.discard.length - 1];
   const jokerFinish = !!state.config.jokerToGround && reason === 'out' && winner !== null && top !== undefined && state.wildCards.includes(top);
+  // ዶቤ (five identical pairs and a three-card meld) also wins double.
+  const double = jokerFinish || reason === 'dobe';
+  const label = jokerFinish ? 'ጆከር ለመሬት' : 'ዶቤ';
   let won = 0;
   if (winner !== null) {
     const w = state.players[winner];
-    const loser = state.players[1 - winner];
+    // Every other seat staked this round, including players who dropped out of it.
+    const losers = state.players.filter((_, i) => i !== winner);
     w.roundsWon += 1;
     if (stake > 0) {
-      out.ledger.push({ playerId: w.playerId, amount: stake * 2, key: `r${state.round}:payout:${w.playerId}`, type: 'payout', description: `Conquer round ${state.round} win` });
-      won = stake;
+      out.ledger.push({ playerId: w.playerId, amount: stake * state.players.length, key: `r${state.round}:payout:${w.playerId}`, type: 'payout', description: `Conquer round ${state.round} win` });
+      won = stake * losers.length;
       if (state.reserveHeld) {
-        // The winner always gets their held stake back; the loser's goes to the winner on a joker finish.
-        out.ledger.push({ playerId: w.playerId, amount: stake, key: `r${state.round}:release:${w.playerId}`, type: 'refund', description: `Conquer round ${state.round} — ጆከር ለመሬት stake returned` });
-        if (jokerFinish) {
-          out.ledger.push({ playerId: w.playerId, amount: stake, key: `r${state.round}:joker:${w.playerId}`, type: 'payout', description: `Conquer round ${state.round} — ጆከር ለመሬት double win` });
-          won += stake;
-        } else {
-          out.ledger.push({ playerId: loser.playerId, amount: stake, key: `r${state.round}:release:${loser.playerId}`, type: 'refund', description: `Conquer round ${state.round} — ጆከር ለመሬት stake returned` });
+        // The winner always gets their held stake back; each loser's goes to the winner on a double finish.
+        out.ledger.push({ playerId: w.playerId, amount: stake, key: `r${state.round}:release:${w.playerId}`, type: 'refund', description: `Conquer round ${state.round} — held stake returned` });
+        for (const loser of losers) {
+          if (double) {
+            const key = losers.length === 1 ? `r${state.round}:joker:${w.playerId}` : `r${state.round}:double:${loser.playerId}`;
+            out.ledger.push({ playerId: w.playerId, amount: stake, key, type: 'payout', description: `Conquer round ${state.round} — ${label} double win` });
+            won += stake;
+          } else {
+            out.ledger.push({ playerId: loser.playerId, amount: stake, key: `r${state.round}:release:${loser.playerId}`, type: 'refund', description: `Conquer round ${state.round} — held stake returned` });
+          }
         }
       } else if (jokerFinish) {
-        // A round started before stakes were held: collect the second stake now, capped at what the loser holds.
-        const extra = Math.min(stake, Math.max(0, ctx.balances[loser.playerId] ?? 0));
-        if (extra > 0) {
+        // A round started before stakes were held: collect the second stake now, capped at what each loser holds.
+        for (const loser of losers) {
+          const extra = Math.min(stake, Math.max(0, ctx.balances[loser.playerId] ?? 0));
+          if (extra <= 0) continue;
           out.ledger.push({ playerId: loser.playerId, amount: -extra, key: `r${state.round}:joker:${loser.playerId}`, type: 'stake', description: `Conquer round ${state.round} — ጆከር ለመሬት (lost to a joker finish)` });
-          out.ledger.push({ playerId: w.playerId, amount: extra, key: `r${state.round}:joker:${w.playerId}`, type: 'payout', description: `Conquer round ${state.round} — ጆከር ለመሬት double win` });
+          out.ledger.push({ playerId: w.playerId, amount: extra, key: `r${state.round}:joker:${w.playerId}:${loser.playerId}`, type: 'payout', description: `Conquer round ${state.round} — ጆከር ለመሬት double win` });
           won += extra;
         }
       }
@@ -282,7 +315,7 @@ function endRound(state: ConquerState, winner: number | null, reason: ConquerRou
   } else if (stake > 0) {
     for (const p of state.players) {
       out.ledger.push({ playerId: p.playerId, amount: stake, key: `r${state.round}:refund:${p.playerId}`, type: 'refund', description: `Conquer round ${state.round} draw — stake returned` });
-      if (state.reserveHeld) out.ledger.push({ playerId: p.playerId, amount: stake, key: `r${state.round}:release:${p.playerId}`, type: 'refund', description: `Conquer round ${state.round} — ጆከር ለመሬት stake returned` });
+      if (state.reserveHeld) out.ledger.push({ playerId: p.playerId, amount: stake, key: `r${state.round}:release:${p.playerId}`, type: 'refund', description: `Conquer round ${state.round} — held stake returned` });
     }
   }
   state.reserveHeld = false;
@@ -292,6 +325,7 @@ function endRound(state: ConquerState, winner: number | null, reason: ConquerRou
     reason,
     penalties,
     ...(jokerFinish ? { jokerFinish: true } : {}),
+    ...(dobe ? { dobe } : {}),
     won,
   };
   state.history.push(state.roundResult);
@@ -299,7 +333,7 @@ function endRound(state: ConquerState, winner: number | null, reason: ConquerRou
   resetTurn(state);
   state.phase = 'roundOver';
   setDeadline(state, ctx);
-  const text = winner === null ? 'Round drawn' : reason === 'out' ? 'went out and won the round' : reason === 'forfeit' ? 'won by forfeit' : reason === 'gaveUp' ? 'won — the opponent gave up' : reason === 'timeout' ? 'won on time' : 'won on lower penalty';
+  const text = winner === null ? 'Round drawn' : reason === 'dobe' ? 'won with ዶቤ — double!' : jokerFinish ? 'went out with a joker — ጆከር ለመሬት, double!' : reason === 'out' ? 'went out and won the round' : reason === 'forfeit' ? 'won by forfeit' : reason === 'gaveUp' ? 'won — the opponent gave up' : reason === 'timeout' ? 'won on time' : 'won on lower penalty';
   event(state, out, winner === null ? null : state.players[winner].playerId, 'round_over', text, { ...state.roundResult });
 }
 
@@ -310,9 +344,48 @@ function finishMatch(state: ConquerState, out: Out) {
   out.events.push({ type: 'match_finished', data: { history: state.history } });
 }
 
+/**
+ * 4-player: a player who runs out of time, gives up or leaves is out of this round
+ * only. Their hand goes under the deck (above the face-up base card), their melds
+ * stay on the table, and the others play on. When one player is left, they win.
+ */
+function dropOut(state: ConquerState, index: number, reason: ConquerRoundResult['reason'], text: string, ctx: EngineContext, out: Out) {
+  const p = state.players[index];
+  p.out = true;
+  const under = state.baseVisible && state.stock[0] === state.baseCard ? 1 : 0;
+  state.stock.splice(under, 0, ...p.hand);
+  p.hand = [];
+  event(state, out, p.playerId, reason === 'timeout' ? 'timeout' : reason === 'gaveUp' ? 'gave_up' : 'forfeit', text);
+  const left = state.players.map((x, i) => (inRound(x) ? i : -1)).filter((i) => i >= 0);
+  if (left.length === 1) {
+    if (state.baseSetAside) {
+      // Nothing was dealt yet: return the base card so the inventory stays whole.
+      state.stock.push(state.baseCard!);
+      state.baseSetAside = false;
+    }
+    endRound(state, left[0], reason, ctx, out);
+    return;
+  }
+  if (state.current !== index) return;
+  if (state.phase === 'predict') {
+    // The next player in the round makes the prediction instead.
+    state.predictor = nextInRound(state, index);
+    state.current = state.predictor;
+    setDeadline(state, ctx);
+    return;
+  }
+  state.pendingWild = null;
+  nextTurn(state, ctx);
+}
+
 function forfeit(state: ConquerState, index: number, reason: string, ctx: EngineContext, out: Out) {
   const p = state.players[index];
   p.status = 'left';
+  if (tableSize(state.config) === 4 && (state.phase === 'predict' || state.phase === 'draw' || state.phase === 'meld')) {
+    // The others play the round on; with someone gone there is no rematch, so the table closes after it.
+    dropOut(state, index, 'forfeit', reason, ctx, out);
+    return;
+  }
   event(state, out, p.playerId, 'forfeit', reason);
   if (state.phase === 'predict' || state.phase === 'draw' || state.phase === 'meld') {
     if (state.baseSetAside) {
@@ -336,7 +409,7 @@ function resetTurn(state: ConquerState) {
 
 function nextTurn(state: ConquerState, ctx: EngineContext) {
   resetTurn(state);
-  state.current = 1 - state.current;
+  state.current = nextInRound(state, state.current);
   state.phase = 'draw';
   setDeadline(state, ctx);
 }
@@ -475,8 +548,11 @@ function discardCard(state: ConquerState, index: number, card: Card, ctx: Engine
     event(state, out, null, 'reshuffle', 'The deck ran out — discards were shuffled back in', { count: state.stock.length });
     nextTurn(state, ctx);
   } else if (state.stock.length === 0) {
-    const [a, b] = state.players.map((x) => penaltyOf(state, x.hand));
-    const winner = state.config.rules.exhaustion === 'dead' || a === b ? null : a < b ? 0 : 1;
+    // Lowest penalty among the players still in the round wins; a tie for lowest is a draw.
+    const scores = state.players.map((x, i) => ({ i, pen: penaltyOf(state, x.hand) })).filter(({ i }) => inRound(state.players[i]));
+    const low = Math.min(...scores.map((x) => x.pen));
+    const best = scores.filter((x) => x.pen === low);
+    const winner = state.config.rules.exhaustion === 'dead' || best.length > 1 ? null : best[0].i;
     endRound(state, winner, 'exhaustion', ctx, out);
   } else {
     nextTurn(state, ctx);
@@ -497,17 +573,25 @@ export const conquerEngine: GameEngine<ConquerState, ConquerConfig, ConquerView>
     const config: ConquerConfig = { ...DEFAULT_CONQUER_CONFIG, rules: validateConquerRules(raw.rules), stake: intInRange(stake, 0, 1_000_000, 'stake') };
     if (raw.turnSeconds !== undefined) config.turnSeconds = intInRange(raw.turnSeconds, 20, 300, 'turnSeconds');
     if (raw.graceSeconds !== undefined) config.graceSeconds = intInRange(raw.graceSeconds, 0, 120, 'graceSeconds');
-    if (raw.jokerToGround !== undefined) {
-      if (typeof raw.jokerToGround !== 'boolean') throw new ConfigError('jokerToGround must be a boolean');
-      config.jokerToGround = raw.jokerToGround;
+    for (const key of ['jokerToGround', 'dobe'] as const) {
+      if (raw[key] === undefined) continue;
+      if (typeof raw[key] !== 'boolean') throw new ConfigError(`${key} must be a boolean`);
+      config[key] = raw[key] as boolean;
     }
+    if (raw.players !== undefined) {
+      if (raw.players !== 2 && raw.players !== 4) throw new ConfigError('Conquer is played by 2 or 4 players');
+      config.players = raw.players;
+    }
+    if (config.dobe && tableSize(config) !== 4) throw new ConfigError('ዶቤ is only played at 4-player tables');
+    if (config.dobe && config.jokerToGround) throw new ConfigError('ጆከር ለመሬት and ዶቤ cannot both be on');
     return config;
   },
 
-  playerLimits: () => ({ min: 2, max: 2 }),
+  playerLimits: (config) => ({ min: tableSize(config), max: tableSize(config) }),
 
   start(players, config, ctx) {
-    if (players.length !== 2) return fail('BAD_PLAYER_COUNT', 'Conquer is played one against one');
+    const n = tableSize(config);
+    if (players.length !== n) return fail('BAD_PLAYER_COUNT', n === 2 ? 'Conquer is played one against one' : 'This Conquer table needs 4 players');
     const ordered = [...players].sort((a, b) => a.seat - b.seat);
     const state: ConquerState = {
       config,
@@ -552,7 +636,7 @@ export const conquerEngine: GameEngine<ConquerState, ConquerConfig, ConquerView>
       history: [],
     };
     const out: Out = { events: [], ledger: [] };
-    const error = beginRound(state, ctx.rng.int(2), ctx, out);
+    const error = beginRound(state, ctx.rng.int(n), ctx, out);
     if (error) return fail('INSUFFICIENT_BALANCE', error);
     return ok(state, out.events, out.ledger);
   },
@@ -562,6 +646,9 @@ export const conquerEngine: GameEngine<ConquerState, ConquerConfig, ConquerView>
     const index = prev.players.findIndex((p) => p.playerId === playerId);
     if (index < 0) return fail('NOT_IN_MATCH', 'You are not a player in this match');
     if (prev.players[index].status !== 'active') return fail('NOT_ACTIVE', 'You have left this match');
+    const four = tableSize(prev.config) === 4;
+    const roundLive = prev.phase === 'predict' || prev.phase === 'draw' || prev.phase === 'meld';
+    if (four && roundLive && prev.players[index].out && actionType(action) !== 'leave') return fail('OUT_OF_ROUND', 'You are out of this round — wait for the next one');
     const state = clone(prev);
     const out: Out = { events: [], ledger: [] };
     const p = state.players[index];
@@ -581,6 +668,10 @@ export const conquerEngine: GameEngine<ConquerState, ConquerConfig, ConquerView>
 
     if (type === 'giveUp') {
       if (state.phase !== 'predict' && state.phase !== 'draw' && state.phase !== 'meld') return fail('WRONG_PHASE', 'There is no round to give up');
+      if (four) {
+        dropOut(state, index, 'gaveUp', 'gave up the round', ctx, out);
+        return ok(state, out.events, out.ledger);
+      }
       if (state.baseSetAside) {
         // Nothing was dealt yet: return the base card so the inventory stays whole.
         state.stock.push(state.baseCard!);
@@ -597,7 +688,8 @@ export const conquerEngine: GameEngine<ConquerState, ConquerConfig, ConquerView>
       p.wantsRematch = true;
       event(state, out, playerId, 'rematch', 'wants a rematch');
       if (state.players.every((x) => x.wantsRematch)) {
-        const error = beginRound(state, 1 - state.predictor, ctx, out);
+        // The prediction moves round the table.
+        const error = beginRound(state, (state.predictor + 1) % state.players.length, ctx, out);
         if (error) return fail('INSUFFICIENT_BALANCE', error);
       }
       return ok(state, out.events, out.ledger);
@@ -685,7 +777,8 @@ export const conquerEngine: GameEngine<ConquerState, ConquerConfig, ConquerView>
         const card = String(a.card ?? '');
         if (!meld) return fail('ILLEGAL_SWAP', 'That meld does not exist');
         if (!p.hand.includes(card)) return fail('ILLEGAL_SWAP', `${card} is not in your hand`);
-        const slot = meld.placed.find((x) => x.wild && x.as === card);
+        // Either deck's copy of the card can be swapped in.
+        const slot = meld.placed.find((x) => x.wild && x.as === cardIdentity(card));
         if (!slot) return fail('ILLEGAL_SWAP', `No wildcard in that meld represents ${card}`);
         const wildCard = slot.card;
         p.hand.splice(p.hand.indexOf(card), 1);
@@ -718,6 +811,23 @@ export const conquerEngine: GameEngine<ConquerState, ConquerConfig, ConquerView>
         discardCard(state, index, card, ctx, out);
         return ok(state, out.events, out.ledger);
       }
+      case 'dobe': {
+        if (!state.config.dobe) return fail('NO_DOBE', 'ዶቤ is not played at this table');
+        if (state.phase !== 'meld') return fail('WRONG_PHASE', 'Draw a card first');
+        const card = String(a.discard ?? '');
+        if (!p.hand.includes(card)) return fail('ILLEGAL_DOBE', `${card} is not in your hand`);
+        // All at once from a full hand: five identical pairs + one three-card meld, then the last card. No 41 needed.
+        if (p.hand.length !== state.config.rules.handSize) return fail('ILLEGAL_DOBE', 'ዶቤ needs your whole hand: five pairs and a set of three, laid down at once');
+        const rest = p.hand.filter((c) => c !== card);
+        const hand = findDobe(rest, meldContext(state));
+        if (!hand) return fail('ILLEGAL_DOBE', 'Not a ዶቤ: you need five pairs of identical cards and one set of three (a joker can fill a pair)');
+        p.hand.splice(p.hand.indexOf(card), 1);
+        state.discard.push(card);
+        p.missedTurns = 0;
+        event(state, out, playerId, 'dobe', `ዶቤ! Five pairs and a set of three, discarding ${cardLabel(card)}`, { card, ...hand });
+        endRound(state, index, 'dobe', ctx, out, hand);
+        return ok(state, out.events, out.ledger);
+      }
       default:
         return fail('UNKNOWN_ACTION', 'Unknown action');
     }
@@ -736,6 +846,11 @@ export const conquerEngine: GameEngine<ConquerState, ConquerConfig, ConquerView>
     const p = state.players[index];
     p.missedTurns += 1;
     out.events.push({ type: 'timeout', playerId: p.playerId, data: { missedTurns: p.missedTurns } });
+    if (state.config.rules.timeoutLoses && tableSize(state.config) === 4) {
+      // 4-player: running out of time puts this player out of the round; the others play on.
+      dropOut(state, index, 'timeout', 'ran out of time and is out of the round', ctx, out);
+      return ok(state, out.events, out.ledger);
+    }
     if (state.config.rules.timeoutLoses) {
       if (state.baseSetAside) {
         // Timed out while predicting: return the base card so the inventory stays whole.
@@ -771,14 +886,16 @@ export const conquerEngine: GameEngine<ConquerState, ConquerConfig, ConquerView>
   placements(s) {
     if (s.phase !== 'finished') return null;
     const ranked = [...s.players].sort((a, b) => b.roundsWon - a.roundsWon || (a.status === 'left' ? 1 : 0) - (b.status === 'left' ? 1 : 0));
-    const tie = ranked[0].roundsWon === ranked[1].roundsWon && ranked.every((p) => p.status === 'active');
-    return ranked.map<Placement>((p, i) => ({ playerId: p.playerId, placement: i + 1, outcome: tie ? 'draw' : i === 0 ? 'win' : 'loss' }));
+    // Players level on the most rounds won share a draw (unless someone left the table).
+    const top = ranked.filter((p) => p.roundsWon === ranked[0].roundsWon).length;
+    const tie = top > 1 && ranked.every((p) => p.status === 'active');
+    return ranked.map<Placement>((p, i) => ({ playerId: p.playerId, placement: i + 1, outcome: tie ? (i < top ? 'draw' : 'loss') : i === 0 ? 'win' : 'loss' }));
   },
 
   view(s, viewerId): ConquerView {
     const viewer = s.players.findIndex((p) => p.playerId === viewerId);
     const me = viewer >= 0 ? s.players[viewer] : null;
-    const myTurn = me !== null && viewer === s.current && me.status === 'active';
+    const myTurn = me !== null && viewer === s.current && me.status === 'active' && !me.out;
     return {
       game: 'conquer',
       config: s.config,
@@ -805,6 +922,7 @@ export const conquerEngine: GameEngine<ConquerState, ConquerConfig, ConquerView>
         revealedHand: p.revealedHand,
         penalty: p.penalty,
         status: p.status,
+        out: !!p.out,
       })),
       hand: me ? [...me.hand] : [],
       pendingWild: myTurn ? s.pendingWild : null,
@@ -839,6 +957,7 @@ export const conquerEngine: GameEngine<ConquerState, ConquerConfig, ConquerView>
           !(s.mustFinish && me!.hand.length !== 1) &&
           !(!me!.opened && (s.mustOpen || s.openingProgress > 0)),
         rematch: me !== null && s.phase === 'roundOver' && !me.wantsRematch && s.players.every((p) => p.status === 'active'),
+        dobe: myTurn && s.phase === 'meld' && !!s.config.dobe && me!.hand.length === s.config.rules.handSize,
       },
     };
   },
@@ -855,7 +974,8 @@ export function conquerInventory(s: ConquerState): Card[] {
   ];
 }
 
-export function isCompleteDeck(cards: Card[], withJokers = true): boolean {
-  const deck = new Set(withJokers ? deckWithJokers() : standardDeck());
+export function isCompleteDeck(cards: Card[], withJokers = true, decks: 1 | 2 = 1): boolean {
+  const one = withJokers ? deckWithJokers() : standardDeck();
+  const deck = new Set(decks === 1 ? one : withJokers ? doubleDeckWithJokers() : [...one, ...one.map((c) => `${c}2`)]);
   return cards.length === deck.size && new Set(cards).size === deck.size && cards.every((c) => deck.has(c));
 }

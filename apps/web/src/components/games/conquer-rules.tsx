@@ -12,6 +12,16 @@ export const CONQUER_RULES: { am: string; en: string; items: string[] }[] = [
     ],
   },
   {
+    am: '4 ተጫዋቾች',
+    en: '4 players',
+    items: [
+      'Four players, each for themselves, with two decks (108 cards). Every card is there twice, and both copies of each joker card are jokers.',
+      'The player after the predictor starts with 14 cards; everyone else gets 13. Turns go round the table, and the prediction moves on each round.',
+      'The rules are the same. If you run out of time, give up or leave, you are out of that round and the others play on. The last player in, or the first to go out, wins all four stakes.',
+      'ዶቤ (a 4-player table option): go out with five pairs of identical cards (for example 2♥ 2♥) and one set of three, all laid down at once, to win double. You do not need 41 for this, and a joker can stand in for one card of a pair. Everyone needs twice the stake. ጆከር ለመሬት and ዶቤ cannot both be on.',
+    ],
+  },
+  {
     am: 'ጆከር መምረጥ',
     en: 'Choosing the jokers',
     items: [
@@ -78,8 +88,8 @@ export const CONQUER_RULES: { am: string; en: string; items: string[] }[] = [
     en: 'Points',
     items: [
       'Each player puts in the table stake every round, and the round winner takes both stakes.',
-      'ጆከር ለመሬት (a table option): both players need twice the stake to play (a 50-point table needs 100), and the second stake is held until the round ends, so it cannot be used in another game. The rules are the same, but if you go out and your last discarded card is a real joker (★, not a printed JOKER), you win double the stake. Otherwise the held stakes are given back.',
-      'After a round, both players can choose Rematch to play another round.',
+      'ጆከር ለመሬት (a table option, 1v1 or 4 players): everyone needs twice the stake to play (a 50-point table needs 100), and the second stake is held until the round ends, so it cannot be used in another game. The rules are the same, but if you go out and your last discarded card is a real joker (★, not a printed JOKER), you win double the stake. Otherwise the held stakes are given back.',
+      'After a round, everyone can choose Rematch to play another round.',
       'Points are virtual and have no cash value.',
     ],
   },

@@ -63,10 +63,10 @@ export const GAME_CATALOG: readonly GameCatalogEntry[] = [
   {
     slug: 'conquer',
     name: 'Conquer',
-    tagline: 'ካርታ ኮንከር · 1v1 melding',
-    description: 'Ethiopian Conquer for two players: predict the wildcards, open with 41 points, meld every card and discard your last.',
+    tagline: 'ካርታ ኮንከር · 1v1 or 4 players',
+    description: 'Ethiopian Conquer for 2 players, or 4 with two decks: predict the wildcards, open with 41 points, meld every card and discard your last.',
     minPlayers: 2,
-    maxPlayers: 2,
+    maxPlayers: 4,
     solo: false,
     sortOrder: 4,
     defaultMaintenance: false,

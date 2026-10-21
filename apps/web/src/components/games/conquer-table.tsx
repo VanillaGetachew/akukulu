@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   arrangeHand,
+  findDobe,
   layoffOptions,
   meldOptions,
   partitionIntoMelds,
@@ -14,6 +15,7 @@ import {
   CONQUER_PREDICTION_LABEL,
   RANK_LABEL,
   SUIT_SYMBOL,
+  cardIdentity,
   isPrintedJoker,
   type Card,
   type ConquerMeldSpec,
@@ -26,7 +28,7 @@ import {
 import { useSession } from '@/lib/session';
 import { Coin, PlayingCard } from '@/components/ui';
 import { CardRain, ShuffleAndDeal, dealtCount } from '@/components/fx';
-import { CardFace } from '@/components/card-face';
+import { CardBack, CardFace } from '@/components/card-face';
 import { ActionButton, DeckStack, DiscardPile, useViewportHeight, useWidth } from './card-table';
 import { nameOf, type TableProps } from './types';
 
@@ -67,10 +69,13 @@ function Fan({
   onTap,
   faces,
   cardWidth = 54,
+  faceWidth = 36,
 }: {
   cards: Card[];
   width: number;
   cardWidth?: number;
+  /** Card width in an opponent's (flipped) fan. */
+  faceWidth?: number;
   flip?: boolean;
   selected?: Card[];
   wild?: Set<Card>;
@@ -79,10 +84,11 @@ function Fan({
   faces?: Map<Card, FanFace>;
 }) {
   const n = cards.length;
-  const cw = flip ? 36 : cardWidth;
+  const cw = flip ? faceWidth : cardWidth;
   const ch = Math.round(cw * 1.4);
   const mid = (n - 1) / 2;
-  const spacing = n > 1 ? Math.max(8, Math.min(cw * 0.62, (width - cw - 24) / (n - 1))) : 0;
+  // Narrow opponent seats (4-player) pack their cards tighter.
+  const spacing = n > 1 ? Math.max(flip ? 4 : 8, Math.min(cw * 0.62, (width - cw - (flip ? 8 : 24)) / (n - 1))) : 0;
   const angleStep = n > 1 ? Math.min(2, 16 / (n - 1)) : 0;
   const curve = flip ? 0.5 : 0.3;
   const maxDrop = mid * mid * curve;
@@ -114,7 +120,9 @@ function Fan({
             }}
           >
             {c === '??' ? (
-              <PlayingCard card="??" size="sm" />
+              <div className="rounded-[5px] shadow-[0_1px_3px_rgba(0,0,0,.4)]">
+                <CardBack width={cw} />
+              </div>
             ) : face ? (
               <MiniCard placed={face.placed} highlight={face.active} width={cw} />
             ) : (
@@ -282,13 +290,23 @@ function GracePopup({ view, serverNow, onGiveUp, pending }: { view: ConquerView;
 export function ConquerTable({ state, view, act, pending, serverNow }: TableProps<ConquerView>) {
   const { user } = useSession();
   const me = view.players.find((p) => p.playerId === user?.id) ?? null;
-  const opp = view.players.find((p) => p.playerId !== user?.id) ?? null;
-  const oppInfo = state.players.find((p) => p.userId === opp?.playerId);
+  // Opponents in turn order after me (one in 1v1, three at a 4-player table).
+  const opponents = useMemo(() => {
+    const n = view.players.length;
+    const mine = view.players.findIndex((p) => p.playerId === user?.id);
+    return Array.from({ length: n }, (_, k) => view.players[(Math.max(mine, 0) + 1 + k) % n]).filter((p) => p.playerId !== user?.id);
+  }, [view.players, user?.id]);
   const myTurn = view.currentPlayerId === user?.id;
   const wild = useMemo(() => new Set(view.wildCards), [view.wildCards]);
   const meldCtx: MeldContext = useMemo(
-    () => ({ wild, rules: view.config.rules, taken: new Set(view.melds.flatMap((m) => m.cards.map((c) => c.as))), falseJokerAs: view.config.rules.wild.printedJokers ? view.wildCards : [] }),
-    [wild, view.config.rules, view.melds],
+    () => ({
+      wild,
+      rules: view.config.rules,
+      taken: new Set(view.melds.flatMap((m) => m.cards.map((c) => c.as))),
+      // A false joker copies the chosen cards (either deck's copy is the same card).
+      falseJokerAs: view.config.rules.wild.printedJokers ? [...new Set(view.wildCards.map(cardIdentity))] : [],
+    }),
+    [wild, view.config.rules, view.melds, view.wildCards],
   );
 
   const [order, setOrder] = useState<Card[]>([]);
@@ -297,21 +315,19 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
   const [confirmBase, setConfirmBase] = useState(false);
   // Shuffle-and-deal plays when this client sees the prediction end (not on a mid-round reconnect).
   // Cards are dealt one at a time, starting with the starter, and appear in each fan as they land.
-  const [deal, setDeal] = useState<{ seq: ('me' | 'opp')[]; start: number } | null>(null);
+  // Player ids in the order the cards are dealt: round the table from the starter.
+  const [deal, setDeal] = useState<{ seq: string[]; start: number } | null>(null);
   const [dealElapsed, setDealElapsed] = useState(0);
   const prevPhase = useRef(view.phase);
   useEffect(() => {
     if (prevPhase.current === 'predict' && (view.phase === 'meld' || view.phase === 'draw')) {
-      const left = { me: view.hand.length, opp: opp?.handCount ?? 0 };
-      let turn: 'me' | 'opp' = view.currentPlayerId === user?.id ? 'me' : 'opp';
-      const seq: ('me' | 'opp')[] = [];
-      while (left.me + left.opp > 0) {
-        if (left[turn] > 0) {
-          seq.push(turn);
-          left[turn]--;
-        }
-        turn = turn === 'me' ? 'opp' : 'me';
-      }
+      const n = view.players.length;
+      const start = Math.max(0, view.players.findIndex((p) => p.playerId === view.currentPlayerId));
+      const seats = Array.from({ length: n }, (_, k) => view.players[(start + k) % n]);
+      const count = (p: (typeof seats)[number]) => (p.playerId === user?.id ? view.hand.length : p.handCount);
+      const rounds = Math.max(...seats.map(count));
+      const seq: string[] = [];
+      for (let r = 0; r < rounds; r++) for (const p of seats) if (r < count(p)) seq.push(p.playerId);
       setDealElapsed(0);
       setDeal({ seq, start: performance.now() });
     }
@@ -325,8 +341,9 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
   }, [deal]);
   const endDeal = useCallback(() => setDeal(null), []);
   const landed = deal ? deal.seq.slice(0, dealtCount(dealElapsed, deal.seq.length)) : null;
-  const dealtMine = landed ? landed.filter((x) => x === 'me').length : Infinity;
-  const dealtOpp = landed ? landed.filter((x) => x === 'opp').length : Infinity;
+  /** Cards of `id` that have landed so far (all of them once the deal is over). */
+  const dealtTo = (id: string | undefined) => (landed ? landed.filter((x) => x === id).length : Infinity);
+  const dealtMine = dealtTo(user?.id);
   const vh = useViewportHeight();
   const handCardW = vh < 560 ? 42 : vh < 660 ? 48 : vh < 780 ? 54 : 60;
   const [hint, setHint] = useState<string | null>(null);
@@ -366,6 +383,11 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
       .map((m) => m.id);
   }, [myTurn, me?.opened, view.phase, view.melds, view.config.rules, selected, meldCtx, user?.id]);
   const canLayOff = openTargets.length > 0;
+  /** ዶቤ table: the cards whose discard would leave five identical pairs and a set of three (the server checks again). */
+  const dobeDiscards = useMemo(
+    () => (view.legal.dobe ? view.hand.filter((c) => findDobe(view.hand.filter((x) => x !== c), meldCtx) !== null) : []),
+    [view.legal.dobe, view.hand, meldCtx],
+  );
 
   const sendMelds = (melds: Card[][], hints: Record<Card, Card>[]) => {
     const specs: ConquerMeldSpec[] = melds.map((cards, i) => ({ cards, as: hints[i] }));
@@ -444,7 +466,7 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
         ←
       </Link>
       {children}
-      {deal && <ShuffleAndDeal onDone={endDeal} sequence={deal.seq} />}
+      {deal && <ShuffleAndDeal onDone={endDeal} sequence={deal.seq.map((id) => (id === user?.id ? 'me' : 'opp'))} />}
       {myTurn && (view.phase === 'draw' || view.phase === 'meld') && <GracePopup view={view} serverNow={serverNow} pending={pending} onGiveUp={() => void act({ type: 'giveUp' })} />}
       {choice && <JokerChooser choice={choice} onPick={pick} onCancel={() => setChoice(null)} />}
       {confirmBase && (
@@ -509,42 +531,57 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
   }
 
   const result = view.roundResult;
-  const oppMelds = view.melds.filter((m) => m.ownerId !== user?.id);
   const myMelds = view.melds.filter((m) => m.ownerId === user?.id);
   const meldTap = (m: ConquerMeldView) =>
     openTargets.includes(m.id) ? () => layOff(m) : undefined;
-  // The opponent's melds sit face-up in their fan, ahead of the hidden cards.
-  const oppFaces = new Map<Card, FanFace>();
-  const oppMeldOf = new Map<Card, ConquerMeldView>();
-  for (const m of oppMelds)
-    for (const p of m.cards) {
-      oppFaces.set(p.card, { placed: p, active: openTargets.includes(m.id) });
-      oppMeldOf.set(p.card, m);
-    }
-  const oppCards: Card[] = [...oppMelds.flatMap((m) => m.cards.map((p) => p.card)), ...Array.from({ length: opp?.handCount ?? 0 }, () => '??' as Card)];
   const blocked = selected.length === 1 && view.undiscardable.includes(selected[0]);
+  const many = opponents.length > 1;
+  // Each opponent's seat: their melds face-up in their fan, ahead of their hidden cards.
+  const seatWidth = many ? Math.max(80, (oppWidth - 8) / opponents.length) : oppWidth;
 
   return shell(
     <>
-      {/* Opponent */}
-      <div className="flex shrink-0 flex-col items-center pt-2">
-        <div className="mb-1 flex items-center gap-1.5 text-xs font-bold">
-          <span className={`h-2 w-2 rounded-full ${oppInfo?.online ? 'bg-lime' : 'bg-white/40'}`} title={oppInfo?.online ? 'Online' : 'Offline'} />
-          {oppInfo?.displayName ?? 'Opponent'}
-          <span className="font-normal text-white/60">· {Math.min(opp?.handCount ?? 0, dealtOpp)}</span>
-        </div>
-        <div ref={oppRef} data-deal="opp" className="w-full max-w-md px-8 pt-3">
-          <Fan
-            cards={oppCards.slice(0, dealtOpp)}
-            width={oppWidth}
-            flip
-            faces={oppFaces}
-            onTap={(c) => {
-              const m = oppMeldOf.get(c);
-              if (m && openTargets.includes(m.id)) layOff(m);
-            }}
-          />
-        </div>
+      {/* Opponents */}
+      <div ref={oppRef} data-deal="opp" className={`mx-auto flex w-full shrink-0 justify-center gap-1 pt-2 ${many ? 'px-10' : 'max-w-md px-8'}`}>
+        {opponents.map((o) => {
+          const info = state.players.find((p) => p.userId === o.playerId);
+          const melds = view.melds.filter((m) => m.ownerId === o.playerId);
+          const faces = new Map<Card, FanFace>();
+          const meldOf = new Map<Card, ConquerMeldView>();
+          for (const m of melds)
+            for (const p of m.cards) {
+              faces.set(p.card, { placed: p, active: openTargets.includes(m.id) });
+              meldOf.set(p.card, m);
+            }
+          const shown = Math.min(o.handCount, dealtTo(o.playerId));
+          const cards: Card[] = [...melds.flatMap((m) => m.cards.map((p) => p.card)), ...Array.from({ length: shown }, () => '??' as Card)];
+          const current = o.playerId === view.currentPlayerId;
+          return (
+            <div
+              key={o.playerId}
+              className={`flex min-w-0 flex-col items-center rounded-xl pb-1 ${many ? 'flex-1' : 'w-full'} ${many && current ? 'bg-lime/10 ring-1 ring-lime/50' : ''} ${o.out ? 'opacity-40' : ''}`}
+            >
+              <div className="mb-1 flex max-w-full items-center gap-1.5 text-xs font-bold">
+                <span className={`h-2 w-2 shrink-0 rounded-full ${info?.online ? 'bg-lime' : 'bg-white/40'}`} title={info?.online ? 'Online' : 'Offline'} />
+                <span className="truncate">{info?.displayName ?? 'Opponent'}</span>
+                <span className="shrink-0 font-normal text-white/60">· {o.out ? 'out' : shown}</span>
+              </div>
+              <div className="w-full pt-3">
+                <Fan
+                  cards={cards}
+                  width={seatWidth}
+                  flip
+                  faceWidth={many ? 26 : 36}
+                  faces={faces}
+                  onTap={(c) => {
+                    const m = meldOf.get(c);
+                    if (m && openTargets.includes(m.id)) layOff(m);
+                  }}
+                />
+              </div>
+            </div>
+          );
+        })}
       </div>
 
       {/* Table: deck and discard, then my melds — scrolls instead of overlapping. */}
@@ -585,6 +622,11 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
           {view.config.jokerToGround && (
             <span className="rounded-full bg-gold px-2.5 py-0.5 font-ethiopic text-[11px] font-bold text-[#17171c]" title="Go out with a joker as your last card to win double the stake">
               ጆከር ለመሬት ×2
+            </span>
+          )}
+          {view.config.dobe && (
+            <span className="rounded-full bg-gold px-2.5 py-0.5 font-ethiopic text-[11px] font-bold text-[#17171c]" title="Five pairs of identical cards and one set of three, laid down at once, win double">
+              ዶቤ ×2
             </span>
           )}
         </div>
@@ -666,6 +708,23 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
             <ActionButton am="ጣል" en="discard" tone="red" onClick={() => void act({ type: 'discard', card: selected[0] })} disabled={!view.legal.discard || selected.length !== 1 || blocked || pending} />
             <ActionButton am="ደርድር" en="best order" onClick={() => setOrder(arrangeHand(view.hand, meldCtx).order)} disabled={view.hand.length === 0} />
           </div>
+          {dobeDiscards.length > 0 && (
+            <div className="mt-1.5 flex justify-center px-2">
+              <button
+                type="button"
+                disabled={pending}
+                onClick={() => {
+                  // The selected card is the one to discard; with nothing (or a wrong card) selected, ask for one.
+                  const card = selected.length === 1 && dobeDiscards.includes(selected[0]) ? selected[0] : dobeDiscards.length === 1 ? dobeDiscards[0] : null;
+                  if (card) void act({ type: 'dobe', discard: card });
+                  else setHint(`Select the card to discard: ${dobeDiscards.map(label).join(' or ')}`);
+                }}
+                className="animate-pulseRing rounded-full bg-gold px-6 py-2 font-ethiopic text-lg font-black text-[#17171c] shadow-lg active:scale-95"
+              >
+                ዶቤ! <span className="font-sans text-xs font-bold">five pairs + a set · double</span>
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -678,7 +737,9 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
               {result.winnerId === null ? 'Round drawn' : result.winnerId === user?.id ? 'You won the round!' : `${nameOf(state, result.winnerId)} won the round`}
             </div>
             <div className="text-xs text-muted">
-              {result.reason === 'out' && result.jokerFinish
+              {result.reason === 'dobe'
+                ? 'ዶቤ — five pairs of identical cards and a set of three: double the stake!'
+                : result.reason === 'out' && result.jokerFinish
                 ? 'ጆከር ለመሬት — went out with a joker as the last card: double the stake!'
                 : result.reason === 'out'
                 ? 'Went out by melding every card and discarding the last.'
@@ -728,7 +789,7 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
             {view.phase === 'roundOver' ? (
               <div className="grid grid-cols-2 gap-2">
                 <button className="btn-primary" disabled={pending || !view.legal.rematch} onClick={() => void act({ type: 'rematch' })}>
-                  {me?.wantsRematch ? 'Waiting…' : opp?.wantsRematch ? 'Accept rematch' : 'Rematch'}
+                  {me?.wantsRematch ? 'Waiting…' : opponents.some((o) => o.wantsRematch) ? 'Accept rematch' : 'Rematch'}
                 </button>
                 <button className="btn-ghost" disabled={pending} onClick={() => void act({ type: 'leave' })}>
                   Leave

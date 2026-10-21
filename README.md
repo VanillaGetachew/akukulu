@@ -12,7 +12,7 @@ A Telegram Mini App gaming platform with five games — **Ludo, Poker, Blackjack
 | Ludo | ✅ Engine, real-time UI, server dice, timers, settlement — [rules](docs/GAMES/LUDO_RULES.md) |
 | Poker (NL Texas Hold'em) | ✅ Engine, hand evaluator, side pots, UI, private cards — [rules](docs/GAMES/POKER_RULES.md) |
 | Blackjack | ✅ Engine, S17 / 3:2, double, split, UI, hidden hole card — [rules](docs/GAMES/BLACKJACK_RULES.md) |
-| Conquer (Ethiopian, 1v1) | ✅ 54 cards with printed jokers, 14/13-card hands, Up/Down/Side/Up & Down jokers, 41-point opening, swaps, protected discards, rematches — [rules](docs/GAMES/CONQUER_RULES.md) |
+| Conquer (Ethiopian, 1v1 or 4 players) | ✅ 1v1 with 54 cards or 4 players with two decks (108), ጆከር ለመሬት and ዶቤ double-stake options, 14/13-card hands, Up/Down/Side/Up & Down jokers, 41-point opening, swaps, protected discards, rematches — [rules](docs/GAMES/CONQUER_RULES.md) |
 | Crazy (Crazy Eights, 2–5 players) | ✅ 8s wild, stacking draw-twos, draw up to 3 then pass, reshuffle, blocked-game scoring, pot to the winner — [rules](docs/GAMES/CRAZY_RULES.md) |
 | Telegram auth (initData HMAC on the backend) | ✅ |
 | Rooms: public/private, codes, invites, ready-up, quick play | ✅ |

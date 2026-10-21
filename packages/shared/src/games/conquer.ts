@@ -140,10 +140,24 @@ export interface ConquerConfig {
    * Optional because games saved before it existed do not have it.
    */
   jokerToGround?: boolean;
+  /**
+   * Players at the table: 2 (one deck) or 4 (two decks, 108 cards; every player for
+   * themselves). Optional because games saved before it existed are 2-player.
+   */
+  players?: 2 | 4;
+  /**
+   * ዶቤ, a 4-player option: going out with five pairs of identical cards plus one
+   * three-card meld, laid down at once (no 41 needed), wins double. Like ጆከር ለመሬት
+   * it needs twice the stake; the two options cannot both be on.
+   */
+  dobe?: boolean;
 }
 
+/** Whether this table pays double on a special finish, so a second stake is required and held. */
+export const conquerDoubleStakes = (config: Pick<ConquerConfig, 'jokerToGround' | 'dobe'>) => !!config.jokerToGround || !!config.dobe;
+
 /** Points a player must hold to sit at (and play each round of) a Conquer table. */
-export const conquerRequiredBalance = (config: Pick<ConquerConfig, 'stake' | 'jokerToGround'>) => config.stake * (config.jokerToGround ? 2 : 1);
+export const conquerRequiredBalance = (config: Pick<ConquerConfig, 'stake' | 'jokerToGround' | 'dobe'>) => config.stake * (conquerDoubleStakes(config) ? 2 : 1);
 
 export const DEFAULT_CONQUER_CONFIG: ConquerConfig = {
   rules: DEFAULT_CONQUER_RULES,
@@ -184,6 +198,8 @@ export type ConquerAction =
   | { type: 'rematch' }
   /** Give up the current round (the opponent wins it; a rematch is still offered). */
   | { type: 'giveUp' }
+  /** ዶቤ (4-player option): lay down five identical pairs and a three-card meld at once, then discard `discard` to go out. */
+  | { type: 'dobe'; discard: Card }
   | { type: 'leave' };
 
 export interface ConquerPlacedCard {
@@ -223,6 +239,8 @@ export interface ConquerPlayerView {
   revealedHand: Card[] | null;
   penalty: number | null;
   status: 'active' | 'left';
+  /** 4-player: out of this round (ran out of time, gave up or left); the others play on. */
+  out: boolean;
 }
 
 export interface ConquerLastEvent {
@@ -234,11 +252,13 @@ export interface ConquerLastEvent {
 export interface ConquerRoundResult {
   round: number;
   winnerId: string | null;
-  reason: 'out' | 'exhaustion' | 'forfeit' | 'timeout' | 'gaveUp';
+  reason: 'out' | 'exhaustion' | 'forfeit' | 'timeout' | 'gaveUp' | 'dobe';
   penalties: Record<string, number>;
   /** ጆከር ለመሬት: the winner went out discarding a real joker and wins double the stake. */
   jokerFinish?: boolean;
-  /** Points the winner gained from the loser this round (the stake, or double it on a joker finish). */
+  /** ዶቤ: the five identical pairs and the three-card meld the winner laid down (double win). */
+  dobe?: { pairs: Card[][]; triple: Card[] };
+  /** Points the winner gained from the losers this round (the stakes, or double them on a special finish). */
   won?: number;
 }
 
@@ -294,5 +314,7 @@ export interface ConquerView {
     swapWild: boolean;
     discard: boolean;
     rematch: boolean;
+    /** ዶቤ table, the viewer's meld phase with a full 14-card hand (the client checks the shape per discard). */
+    dobe: boolean;
   };
 }

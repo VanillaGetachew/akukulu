@@ -5,6 +5,7 @@
  */
 import {
   SUITS,
+  cardIdentity,
   cardRank,
   cardSuit,
   isPrintedJoker,
@@ -166,15 +167,15 @@ function setCandidate(cards: Card[], rank: Rank, ctx: MeldContext, hint: Record<
     else if (cardRank(c) !== rank || used.has(cardSuit(c))) return null;
     else {
       used.add(cardSuit(c));
-      placed.push({ card: c, as: c, wild: false, points: naturalValue(rank) });
+      placed.push({ card: c, as: cardIdentity(c), wild: false, points: naturalValue(rank) });
     }
   }
   // Wildcards of this rank play as themselves when their suit is still free (unless pinned elsewhere).
   const substitutes: Card[] = [];
   for (const c of flexible) {
-    if (cardRank(c) === rank && !used.has(cardSuit(c)) && (!hint[c] || hint[c] === c)) {
+    if (cardRank(c) === rank && !used.has(cardSuit(c)) && (!hint[c] || hint[c] === cardIdentity(c))) {
       used.add(cardSuit(c));
-      placed.push({ card: c, as: c, wild: false, points: naturalValue(rank) });
+      placed.push({ card: c, as: cardIdentity(c), wild: false, points: naturalValue(rank) });
     } else substitutes.push(c);
   }
   for (const c of substitutes) {
@@ -215,14 +216,14 @@ function runCandidates(cards: Card[], suit: Suit, ctx: MeldContext, hint: Record
         valid = false;
         break;
       }
-      filled.set(pos, { card: c, as: c, wild: false, points: runPoints(pos), pos });
+      filled.set(pos, { card: c, as: cardIdentity(c), wild: false, points: runPoints(pos), pos });
     }
     if (!valid) continue;
     const substitutes: Card[] = [];
     for (const c of flexible) {
       const pos = slotOf(c);
-      if (pos !== null && !filled.has(pos) && (!hint[c] || hint[c] === c)) {
-        filled.set(pos, { card: c, as: c, wild: false, points: runPoints(pos), pos });
+      if (pos !== null && !filled.has(pos) && (!hint[c] || hint[c] === cardIdentity(c))) {
+        filled.set(pos, { card: c, as: cardIdentity(c), wild: false, points: runPoints(pos), pos });
       } else substitutes.push(c);
     }
     const open = (): number[] => {
@@ -260,11 +261,11 @@ function runCandidates(cards: Card[], suit: Suit, ctx: MeldContext, hint: Record
 function interpretMeldPlain(cards: Card[], ctx: MeldContext, hint: Record<Card, Card> = {}): MeldResult {
   if (cards.length < 3) return fail('A meld needs at least three cards');
   if (new Set(cards).size !== cards.length) return fail('A card cannot appear twice in a meld');
-  const represented = cards.find((c) => !ctx.wild.has(c) && isTaken(ctx, c));
+  const represented = cards.find((c) => !ctx.wild.has(c) && isTaken(ctx, cardIdentity(c)));
   if (represented) return fail(`A wildcard already represents ${represented} — swap it instead`);
   for (const [c, as] of Object.entries(hint)) {
     if (!cards.includes(c)) return fail(`Hint refers to ${c}, which is not in the meld`);
-    if (!ctx.wild.has(c) && as !== c) return fail(`${c} is not a wildcard this round`);
+    if (!ctx.wild.has(c) && as !== cardIdentity(c)) return fail(`${c} is not a wildcard this round`);
   }
   const candidates: Interpretation[] = [];
   for (const rank of new Set(cards.map(cardRank))) {
@@ -286,16 +287,18 @@ function interpretMeldPlain(cards: Card[], ctx: MeldContext, hint: Record<Card, 
 /** Adds one card to an existing meld, keeping every existing identity fixed. */
 function extendMeldPlain(meld: Interpretation, card: Card, ctx: MeldContext, hintAs?: Card): MeldResult {
   const isWild = ctx.wild.has(card);
-  if (hintAs && !isWild && hintAs !== card) return fail(`${card} is not a wildcard this round`);
+  // What the card is, ignoring its deck (two-deck games): "Th2" plays as "Th".
+  const self = cardIdentity(card);
+  if (hintAs && !isWild && hintAs !== self) return fail(`${card} is not a wildcard this round`);
   if (meld.kind === 'set') {
     const rank = cardRank(meld.placed[0].as);
     if (meld.placed.length >= 4) return fail('A set has at most four cards');
     const used = new Set(meld.placed.map((p) => cardSuit(p.as)));
     const fitsAsItself = cardRank(card) === rank && !used.has(cardSuit(card));
     let as: Card | null;
-    if (fitsAsItself && (!hintAs || hintAs === card)) {
-      as = card;
-      if (isTaken(ctx, card)) return fail(`A wildcard already represents ${card} — swap it instead`);
+    if (fitsAsItself && (!hintAs || hintAs === self)) {
+      as = self;
+      if (isTaken(ctx, self)) return fail(`A wildcard already represents ${card} — swap it instead`);
     } else if (!isWild) {
       return fail(`${card} does not fit this set`);
     } else {
@@ -303,8 +306,8 @@ function extendMeldPlain(meld: Interpretation, card: Card, ctx: MeldContext, hin
       as = hintAs ? (options.includes(hintAs) ? hintAs : null) : (options[0] ?? null);
       if (!as) return fail('No free position in this set');
     }
-    if (as !== card && jokersUsed(meld.placed) >= ctx.rules.wild.maxPerMeld) return fail('Only one joker may be used in a meld');
-    const placed = setOrder([...meld.placed, { card, as, wild: as !== card, points: naturalValue(rank) }]);
+    if (as !== self && jokersUsed(meld.placed) >= ctx.rules.wild.maxPerMeld) return fail('Only one joker may be used in a meld');
+    const placed = setOrder([...meld.placed, { card, as, wild: as !== self, points: naturalValue(rank) }]);
     return { ok: true, meld: { kind: 'set', placed, points: total(placed) } };
   }
 
@@ -315,7 +318,7 @@ function extendMeldPlain(meld: Interpretation, card: Card, ctx: MeldContext, hin
   const ends = [high + 1, low - 1].filter((p) => p >= 1 && p <= maxPos);
   const identity = (p: number) => `${rankAtPosition(p)}${suit}`;
   let pos: number | undefined;
-  if (!isWild || !hintAs || hintAs === card) pos = ends.find((p) => identity(p) === card);
+  if (!isWild || !hintAs || hintAs === self) pos = ends.find((p) => identity(p) === self);
   if (pos === undefined && !isWild) return fail(`${card} does not extend this run`);
   let wild = false;
   if (pos === undefined) {
@@ -324,7 +327,7 @@ function extendMeldPlain(meld: Interpretation, card: Card, ctx: MeldContext, hin
     if (pos === undefined) return fail('This run cannot be extended');
     wild = true;
   }
-  if (!wild && isTaken(ctx, card)) return fail(`A wildcard already represents ${card} — swap it instead`);
+  if (!wild && isTaken(ctx, self)) return fail(`A wildcard already represents ${card} — swap it instead`);
   if (wild && jokersUsed(meld.placed) >= ctx.rules.wild.maxPerMeld) return fail('Only one joker may be used in a meld');
   const placed = [...meld.placed, { card, as: identity(pos), wild, points: runPoints(pos), pos }].sort((a, b) => a.pos! - b.pos!);
   return { ok: true, meld: { kind: 'run', placed, points: total(placed) } };
@@ -576,7 +579,7 @@ function* combinations<T>(items: T[], k: number, start = 0, acc: T[] = []): Gene
  */
 function meldOptionsPlain(cards: Card[], ctx: MeldContext): Interpretation[] {
   if (cards.length < 3 || new Set(cards).size !== cards.length) return [];
-  if (cards.some((c) => !ctx.wild.has(c) && isTaken(ctx, c))) return [];
+  if (cards.some((c) => !ctx.wild.has(c) && isTaken(ctx, cardIdentity(c)))) return [];
   const found = new Map<string, Interpretation>();
   const add = (m: Interpretation | null) => {
     if (m && !found.has(identityKey(m))) found.set(identityKey(m), m);
@@ -642,7 +645,8 @@ interface Resolution {
 function resolutions(cards: Card[], ctx: MeldContext, pinned: Record<Card, Card> = {}): Resolution[] {
   const printed = cards.filter((c) => isPrintedJoker(c));
   if (printed.length === 0) return [{ cards, ctx, back: new Map() }];
-  const options = (ctx.falseJokerAs ?? []).filter((id) => !cards.includes(id));
+  const present = new Set(cards.map(cardIdentity));
+  const options = (ctx.falseJokerAs ?? []).filter((id) => !present.has(id));
   const out: Resolution[] = [];
   const walk = (i: number, chosen: Card[]) => {
     if (i === printed.length) {
@@ -699,10 +703,11 @@ export function meldOptions(cards: Card[], ctx: MeldContext): Interpretation[] {
 export function extendMeld(meld: Interpretation, card: Card, ctx: MeldContext, hintAs?: Card): MeldResult {
   if (!isPrintedJoker(card)) {
     // A card and a false joker copying it never share a meld.
-    if (meld.placed.some((p) => isPrintedJoker(p.card) && p.as === card)) return fail(`A false joker in this meld already copies ${card}`);
+    if (meld.placed.some((p) => isPrintedJoker(p.card) && p.as === cardIdentity(card))) return fail(`A false joker in this meld already copies ${card}`);
     return extendMeldPlain(meld, card, ctx, hintAs);
   }
-  const inMeld = new Set(meld.placed.map((p) => p.card));
+  // Identities in the meld (either deck's copy counts), so a copy never joins the card it copies.
+  const inMeld = new Set(meld.placed.map((p) => cardIdentity(p.card)));
   const ids = (ctx.falseJokerAs ?? []).filter((id) => (!hintAs || id === hintAs) && !inMeld.has(id));
   let firstError: string | null = null;
   for (const id of ids) {
@@ -740,6 +745,71 @@ export function arrangeHand(hand: Card[], ctx: MeldContext): { order: Card[]; me
   }
   // Printed jokers that could not copy anything (no chosen cards known) stay at the end.
   return best ?? arrangeHandPlain(hand, ctx);
+}
+
+/* ------------------------------------------------------------------ */
+/* ዶቤ (4-player, two decks)                                           */
+/* ------------------------------------------------------------------ */
+//
+// A ዶቤ hand is five pairs of identical cards (the same rank and suit, one from
+// each deck) plus one three-card meld, all laid down at once and then going out by
+// discarding the last card. A real joker can stand in for one card of a pair (never
+// both), and a false joker counts as a card it may copy.
+
+export interface DobeHand {
+  pairs: Card[][];
+  triple: Card[];
+}
+
+/** Five pairs of identical cards from exactly these 10 cards, or null. */
+function dobePairs(cards: Card[], ctx: MeldContext): Card[][] | null {
+  const printed = cards.filter((c) => isPrintedJoker(c));
+  const wilds = cards.filter((c) => !isPrintedJoker(c) && ctx.wild.has(c));
+  const plain = cards.filter((c) => !isPrintedJoker(c) && !ctx.wild.has(c));
+  const copies = [...new Set(ctx.falseJokerAs ?? [])];
+  // Each real joker may also be used as the card it is (for a pair of two identical jokers).
+  for (let mask = 0; mask < 1 << wilds.length; mask++) {
+    const asSelf = wilds.filter((_, i) => mask & (1 << i));
+    const jokers = wilds.filter((_, i) => !(mask & (1 << i)));
+    const walk = (i: number, ids: Card[]): Card[][] | null => {
+      if (i < printed.length) {
+        for (const id of copies) {
+          const found = walk(i + 1, [...ids, id]);
+          if (found) return found;
+        }
+        return null;
+      }
+      const groups = new Map<Card, Card[]>();
+      const add = (id: Card, physical: Card) => groups.set(id, [...(groups.get(id) ?? []), physical]);
+      for (const c of [...plain, ...asSelf]) add(cardIdentity(c), c);
+      printed.forEach((c, k) => add(ids[k], c));
+      const pairs: Card[][] = [];
+      const singles: Card[] = [];
+      for (const group of groups.values()) {
+        for (let k = 0; k + 1 < group.length; k += 2) pairs.push([group[k], group[k + 1]]);
+        if (group.length % 2) singles.push(group[group.length - 1]);
+      }
+      // Every leftover single needs exactly one joker; two jokers never make a pair on their own.
+      if (singles.length !== jokers.length) return null;
+      singles.forEach((c, k) => pairs.push([c, jokers[k]]));
+      return pairs.length === 5 ? pairs : null;
+    };
+    const found = walk(0, []);
+    if (found) return found;
+  }
+  return null;
+}
+
+/** Splits 13 cards into five identical pairs and one three-card meld (a ዶቤ), or returns null. */
+export function findDobe(cards: Card[], ctx: MeldContext): DobeHand | null {
+  if (cards.length !== 13 || new Set(cards).size !== 13) return null;
+  for (const triple of combinations(cards, 3)) {
+    if (!interpretMeld(triple, ctx).ok) continue;
+    const rest = cards.filter((c) => !triple.includes(c));
+    const pairs = dobePairs(rest, ctx);
+    if (pairs) return { pairs, triple };
+  }
+  return null;
 }
 
 /** Penalty for a card left in hand; a printed joker scores as the highest card it may copy. */
