@@ -78,7 +78,7 @@ export const CONQUER_RULES: { am: string; en: string; items: string[] }[] = [
     en: 'Points',
     items: [
       'Each player puts in the table stake every round, and the round winner takes both stakes.',
-      'ጆከር ለመሬት (a table option): both players need twice the stake to play (a 50-point table needs 100). The rules are the same, but if you go out and your last discarded card is a real joker (★), you win double the stake.',
+      'ጆከር ለመሬት (a table option): both players need twice the stake to play (a 50-point table needs 100), and the second stake is held until the round ends, so it cannot be used in another game. The rules are the same, but if you go out and your last discarded card is a real joker (★, not a printed JOKER), you win double the stake. Otherwise the held stakes are given back.',
       'After a round, both players can choose Rematch to play another round.',
       'Points are virtual and have no cash value.',
     ],

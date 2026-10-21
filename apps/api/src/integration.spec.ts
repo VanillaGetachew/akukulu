@@ -434,6 +434,20 @@ suite('API integration', () => {
     await t.app.get(LedgerService).applyStandalone({ userId: guest.id, amount: -300, type: 'test', description: 'x', key: `drain:${guest.id}` });
     expect((await api('POST', `/rooms/${joker.body.code}/join`, guest.token)).body.code).toBe('INSUFFICIENT_BALANCE');
     await api('POST', `/rooms/${joker.body.code}/leave`, host.token);
+
+    // During a round both stakes are held, so they cannot be spent in another game.
+    const a = await login('HoldA');
+    const b = await login('HoldB');
+    const created = await api('POST', '/rooms', a.token, { gameSlug: 'conquer', stake: 100, visibility: 'private', config: { jokerToGround: true } });
+    await api('POST', `/rooms/${created.body.code}/join`, b.token);
+    for (const p of [a, b]) await api('POST', `/rooms/${created.body.code}/ready`, p.token, { ready: true });
+    const matchId = (await api('GET', `/rooms/${created.body.code}`, a.token)).body.matchId;
+    expect(await balance(a)).toBe(800);
+    expect(await balance(b)).toBe(800);
+    // Giving up returns the held stakes; only the normal stake changes hands.
+    expect(await act(a, matchId, { type: 'giveUp' })).toEqual({ ok: true });
+    expect(await balance(a)).toBe(900);
+    expect(await balance(b)).toBe(1100);
   });
 
   it('recovers active matches from PostgreSQL after a restart', async () => {

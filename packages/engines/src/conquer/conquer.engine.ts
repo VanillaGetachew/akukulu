@@ -82,6 +82,8 @@ export interface ConquerState {
   /** During prediction the base card is physically set aside; afterwards it is only a record. */
   baseCard: Card | null;
   baseSetAside: boolean;
+  /** ጆከር ለመሬት: a second stake is held from each player this round. Missing in older saves. */
+  reserveHeld?: boolean;
   prediction: ConquerPrediction | null;
   wildCards: Card[];
   wildRanks: Rank[];
@@ -165,9 +167,15 @@ function beginRound(state: ConquerState, predictor: number, ctx: EngineContext, 
     }
   }
   state.round += 1;
+  // ጆከር ለመሬት: a second stake is held from each player for the whole round, so it cannot be
+  // spent elsewhere. It is given back at the end, except the loser's after a joker finish.
+  state.reserveHeld = !!state.config.jokerToGround && stake > 0;
   for (const p of state.players) {
     if (stake > 0) {
       out.ledger.push({ playerId: p.playerId, amount: -stake, key: `r${state.round}:stake:${p.playerId}`, type: 'stake', description: `Conquer round ${state.round} stake` });
+    }
+    if (state.reserveHeld) {
+      out.ledger.push({ playerId: p.playerId, amount: -stake, key: `r${state.round}:hold:${p.playerId}`, type: 'stake', description: `Conquer round ${state.round} — ጆከር ለመሬት stake held` });
     }
     Object.assign(p, { hand: [], opened: false, missedTurns: 0, wantsRematch: false, revealedHand: null, penalty: null });
   }
@@ -252,8 +260,17 @@ function endRound(state: ConquerState, winner: number | null, reason: ConquerRou
     if (stake > 0) {
       out.ledger.push({ playerId: w.playerId, amount: stake * 2, key: `r${state.round}:payout:${w.playerId}`, type: 'payout', description: `Conquer round ${state.round} win` });
       won = stake;
-      if (jokerFinish) {
-        // The loser pays a second stake. The table requires twice the stake, but cap it at what they hold in case they spent points elsewhere.
+      if (state.reserveHeld) {
+        // The winner always gets their held stake back; the loser's goes to the winner on a joker finish.
+        out.ledger.push({ playerId: w.playerId, amount: stake, key: `r${state.round}:release:${w.playerId}`, type: 'refund', description: `Conquer round ${state.round} — ጆከር ለመሬት stake returned` });
+        if (jokerFinish) {
+          out.ledger.push({ playerId: w.playerId, amount: stake, key: `r${state.round}:joker:${w.playerId}`, type: 'payout', description: `Conquer round ${state.round} — ጆከር ለመሬት double win` });
+          won += stake;
+        } else {
+          out.ledger.push({ playerId: loser.playerId, amount: stake, key: `r${state.round}:release:${loser.playerId}`, type: 'refund', description: `Conquer round ${state.round} — ጆከር ለመሬት stake returned` });
+        }
+      } else if (jokerFinish) {
+        // A round started before stakes were held: collect the second stake now, capped at what the loser holds.
         const extra = Math.min(stake, Math.max(0, ctx.balances[loser.playerId] ?? 0));
         if (extra > 0) {
           out.ledger.push({ playerId: loser.playerId, amount: -extra, key: `r${state.round}:joker:${loser.playerId}`, type: 'stake', description: `Conquer round ${state.round} — ጆከር ለመሬት (lost to a joker finish)` });
@@ -263,8 +280,12 @@ function endRound(state: ConquerState, winner: number | null, reason: ConquerRou
       }
     }
   } else if (stake > 0) {
-    for (const p of state.players) out.ledger.push({ playerId: p.playerId, amount: stake, key: `r${state.round}:refund:${p.playerId}`, type: 'refund', description: `Conquer round ${state.round} draw — stake returned` });
+    for (const p of state.players) {
+      out.ledger.push({ playerId: p.playerId, amount: stake, key: `r${state.round}:refund:${p.playerId}`, type: 'refund', description: `Conquer round ${state.round} draw — stake returned` });
+      if (state.reserveHeld) out.ledger.push({ playerId: p.playerId, amount: stake, key: `r${state.round}:release:${p.playerId}`, type: 'refund', description: `Conquer round ${state.round} — ጆከር ለመሬት stake returned` });
+    }
   }
+  state.reserveHeld = false;
   state.roundResult = {
     round: state.round,
     winnerId: winner === null ? null : state.players[winner].playerId,

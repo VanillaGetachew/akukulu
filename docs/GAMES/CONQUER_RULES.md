@@ -90,7 +90,10 @@ The server tracks each player's hand, every table meld (with who contributed eac
 - An optional stake per player per round (room stake) is debited at the start of each round. The round winner receives both stakes; a draw refunds both. Ledger keys `match:<id>:r<n>:stake|payout|refund:<player>` make settlement idempotent.
 - **ጆከር ለመሬት** (joker to the ground; owner-requested room option `config.jokerToGround`, a toggle in the lobby next to the create buttons):
   - Every player needs **twice the stake** to create, join or quick-play the table, and again for every rematch round (`conquerRequiredBalance`). A 50-point table needs 100.
-  - The rules are otherwise the same. When a player goes out and their **last discarded card is a real joker** (a predicted wildcard; a printed false joker does not count), they win **double the stake**: the normal payout (both stakes), plus the loser pays a second stake (ledger keys `r<n>:joker:<player>`; capped at the loser's balance if they spent points elsewhere). The round result has `jokerFinish: true` and `won` (points gained from the loser).
+  - At the start of every round each player puts in the stake **and a second, held stake** (`r<n>:stake` and `r<n>:hold`). The held stake is off their balance for the whole round, so it **cannot be spent in another game** (owner-confirmed).
+  - The rules are otherwise the same. When a player goes out and their **last discarded card is a real joker** (a predicted wildcard; a printed false joker does not count, owner-confirmed), they win **double the stake**. They get the normal payout (both stakes), their own held stake back, and the loser's held stake (`r<n>:joker:<winner>`).
+  - On any other ending (a normal finish, timeout, giving up, leaving or a draw), both held stakes are returned (`r<n>:release:<player>`). An admin void refunds them too, as it refunds each player's net for the match.
+  - The round result has `jokerFinish: true` and `won` (points gained from the loser).
   - Quick play only matches tables with the same setting. Open tables show a ጆከር ለመሬት badge, and the table shows *ጆከር ለመሬት ×2* under the deck.
 - After a round both players may choose **Rematch**; the predictor alternates. With no agreement within 60 s, or if a player leaves, the match closes.
 - Match result: ranked by rounds won. Equal rounds is a draw, unless someone left (they lose).

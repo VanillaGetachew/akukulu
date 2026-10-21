@@ -398,9 +398,10 @@ describe('Conquer round end', () => {
     };
     const double = play({ stake: 50, jokerToGround: true });
     expect(double.state.roundResult).toMatchObject({ winnerId: 'a', reason: 'out', jokerFinish: true, won: 100 });
+    // The loser's held stake goes to the winner; the winner gets theirs back.
     expect(double.ledger).toEqual([
       expect.objectContaining({ playerId: 'a', amount: 100, key: 'r1:payout:a' }),
-      expect.objectContaining({ playerId: 'b', amount: -50, key: 'r1:joker:b' }),
+      expect.objectContaining({ playerId: 'a', amount: 50, key: 'r1:release:a' }),
       expect.objectContaining({ playerId: 'a', amount: 50, key: 'r1:joker:a' }),
     ]);
     // Without the option, the same finish pays the normal pot.
@@ -416,7 +417,32 @@ describe('Conquer round end', () => {
     s = run(s, 'a', { type: 'meld', melds: [{ cards: h('3s 4s 5s 6s') }, { cards: h('Kh Kd Kc') }, { cards: h('9h 9d 9c') }, { cards: h('2h 3h 4h 5h') }] });
     const res = expectOk(act(s, 'a', { type: 'discard', card: 'Qc' }));
     expect(res.state.roundResult?.jokerFinish).toBeUndefined();
-    expect(res.ledger).toEqual([expect.objectContaining({ playerId: 'a', amount: 100, key: 'r1:payout:a' })]);
+    // Both held stakes are given back.
+    expect(res.ledger).toEqual([
+      expect.objectContaining({ playerId: 'a', amount: 100, key: 'r1:payout:a' }),
+      expect.objectContaining({ playerId: 'a', amount: 50, key: 'r1:release:a' }),
+      expect.objectContaining({ playerId: 'b', amount: 50, key: 'r1:release:b' }),
+    ]);
+  });
+
+  it('ጆከር ለመሬት: the second stake is held for the whole round and returned on any other ending', () => {
+    const players = [
+      { playerId: 'a', seat: 0 },
+      { playerId: 'b', seat: 1 },
+    ];
+    const started = expectOk(conquerEngine.start(players, { ...DEFAULT_CONQUER_CONFIG, stake: 50, jokerToGround: true }, ctx(NOW, 11, 100)));
+    // Both stakes leave the balance at the start, so the held one cannot be spent in another game.
+    expect(started.ledger.map((l) => [l.playerId, l.amount, l.key])).toEqual([
+      ['a', -50, 'r1:stake:a'],
+      ['a', -50, 'r1:hold:a'],
+      ['b', -50, 'r1:stake:b'],
+      ['b', -50, 'r1:hold:b'],
+    ]);
+    // Giving up (like a timeout or leaving) returns both held stakes; only the normal pot moves.
+    const quit = expectOk(act(started.state, 'a', { type: 'giveUp' }));
+    const net = (id: string) => [...started.ledger, ...quit.ledger].filter((l) => l.playerId === id).reduce((n, l) => n + l.amount, 0);
+    expect(net('a')).toBe(-50);
+    expect(net('b')).toBe(50);
   });
 
   it('ጆከር ለመሬት: both players need twice the stake to start a round', () => {
