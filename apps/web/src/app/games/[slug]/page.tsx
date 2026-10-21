@@ -42,6 +42,8 @@ export default function GameLobby() {
   const [custom, setCustom] = useState('');
   const [maxPlayers, setMaxPlayers] = useState(4);
   const [code, setCode] = useState('');
+  // Conquer's ጆከር ለመሬት option: players need twice the stake; a joker finish wins double.
+  const [jokerToGround, setJokerToGround] = useState(false);
 
   const load = useCallback(async () => {
     if (!isGameSlug(slug)) return;
@@ -87,15 +89,21 @@ export default function GameLobby() {
   }
   const stakes = STAKES[slug];
   const balance = user?.balance ?? 0;
-  const affordable = balance >= stake;
+  const joker = slug === 'conquer' && jokerToGround;
+  // Points needed to sit at a table with this stake (twice the stake for ጆከር ለመሬት).
+  const need = (s: number, jtg = joker) => s * (jtg ? 2 : 1);
+  const affordable = balance >= need(stake);
+  const roomConfig = slug === 'conquer' ? { jokerToGround } : undefined;
   const customValue = custom.trim() === '' ? null : Number(custom);
   const customError =
     customValue === null
       ? null
       : !Number.isInteger(customValue) || customValue < stakes.min
         ? `Enter a whole number of at least ${stakes.min}`
-        : customValue > balance
-          ? `You only have ${balance.toLocaleString()} points`
+        : need(customValue) > balance
+          ? joker
+            ? `ጆከር ለመሬት needs twice the stake (${need(customValue).toLocaleString()}); you have ${balance.toLocaleString()}`
+            : `You only have ${balance.toLocaleString()} points`
           : null;
   const compact = (n: number) => (n >= 1000 ? `${n % 1000 === 0 ? n / 1000 : (n / 1000).toFixed(1)}K` : String(n));
 
@@ -136,7 +144,7 @@ export default function GameLobby() {
                           setStake(s);
                           setCustom('');
                         }}
-                        disabled={s > balance}
+                        disabled={need(s) > balance}
                         className={`flex items-center justify-center gap-1 rounded-xl border py-2 text-sm font-bold disabled:opacity-35 ${stake === s && custom === '' ? 'border-lime bg-lime/10 text-lime' : 'border-line bg-black/20 text-fg'}`}
                       >
                         {s === 0 ? 'Free' : (<><Coin className="h-3.5 w-3.5" />{compact(s)}</>)}
@@ -154,13 +162,37 @@ export default function GameLobby() {
                         const v = e.target.value.replace(/[^0-9]/g, '').slice(0, 7);
                         setCustom(v);
                         const n = Number(v);
-                        if (v !== '' && Number.isInteger(n) && n >= stakes.min && n <= balance) setStake(n);
+                        if (v !== '' && Number.isInteger(n) && n >= stakes.min && need(n) <= balance) setStake(n);
                       }}
                     />
                   </label>
                   {customError && <p className="mt-2 text-xs text-danger">{customError}</p>}
-                  {!customError && !affordable && <p className="mt-2 text-xs text-danger">You need {stake.toLocaleString()} points for this table.</p>}
+                  {!customError && !affordable && (
+                    <p className="mt-2 text-xs text-danger">
+                      You need {need(stake).toLocaleString()} points for this table{joker ? ' (ጆከር ለመሬት: twice the stake)' : ''}.
+                    </p>
+                  )}
                 </div>
+
+                {slug === 'conquer' && (
+                  <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-line bg-black/10 p-3">
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={jokerToGround}
+                      onClick={() => setJokerToGround((v) => !v)}
+                      className={`relative h-7 w-12 shrink-0 rounded-full transition ${jokerToGround ? 'bg-gold' : 'bg-white/20'}`}
+                    >
+                      <span className={`absolute top-0.5 h-6 w-6 rounded-full bg-white shadow transition-all ${jokerToGround ? 'left-[1.375rem]' : 'left-0.5'}`} />
+                    </button>
+                    <span className="min-w-0">
+                      <span className="block font-ethiopic text-base font-extrabold text-gold">ጆከር ለመሬት</span>
+                      <span className="block text-xs text-muted">
+                        Both players need twice the stake. Go out with a joker as your last card to win double the stake.
+                      </span>
+                    </span>
+                  </label>
+                )}
 
                 {slug !== 'blackjack' && slug !== 'conquer' && (
                   <div>
@@ -176,14 +208,14 @@ export default function GameLobby() {
                 )}
 
                 <div className="grid grid-cols-2 gap-2">
-                  <button className="btn-primary" disabled={busy || !affordable || !!customError} onClick={() => run(() => api('/rooms/quick-play', { body: { gameSlug: slug, stake } }))}>
+                  <button className="btn-primary" disabled={busy || !affordable || !!customError} onClick={() => run(() => api('/rooms/quick-play', { body: { gameSlug: slug, stake, config: roomConfig } }))}>
                     {game.solo ? 'Sit at a table' : 'Quick play'}
                   </button>
                   {!game.solo && (
                     <button
                       className="btn-ghost"
                       disabled={busy || !affordable || !!customError}
-                      onClick={() => run(() => api('/rooms', { body: { gameSlug: slug, stake, visibility: 'private', maxPlayers } }))}
+                      onClick={() => run(() => api('/rooms', { body: { gameSlug: slug, stake, visibility: 'private', maxPlayers, config: roomConfig } }))}
                     >
                       Private room
                     </button>
@@ -227,10 +259,15 @@ export default function GameLobby() {
                               <div className="text-sm font-bold">{r.players.length}/{r.maxPlayers} players</div>
                               <div className="flex items-center gap-1 text-xs text-muted">
                                 {r.stake === 0 ? 'Free' : (<><Coin className="h-3 w-3" /> {r.stake}</>)} · {r.code}
+                                {r.config.jokerToGround === true && <span className="ml-1 rounded-full bg-gold/20 px-1.5 font-ethiopic font-bold text-gold">ጆከር ለመሬት</span>}
                               </div>
                             </div>
                           </div>
-                          <button className="btn-primary px-3 py-1.5 text-xs" disabled={busy || (user?.balance ?? 0) < r.stake} onClick={() => run(() => api(`/rooms/${r.code}/join`, { body: {} }))}>
+                          <button
+                            className="btn-primary px-3 py-1.5 text-xs"
+                            disabled={busy || balance < need(r.stake, r.config.jokerToGround === true)}
+                            onClick={() => run(() => api(`/rooms/${r.code}/join`, { body: {} }))}
+                          >
                             Join
                           </button>
                         </div>

@@ -3,6 +3,7 @@ import {
   CONQUER_PREDICTION_LABEL,
   CONQUER_UNVERIFIED_RULES,
   DEFAULT_CONQUER_CONFIG,
+  conquerRequiredBalance,
   DEFAULT_CONQUER_RULES,
   HIDDEN_CARD,
   RANK_LABEL,
@@ -157,8 +158,10 @@ function event(state: ConquerState, out: Out, playerId: string | null, kind: str
 function beginRound(state: ConquerState, predictor: number, ctx: EngineContext, out: Out): string | null {
   const stake = state.config.stake;
   if (stake > 0) {
+    // ጆከር ለመሬት tables need twice the stake, so a joker finish can always be paid.
+    const needed = conquerRequiredBalance(state.config);
     for (const p of state.players) {
-      if ((ctx.balances[p.playerId] ?? 0) < stake) return 'A player cannot cover the stake for another round';
+      if ((ctx.balances[p.playerId] ?? 0) < needed) return `A player cannot cover ${needed === stake ? 'the stake' : `twice the stake (${needed})`} for another round`;
     }
   }
   state.round += 1;
@@ -238,14 +241,38 @@ function endRound(state: ConquerState, winner: number | null, reason: ConquerRou
     penalties[p.playerId] = p.penalty;
   }
   const stake = state.config.stake;
+  // ጆከር ለመሬት: going out with a real joker as the last discard wins double the stake.
+  const top = state.discard[state.discard.length - 1];
+  const jokerFinish = !!state.config.jokerToGround && reason === 'out' && winner !== null && top !== undefined && state.wildCards.includes(top);
+  let won = 0;
   if (winner !== null) {
     const w = state.players[winner];
+    const loser = state.players[1 - winner];
     w.roundsWon += 1;
-    if (stake > 0) out.ledger.push({ playerId: w.playerId, amount: stake * 2, key: `r${state.round}:payout:${w.playerId}`, type: 'payout', description: `Conquer round ${state.round} win` });
+    if (stake > 0) {
+      out.ledger.push({ playerId: w.playerId, amount: stake * 2, key: `r${state.round}:payout:${w.playerId}`, type: 'payout', description: `Conquer round ${state.round} win` });
+      won = stake;
+      if (jokerFinish) {
+        // The loser pays a second stake. The table requires twice the stake, but cap it at what they hold in case they spent points elsewhere.
+        const extra = Math.min(stake, Math.max(0, ctx.balances[loser.playerId] ?? 0));
+        if (extra > 0) {
+          out.ledger.push({ playerId: loser.playerId, amount: -extra, key: `r${state.round}:joker:${loser.playerId}`, type: 'stake', description: `Conquer round ${state.round} — ጆከር ለመሬት (lost to a joker finish)` });
+          out.ledger.push({ playerId: w.playerId, amount: extra, key: `r${state.round}:joker:${w.playerId}`, type: 'payout', description: `Conquer round ${state.round} — ጆከር ለመሬት double win` });
+          won += extra;
+        }
+      }
+    }
   } else if (stake > 0) {
     for (const p of state.players) out.ledger.push({ playerId: p.playerId, amount: stake, key: `r${state.round}:refund:${p.playerId}`, type: 'refund', description: `Conquer round ${state.round} draw — stake returned` });
   }
-  state.roundResult = { round: state.round, winnerId: winner === null ? null : state.players[winner].playerId, reason, penalties };
+  state.roundResult = {
+    round: state.round,
+    winnerId: winner === null ? null : state.players[winner].playerId,
+    reason,
+    penalties,
+    ...(jokerFinish ? { jokerFinish: true } : {}),
+    won,
+  };
   state.history.push(state.roundResult);
   state.pendingWild = null;
   resetTurn(state);
@@ -449,6 +476,10 @@ export const conquerEngine: GameEngine<ConquerState, ConquerConfig, ConquerView>
     const config: ConquerConfig = { ...DEFAULT_CONQUER_CONFIG, rules: validateConquerRules(raw.rules), stake: intInRange(stake, 0, 1_000_000, 'stake') };
     if (raw.turnSeconds !== undefined) config.turnSeconds = intInRange(raw.turnSeconds, 20, 300, 'turnSeconds');
     if (raw.graceSeconds !== undefined) config.graceSeconds = intInRange(raw.graceSeconds, 0, 120, 'graceSeconds');
+    if (raw.jokerToGround !== undefined) {
+      if (typeof raw.jokerToGround !== 'boolean') throw new ConfigError('jokerToGround must be a boolean');
+      config.jokerToGround = raw.jokerToGround;
+    }
     return config;
   },
 
@@ -541,7 +572,7 @@ export const conquerEngine: GameEngine<ConquerState, ConquerConfig, ConquerView>
 
     if (type === 'rematch') {
       if (state.phase !== 'roundOver') return fail('WRONG_PHASE', 'The round is still in progress');
-      if (state.config.stake > 0 && (ctx.balances[playerId] ?? 0) < state.config.stake) return fail('INSUFFICIENT_BALANCE', 'Not enough points for another round');
+      if (state.config.stake > 0 && (ctx.balances[playerId] ?? 0) < conquerRequiredBalance(state.config)) return fail('INSUFFICIENT_BALANCE', 'Not enough points for another round');
       p.wantsRematch = true;
       event(state, out, playerId, 'rematch', 'wants a rematch');
       if (state.players.every((x) => x.wantsRematch)) {

@@ -416,6 +416,26 @@ suite('API integration', () => {
     expect(join.body.code).toBe('INSUFFICIENT_BALANCE');
   });
 
+  it('ጆከር ለመሬት Conquer tables need twice the stake, and quick play keeps them apart', async () => {
+    const host = await login('Joker');
+    const guest = await login('Ground');
+    // Everyone starts with 1000 points: a 600 table needs 1200 with the option on.
+    expect((await api('POST', '/rooms', host.token, { gameSlug: 'conquer', stake: 600, config: { jokerToGround: true } })).body.code).toBe('INSUFFICIENT_BALANCE');
+    const joker = await api('POST', '/rooms/quick-play', host.token, { gameSlug: 'conquer', stake: 400, config: { jokerToGround: true } });
+    expect(joker.body.config).toMatchObject({ jokerToGround: true });
+    // A plain table of the same stake is a different table.
+    const plain = await api('POST', '/rooms/quick-play', guest.token, { gameSlug: 'conquer', stake: 400 });
+    expect(plain.body.code).not.toBe(joker.body.code);
+    await api('POST', `/rooms/${plain.body.code}/leave`, guest.token);
+    const same = await api('POST', '/rooms/quick-play', guest.token, { gameSlug: 'conquer', stake: 400, config: { jokerToGround: true } });
+    expect(same.body.code).toBe(joker.body.code);
+    await api('POST', `/rooms/${same.body.code}/leave`, guest.token);
+    // With less than twice the stake the guest cannot sit down.
+    await t.app.get(LedgerService).applyStandalone({ userId: guest.id, amount: -300, type: 'test', description: 'x', key: `drain:${guest.id}` });
+    expect((await api('POST', `/rooms/${joker.body.code}/join`, guest.token)).body.code).toBe('INSUFFICIENT_BALANCE');
+    await api('POST', `/rooms/${joker.body.code}/leave`, host.token);
+  });
+
   it('recovers active matches from PostgreSQL after a restart', async () => {
     const a = await login('Selam');
     const b = await login('Yonas');

@@ -388,6 +388,50 @@ describe('Conquer round end', () => {
     expect(act(s, 'b', { type: 'drawStock' })).toMatchObject({ ok: false });
   });
 
+  it('ጆከር ለመሬት: going out with a real joker as the last discard wins double the stake', () => {
+    const play = (config: Partial<ConquerConfig>) => {
+      let s = rigged({ a: WINNING_HAND, b: FILLER_B, stockTop: '5h', wild: ['Qc'], config });
+      s = run(s, 'a', { type: 'drawStock' });
+      s = run(s, 'a', { type: 'meld', melds: [{ cards: h('3s 4s 5s 6s') }, { cards: h('Kh Kd Kc') }, { cards: h('9h 9d 9c') }, { cards: h('2h 3h 4h 5h') }] });
+      expect(s.players[0].hand).toEqual(['Qc']);
+      return expectOk(act(s, 'a', { type: 'discard', card: 'Qc' }));
+    };
+    const double = play({ stake: 50, jokerToGround: true });
+    expect(double.state.roundResult).toMatchObject({ winnerId: 'a', reason: 'out', jokerFinish: true, won: 100 });
+    expect(double.ledger).toEqual([
+      expect.objectContaining({ playerId: 'a', amount: 100, key: 'r1:payout:a' }),
+      expect.objectContaining({ playerId: 'b', amount: -50, key: 'r1:joker:b' }),
+      expect.objectContaining({ playerId: 'a', amount: 50, key: 'r1:joker:a' }),
+    ]);
+    // Without the option, the same finish pays the normal pot.
+    const normal = play({ stake: 50 });
+    expect(normal.state.roundResult).toMatchObject({ won: 50 });
+    expect(normal.state.roundResult?.jokerFinish).toBeUndefined();
+    expect(normal.ledger).toHaveLength(1);
+  });
+
+  it('ጆከር ለመሬት: a normal last card pays the normal pot', () => {
+    let s = rigged({ a: WINNING_HAND, b: FILLER_B, stockTop: '5h', config: { stake: 50, jokerToGround: true } });
+    s = run(s, 'a', { type: 'drawStock' });
+    s = run(s, 'a', { type: 'meld', melds: [{ cards: h('3s 4s 5s 6s') }, { cards: h('Kh Kd Kc') }, { cards: h('9h 9d 9c') }, { cards: h('2h 3h 4h 5h') }] });
+    const res = expectOk(act(s, 'a', { type: 'discard', card: 'Qc' }));
+    expect(res.state.roundResult?.jokerFinish).toBeUndefined();
+    expect(res.ledger).toEqual([expect.objectContaining({ playerId: 'a', amount: 100, key: 'r1:payout:a' })]);
+  });
+
+  it('ጆከር ለመሬት: both players need twice the stake to start a round', () => {
+    const players = [
+      { playerId: 'a', seat: 0 },
+      { playerId: 'b', seat: 1 },
+    ];
+    const config = { ...DEFAULT_CONQUER_CONFIG, stake: 50, jokerToGround: true };
+    expect(conquerEngine.start(players, config, ctx(NOW, 11, 99))).toMatchObject({ ok: false });
+    expect(conquerEngine.start(players, config, ctx(NOW, 11, 100)).ok).toBe(true);
+    expect(conquerEngine.start(players, { ...config, jokerToGround: false }, ctx(NOW, 11, 50)).ok).toBe(true);
+    expect(() => conquerEngine.parseConfig({ jokerToGround: 'yes' }, 50)).toThrow();
+    expect(conquerEngine.parseConfig({ jokerToGround: true }, 50).jokerToGround).toBe(true);
+  });
+
   it('shuffles the discard pile (except its top card) back in when the deck runs out', () => {
     let s = rigged({ a: '2s 3s 4s 2h 3h 4h 2d 3d 4d 5c 6c 7c 8c 9c', b: 'Ks Kh Kd Qs Qh Qd Js Jh Jd Ts Th Td 9s 9h', stockTop: '2c' });
     s.stock = ['2c'];

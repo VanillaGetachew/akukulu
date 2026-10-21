@@ -582,6 +582,11 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
               {CONQUER_PREDICTION_LABEL[view.prediction].am}
             </span>
           )}
+          {view.config.jokerToGround && (
+            <span className="rounded-full bg-gold px-2.5 py-0.5 font-ethiopic text-[11px] font-bold text-[#17171c]" title="Go out with a joker as your last card to win double the stake">
+              ጆከር ለመሬት ×2
+            </span>
+          )}
         </div>
         <div className="flex flex-col items-center gap-1 pt-10">
           <button
@@ -673,7 +678,9 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
               {result.winnerId === null ? 'Round drawn' : result.winnerId === user?.id ? 'You won the round!' : `${nameOf(state, result.winnerId)} won the round`}
             </div>
             <div className="text-xs text-muted">
-              {result.reason === 'out'
+              {result.reason === 'out' && result.jokerFinish
+                ? 'ጆከር ለመሬት — went out with a joker as the last card: double the stake!'
+                : result.reason === 'out'
                 ? 'Went out by melding every card and discarding the last.'
                 : result.reason === 'timeout'
                   ? `${result.winnerId === user?.id ? 'Your opponent' : 'You'} ran out of time.`
@@ -685,16 +692,19 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
             </div>
             {(() => {
               const stake = view.config.stake;
-              const mine = result.winnerId === null ? 0 : result.winnerId === user?.id ? stake : -stake;
+              // Points that changed hands: the stake, or double it on a ጆከር ለመሬት finish (older results have no `won`).
+              const amount = result.won ?? stake;
+              const mine = result.winnerId === null ? 0 : result.winnerId === user?.id ? amount : -amount;
               return (
                 <div className={`flex items-center justify-center gap-2 rounded-xl py-2.5 text-lg font-black ${mine > 0 ? 'bg-lime/15 text-lime' : mine < 0 ? 'bg-danger/15 text-danger' : 'bg-white/5 text-muted'}`}>
                   <Coin className="h-5 w-5" />
-                  {stake === 0 ? 'Free round — no points at stake' : mine > 0 ? `You won ${stake.toLocaleString()} points` : mine < 0 ? `You lost ${stake.toLocaleString()} points` : 'Draw — stakes returned'}
+                  {stake === 0 ? 'Free round — no points at stake' : mine > 0 ? `You won ${amount.toLocaleString()} points` : mine < 0 ? `You lost ${amount.toLocaleString()} points` : 'Draw — stakes returned'}
                 </div>
               );
             })()}
             {view.players.map((p) => {
-              const delta = result.winnerId === null ? 0 : p.playerId === result.winnerId ? view.config.stake : -view.config.stake;
+              const won = result.won ?? view.config.stake;
+              const delta = result.winnerId === null ? 0 : p.playerId === result.winnerId ? won : -won;
               return (
                 <div key={p.playerId} className="grid gap-1">
                   <div className="flex justify-between text-xs font-bold">

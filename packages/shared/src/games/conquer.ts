@@ -134,7 +134,16 @@ export interface ConquerConfig {
   /** Time to agree on a rematch before the match closes. */
   rematchSeconds: number;
   maxMissedTurns: number;
+  /**
+   * ጆከር ለመሬት (joker to the ground), a room option: both players must hold twice the
+   * stake, and going out with a real joker as the last discard wins double the stake.
+   * Optional because games saved before it existed do not have it.
+   */
+  jokerToGround?: boolean;
 }
+
+/** Points a player must hold to sit at (and play each round of) a Conquer table. */
+export const conquerRequiredBalance = (config: Pick<ConquerConfig, 'stake' | 'jokerToGround'>) => config.stake * (config.jokerToGround ? 2 : 1);
 
 export const DEFAULT_CONQUER_CONFIG: ConquerConfig = {
   rules: DEFAULT_CONQUER_RULES,
@@ -144,6 +153,7 @@ export const DEFAULT_CONQUER_CONFIG: ConquerConfig = {
   predictSeconds: 30,
   rematchSeconds: 60,
   maxMissedTurns: 3,
+  jokerToGround: false,
 };
 
 /** A meld proposed by a client. `as` optionally pins what each substituting wildcard represents. */
@@ -226,6 +236,10 @@ export interface ConquerRoundResult {
   winnerId: string | null;
   reason: 'out' | 'exhaustion' | 'forfeit' | 'timeout' | 'gaveUp';
   penalties: Record<string, number>;
+  /** ጆከር ለመሬት: the winner went out discarding a real joker and wins double the stake. */
+  jokerFinish?: boolean;
+  /** Points the winner gained from the loser this round (the stake, or double it on a joker finish). */
+  won?: number;
 }
 
 export interface ConquerView {
