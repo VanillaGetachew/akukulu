@@ -454,7 +454,7 @@ suite('API integration', () => {
     const four = [await login('Abebe'), await login('Bontu'), await login('Chala'), await login('Desta')];
     const created = await api('POST', '/rooms', four[0].token, { gameSlug: 'conquer', stake: 50, visibility: 'private', config: { players: 4, dobe: true } });
     expect(created.status).toBe(201);
-    expect(created.body).toMatchObject({ maxPlayers: 4, minPlayers: 4 });
+    expect(created.body).toMatchObject({ maxPlayers: 4, minPlayers: 2 });
     for (const p of four.slice(1)) expect((await api('POST', `/rooms/${created.body.code}/join`, p.token)).status).toBe(200);
     for (const p of four) await api('POST', `/rooms/${created.body.code}/ready`, p.token, { ready: true });
     const matchId = (await api('GET', `/rooms/${created.body.code}`, four[0].token)).body.matchId;
@@ -478,6 +478,18 @@ suite('API integration', () => {
     const winner = byId.get(s.view.roundResult!.winnerId!)!;
     expect(await balance(winner)).toBe(1000 + 150);
     for (const p of four) if (p !== winner) expect(await balance(p)).toBe(950);
+  });
+
+  it('a 4-seat Conquer table starts with 3 players once everyone seated is ready', async () => {
+    const three = [await login('Ermias'), await login('Fikir'), await login('Genet')];
+    const created = await api('POST', '/rooms', three[0].token, { gameSlug: 'conquer', stake: 0, visibility: 'private', config: { players: 4 } });
+    for (const p of three.slice(1)) await api('POST', `/rooms/${created.body.code}/join`, p.token);
+    let room;
+    for (const p of three) room = (await api('POST', `/rooms/${created.body.code}/ready`, p.token, { ready: true })).body;
+    expect(room.status).toBe('in_progress');
+    const s = await state<ConquerView>(room.matchId, three[0]);
+    expect(s.view.players).toHaveLength(3);
+    expect(s.view.config.players).toBe(4);
   });
 
   it('recovers active matches from PostgreSQL after a restart', async () => {

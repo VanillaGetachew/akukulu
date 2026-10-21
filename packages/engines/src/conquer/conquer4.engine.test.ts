@@ -60,6 +60,28 @@ describe('4-player Conquer: two decks', () => {
     }
   });
 
+  it('a 4-seat table starts with 2 or 3 players too, still with both decks', () => {
+    for (const count of [2, 3]) {
+      for (let seed = 1; seed <= 10; seed++) {
+        const ids = IDS.slice(0, count);
+        let s = expectOk(conquerEngine.start(ids.map((playerId, seat) => ({ playerId, seat })), { ...FOUR, stake: 10 }, ctx(NOW, seed))).state;
+        expect(s.players).toHaveLength(count);
+        expect(s.predictor).toBeLessThan(count);
+        s = run(s, s.players[s.predictor].playerId, { type: 'predict', choice: 'up' });
+        expect(conquerInventory(s)).toHaveLength(108);
+        const starter = (s.predictor + 1) % count;
+        expect(s.current).toBe(starter);
+        s.players.forEach((p, i) => expect(p.hand).toHaveLength(i === starter ? 14 : 13));
+        // Everyone but one gives up: the last player in takes every stake.
+        for (let k = 0; k < count - 1; k++) s = run(s, s.players[s.current].playerId, { type: 'giveUp' });
+        expect(s.phase).toBe('roundOver');
+        expect(s.roundResult!.won).toBe(10 * (count - 1));
+      }
+    }
+    expect(conquerEngine.start([{ playerId: 'a', seat: 0 }], FOUR, ctx())).toMatchObject({ ok: false, code: 'BAD_PLAYER_COUNT' });
+    expect(conquerEngine.start([...IDS, 'e'].map((playerId, seat) => ({ playerId, seat })), FOUR, ctx())).toMatchObject({ ok: false, code: 'BAD_PLAYER_COUNT' });
+  });
+
   it('plays a card from either deck as itself in melds, but a set never takes the same suit twice', () => {
     const c: MeldContext = { wild: new Set(), rules: DEFAULT_CONQUER_CONFIG.rules, taken: new Set() };
     const runMeld = interpretMeld(h('9h Th2 Jh'), c);
@@ -192,7 +214,8 @@ describe('4-player Conquer: ዶቤ', () => {
     expect(() => conquerEngine.parseConfig({ dobe: true }, 50)).toThrow(/4-player/);
     expect(() => conquerEngine.parseConfig({ players: 4, dobe: true, jokerToGround: true }, 50)).toThrow(/cannot both/);
     expect(() => conquerEngine.parseConfig({ players: 3 }, 50)).toThrow();
-    expect(conquerEngine.playerLimits(conquerEngine.parseConfig({ players: 4, jokerToGround: true }, 50))).toEqual({ min: 4, max: 4 });
+    expect(conquerEngine.playerLimits(conquerEngine.parseConfig({ players: 4, jokerToGround: true }, 50))).toEqual({ min: 2, max: 4 });
+    expect(conquerEngine.playerLimits(conquerEngine.parseConfig({}, 50))).toEqual({ min: 2, max: 2 });
     expect(conquerEngine.start(IDS.map((playerId, seat) => ({ playerId, seat })), { ...FOUR, stake: 50, dobe: true }, ctx(NOW, 11, 99))).toMatchObject({ ok: false });
   });
 });

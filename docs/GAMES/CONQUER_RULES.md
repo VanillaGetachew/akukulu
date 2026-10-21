@@ -91,7 +91,8 @@ The server tracks each player's hand, every table meld (with who contributed eac
 - **Every player for themselves.** Both copies of each chosen joker card are jokers. The starter is the seat after the predictor and gets 14 cards; the others get 13. Turns go round the table, and the predictor moves one seat each round.
 - All the 1v1 rules apply (41 to go in, pick-ups, protected discards, filling means finishing, base card, reshuffle).
 - **Out of the round:** a timeout (after the grace popup), giving up or leaving takes only that player out of the round. Their hand goes under the deck, their melds stay, and the others play on. The last player in wins, as does the first to go out. A predictor who drops out passes the prediction on.
-- **Stakes:** the winner takes all four stakes. Rematch needs all four players; if someone left, the table closes after the round.
+- **Seats:** a 4-seat table **starts with 2, 3 or 4 players** (owner-confirmed): as soon as everyone seated is ready (`playerLimits` = 2–4). It always uses both decks and the 4-seat rules (out of the round, ዶቤ). The deal is the same: the starter gets 14 and the others 13.
+- **Stakes:** the winner takes every player's stake. Rematch needs everyone who started; if someone left, the table closes after the round.
 - **ጆከር ለመሬት** also works at 4-player tables: each loser's held stake goes to the winner on a joker finish.
 
 ### ዶቤ (4-player option `config.dobe`, not together with ጆከር ለመሬት)

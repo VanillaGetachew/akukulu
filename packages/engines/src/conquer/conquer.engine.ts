@@ -131,10 +131,15 @@ const cardLabel = (c: Card) => (isPrintedJoker(c) ? 'Joker' : `${RANK_LABEL[c[0]
 /** Cards a printed joker may copy this round: the chosen joker cards (as identities, once each). */
 export const falseJokerAs = (state: ConquerState): Card[] => (state.config.rules.wild.printedJokers ? [...new Set(state.wildCards.map(cardIdentity))] : []);
 /** Players at the table: 2, or 4 with two decks. Older saves are 2-player. */
+/**
+ * Seats at the table: 2 (1v1), or 4 for a two-deck table that starts with 2, 3 or 4
+ * players. Older saves are 1v1. Two-deck rules (out of the round, ዶቤ) follow the table
+ * kind, not how many players actually sat down.
+ */
 export const tableSize = (config: ConquerConfig): number => config.players ?? 2;
 /**
- * The physical deck: 54 cards (with the printed jokers) for 2 players; two of them
- * (108 cards, the second deck's cards suffixed "2") for 4 players.
+ * The physical deck: 54 cards (with the printed jokers) for 1v1; two of them
+ * (108 cards, the second deck's cards suffixed "2") for a 4-seat table.
  */
 const physicalDeck = (config: ConquerConfig) => {
   const two = tableSize(config) === 4;
@@ -587,11 +592,12 @@ export const conquerEngine: GameEngine<ConquerState, ConquerConfig, ConquerView>
     return config;
   },
 
-  playerLimits: (config) => ({ min: tableSize(config), max: tableSize(config) }),
+  // A 4-seat (two-deck) table starts with 2, 3 or 4 players (owner-confirmed); 1v1 is exactly 2.
+  playerLimits: (config) => ({ min: 2, max: tableSize(config) }),
 
   start(players, config, ctx) {
     const n = tableSize(config);
-    if (players.length !== n) return fail('BAD_PLAYER_COUNT', n === 2 ? 'Conquer is played one against one' : 'This Conquer table needs 4 players');
+    if (players.length < 2 || players.length > n) return fail('BAD_PLAYER_COUNT', n === 2 ? 'Conquer is played one against one' : 'This Conquer table seats 2 to 4 players');
     const ordered = [...players].sort((a, b) => a.seat - b.seat);
     const state: ConquerState = {
       config,
@@ -636,7 +642,7 @@ export const conquerEngine: GameEngine<ConquerState, ConquerConfig, ConquerView>
       history: [],
     };
     const out: Out = { events: [], ledger: [] };
-    const error = beginRound(state, ctx.rng.int(n), ctx, out);
+    const error = beginRound(state, ctx.rng.int(state.players.length), ctx, out);
     if (error) return fail('INSUFFICIENT_BALANCE', error);
     return ok(state, out.events, out.ledger);
   },

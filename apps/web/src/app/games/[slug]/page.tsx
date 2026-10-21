@@ -213,7 +213,7 @@ export default function GameLobby() {
                             }}
                             className={`rounded-xl border py-2 text-sm font-bold ${conquerPlayers === n ? 'border-lime bg-lime/10 text-lime' : 'border-line bg-black/20 text-fg'}`}
                           >
-                            {n === 2 ? '1 v 1' : '4 players · 2 decks'}
+                            {n === 2 ? '1 v 1' : '2–4 players · 2 decks'}
                           </button>
                         ))}
                       </div>

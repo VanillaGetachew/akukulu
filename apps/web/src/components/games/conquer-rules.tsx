@@ -13,11 +13,11 @@ export const CONQUER_RULES: { am: string; en: string; items: string[] }[] = [
   },
   {
     am: '4 ተጫዋቾች',
-    en: '4 players',
+    en: 'Up to 4 players',
     items: [
-      'Four players, each for themselves, with two decks (108 cards). Every card is there twice, and both copies of each joker card are jokers.',
+      'A table for up to four players, each for themselves, with two decks (108 cards). It starts when everyone seated is ready, so 2, 3 or 4 can play. Every card is there twice, and both copies of each joker card are jokers.',
       'The player after the predictor starts with 14 cards; everyone else gets 13. Turns go round the table, and the prediction moves on each round.',
-      'The rules are the same. If you run out of time, give up or leave, you are out of that round and the others play on. The last player in, or the first to go out, wins all four stakes.',
+      'The rules are the same. If you run out of time, give up or leave, you are out of that round and the others play on. The last player in, or the first to go out, wins everyone’s stakes.',
       'ዶቤ (a 4-player table option): go out with five pairs of identical cards (for example 2♥ 2♥) and one set of three, all laid down at once, to win double. You do not need 41 for this, and a joker can stand in for one card of a pair. Everyone needs twice the stake. ጆከር ለመሬት and ዶቤ cannot both be on.',
     ],
   },
