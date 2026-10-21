@@ -139,13 +139,14 @@ function MiniCard({ placed, highlight, width = 34 }: { placed: Pick<ConquerPlace
   return (
     <div
       className={`relative shrink-0 rounded-[7px] shadow-[0_1px_3px_rgba(0,0,0,.45)] ${highlight ? 'outline outline-2 outline-lime' : ''}`}
-      style={{ width, height: Math.round(width * 1.4), zIndex: stands ? 5 : undefined }}
+      // No z-index here: the joker card must not cover its neighbour in the meld. Only its tag sits on top.
+      style={{ width, height: Math.round(width * 1.4) }}
       title={placed.wild ? `Joker (${label(placed.card)}) playing as ${label(placed.as)}` : copy ? `False joker copying ${label(placed.as)}` : label(placed.card)}
     >
       <CardFace card={placed.card} width={width} compact star={placed.wild} tint={placed.wild ? 'gold' : undefined} />
       {stands && (
         <span
-          className={`absolute -top-3 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full border px-1 text-[10px] font-black leading-[14px] shadow ${copy ? 'border-violet bg-[#f1ebff]' : 'border-gold bg-[#fff4d1]'} ${red ? 'text-[#c8102e]' : 'text-[#17171c]'}`}
+          className={`absolute -top-3 left-1/2 z-20 -translate-x-1/2 whitespace-nowrap rounded-full border px-1 text-[10px] font-black leading-[14px] shadow ${copy ? 'border-violet bg-[#f1ebff]' : 'border-gold bg-[#fff4d1]'} ${red ? 'text-[#c8102e]' : 'text-[#17171c]'}`}
         >
           {label(placed.as)}
         </span>
@@ -529,7 +530,7 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
           {oppInfo?.displayName ?? 'Opponent'}
           <span className="font-normal text-white/60">· {Math.min(opp?.handCount ?? 0, dealtOpp)}</span>
         </div>
-        <div ref={oppRef} className="w-full max-w-md px-8 pt-3">
+        <div ref={oppRef} data-deal="opp" className="w-full max-w-md px-8 pt-3">
           <Fan
             cards={oppCards.slice(0, dealtOpp)}
             width={oppWidth}
@@ -567,6 +568,7 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
               onClick={() => void act({ type: 'drawStock' })}
               className="relative disabled:cursor-default"
               aria-label={`Draw from the deck (${view.stockCount} left)`}
+              data-deal="deck"
             >
               <DeckStack count={view.stockCount} active={view.legal.drawStock} />
             </button>
@@ -592,7 +594,7 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
         </div>
       </div>
           {myMelds.length > 0 && (
-            <div className="flex max-w-full flex-wrap justify-center gap-1">
+            <div className="flex max-w-full flex-wrap justify-center gap-x-1 gap-y-2.5">
               {myMelds.map((m) => (
                 <MeldRow key={m.id} meld={m} onTap={meldTap(m)} />
               ))}
@@ -638,7 +640,7 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
       {/* My hand and actions */}
       {me && view.phase !== 'roundOver' && view.phase !== 'finished' && (
         <div className="shrink-0 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
-          <div ref={handRef} className="mx-auto w-full max-w-xl">
+          <div ref={handRef} data-deal="me" className="mx-auto w-full max-w-xl">
             <Fan
               cards={order.slice(0, dealtMine)}
               width={handWidth}

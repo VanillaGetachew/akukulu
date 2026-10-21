@@ -22,8 +22,10 @@ Crazy is the classic shedding game Crazy Eights with the Akukulu table rules (ow
 | 7 | Carry: the 7 (played normally) may carry any number of other cards of **its own suit**, dropped together in the order chosen (`carry`). **J and 8 of any suit can be carried too**: they are jokers, so they count as the 7's suit. The last card dropped becomes the top card, and its effect applies: a wild names the suit, a 2 adds two to draw, a 5 skips. A 7 may carry the player's last cards to win. | `carryRank: '7'`, `carryWilds` |
 | 7 alone | A 7 played **on its own** skips the next player, like a 5. With two players you play again. | `loneCarrySkips` |
 | 5 | Skip: the next player loses their turn. With two players, the player who played the 5 goes again. | `skipRank: '5'` |
-| 2 | Draw two: the next player draws 2 and loses their turn. | `drawTwo` |
-| 2 on a 2 | Stacking: a player facing a draw-two may answer with any 2, and the penalty grows by 2 (4, 6, 8). While a penalty is pending, only a 2 can be played. Drawing takes the whole penalty and ends the turn. | `stackDrawTwo` |
+| 2 | Draw two: the next player picks up 2. | `drawTwo` |
+| 2 on a 2 | Stacking: a player facing a draw-two may answer with any 2, and the pile grows by 2 (4, 6, 8). While a pick-up is pending, only an answering card can be played. Tapping the deck picks up the whole pile. | `stackDrawTwo` |
+| A♠ | Pick up five: the next player picks up 5, unless they answer with **the 2♠** (no other 2 answers it). The 2♠ passes the pile on (7), and from then on it is a normal 2-stack that any 2 continues. The A♠ itself is played like any card, so it must match the suit (♠) or rank (A). | `aceOfSpadesDraw: 5` |
+| After a pick-up | Picking up the cards from a 2 or the A♠ does **not** end the turn: the player then plays, or draws one and passes (owner-confirmed). A timed-out player still picks up and the turn passes. | `playAfterPickup` |
 
 ## 4. Winning and points
 - The game ends the moment a player plays their **last card** (a wild card, or a 7 carrying the rest, may be the last play). The winner takes the **pot** (every player's entry stake).
@@ -49,7 +51,7 @@ Crazy is the classic shedding game Crazy Eights with the Akukulu table rules (ow
 - **Saved games** keep the rules they started with. The engine fills in rules missing from older saves with the behaviour of that time, so games already in progress are not changed.
 - There is no draw button: **tap the deck** (it pulses, and *tap to draw* shows under it). A pending draw-two shows *ውሰድ 4* on the deck.
 - Buttons: **ጣል** play (*play 3* for a carry), **እለፍ** pass, **ደርድር** sort.
-- The deal animation reveals each card as it lands. Card faces, the deck and the pile are shared with Conquer (`card-face.tsx`, `card-table.tsx`).
+- The deal animation measures the table: the deck is riffle-shuffled where it sits. Then each card lifts off, arcs and spins once, and lands in its place in the right fan (`data-deal="deck" | "me" | "opp"`), where it appears as it lands. Card faces, the deck and the pile are shared with Conquer (`card-face.tsx`, `card-table.tsx`).
 
 ## Not implemented (possible options later)
 - A multi-round score race (first to 100 points). Each table plays one game, and players use *Play again* for the next one.

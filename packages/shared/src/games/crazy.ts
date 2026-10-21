@@ -8,6 +8,10 @@ export interface CrazyRules {
   drawTwo: boolean;
   /** A player facing a draw-two may answer with their own 2 and pass the total on. */
   stackDrawTwo: boolean;
+  /** Cards the Ace of Spades makes the next player pick up (0 = off). Only the 2 of Spades answers it. */
+  aceOfSpadesDraw: number;
+  /** After picking up the cards from a 2 or the A♠, the player still takes their turn (instead of losing it). */
+  playAfterPickup: boolean;
   /** This rank skips the next player (null = off). With two players you play again. */
   skipRank: Rank | null;
   /** This rank may carry more cards of its own suit, dropped together in one play (null = off). */
@@ -31,6 +35,8 @@ export const DEFAULT_CRAZY_RULES: CrazyRules = {
   wildRanks: ['8', 'J'],
   drawTwo: true,
   stackDrawTwo: true,
+  aceOfSpadesDraw: 5,
+  playAfterPickup: true,
   skipRank: '5',
   carryRank: '7',
   loneCarrySkips: true,
@@ -107,8 +113,10 @@ export interface CrazyView {
   topCard: Card | null;
   /** The suit to follow: the top card's suit, or the suit named with a wild card (null on an empty pile). */
   activeSuit: Suit | null;
-  /** Cards the next draw must take because of stacked 2s (0 when none). */
+  /** Cards the next draw must take because of stacked 2s or the A♠ (0 when none). */
   pendingDraw: number;
+  /** The pending pick-up started with the A♠: only the 2 of Spades can answer it. */
+  pendingFromAce: boolean;
   discardCount: number;
   /** The last few discards, oldest first, for the tossed pile. */
   discardRecent: Card[];

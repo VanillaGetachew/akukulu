@@ -99,15 +99,15 @@ body {
   45% { transform: translate(calc(-50% + 6px), -50%) rotate(2deg); }
   55% { transform: translate(calc(-50% + 6px), -50%) rotate(2deg); }
 }
-@keyframes fx-deal {
-  0% { transform: translate(-50%, -50%) rotate(0deg) scale(1); opacity: 1; }
-  85% { opacity: 1; }
-  100% { transform: translate(calc(-50% + var(--tx)), calc(-50% + var(--ty))) rotate(var(--rot)) scale(0.85); opacity: 0; }
-}
-@keyframes fx-deck-wait {
-  0%, 30% { opacity: 0; }
-  35%, 92% { opacity: 1; }
-  100% { opacity: 0; }
+/* A dealt card: lifts off the deck, arcs and spins once, and lands in its place in the fan. */
+@keyframes fx-deal-fly {
+  0% { transform: translate(calc(var(--x0) - 50%), calc(var(--y0) - 50%)) rotate(0deg) scale(1); opacity: 1; }
+  45% {
+    transform: translate(calc(var(--x0) + (var(--x1) - var(--x0)) * 0.45 - 50%), calc(var(--y0) + (var(--y1) - var(--y0)) * 0.45 - 50% - 28px))
+      rotate(calc(var(--rot) * 0.55)) scale(1.08);
+  }
+  90% { opacity: 1; }
+  100% { transform: translate(calc(var(--x1) - 50%), calc(var(--y1) - 50%)) rotate(var(--rot)) scale(var(--s1)); opacity: 0; }
 }
 @keyframes fx-fall {
   0% { transform: translate3d(0, -20vh, 0) rotate(var(--r0)); opacity: 0; }

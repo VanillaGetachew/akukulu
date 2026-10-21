@@ -54,6 +54,8 @@ export interface CrazyState {
   /** Null while the pile is empty (the starter opens it with any card). */
   activeSuit: Suit | null;
   pendingDraw: number;
+  /** The pending pick-up started with the A♠ (only the 2♠ answers it). Missing in older saves. */
+  pendingFromAce?: boolean;
   current: number;
   phase: 'play' | 'finished';
   drawsThisTurn: number;
@@ -85,13 +87,18 @@ export const crazyHandPoints = (hand: Card[], wildRanks?: readonly Rank[]) => ha
 
 const isWild = (card: Card, rules: CrazyRules) => rules.wildRanks.includes(cardRank(card));
 const isDrawTwo = (card: Card, rules: CrazyRules) => rules.drawTwo && cardRank(card) === '2';
+const isAceOfSpades = (card: Card, rules: CrazyRules) => rules.aceOfSpadesDraw > 0 && card === 'As';
 const RANK_NAME: Record<string, string> = { '8': '8', J: 'Jack' };
 
 /** Cards of `hand` that may be played on the current table. */
 export function playableCards(state: CrazyState, hand: Card[]): Card[] {
   const { rules } = state.config;
   const top = state.discard[state.discard.length - 1];
-  if (state.pendingDraw > 0) return rules.stackDrawTwo ? hand.filter((c) => isDrawTwo(c, rules)) : [];
+  if (state.pendingDraw > 0) {
+    if (!rules.stackDrawTwo) return [];
+    // Only the 2♠ answers the A♠; any 2 answers a 2.
+    return state.pendingFromAce ? hand.filter((c) => c === '2s') : hand.filter((c) => isDrawTwo(c, rules));
+  }
   // The starter opens an empty pile with any card.
   if (!top) return [...hand];
   return hand.filter((c) => isWild(c, rules) || cardSuit(c) === state.activeSuit || cardRank(c) === cardRank(top));
@@ -180,6 +187,7 @@ function forfeit(state: CrazyState, index: number, reason: string, ctx: EngineCo
   }
   if (state.current === index) {
     state.pendingDraw = 0;
+    state.pendingFromAce = false;
     nextTurn(state, ctx);
   }
 }
@@ -209,7 +217,14 @@ function play(state: CrazyState, cards: Card[], suit: Suit | undefined, ctx: Eng
   }
   const last = cards[cards.length - 1];
   state.activeSuit = isWild(last, rules) ? suit! : cardSuit(last);
-  if (isDrawTwo(last, rules)) state.pendingDraw += 2;
+  if (isDrawTwo(last, rules)) {
+    // A 2 adds two; a 2♠ answering the A♠ passes the whole pile on (it is a normal 2-stack from here).
+    state.pendingDraw += 2;
+    state.pendingFromAce = false;
+  } else if (isAceOfSpades(last, rules)) {
+    state.pendingDraw += rules.aceOfSpadesDraw;
+    state.pendingFromAce = true;
+  }
   state.passesInRow = 0;
   const loneCarry = rules.loneCarrySkips && cards.length === 1 && rules.carryRank !== null && cardRank(last) === rules.carryRank;
   const skip = (rules.skipRank !== null && cardRank(last) === rules.skipRank) || loneCarry;
@@ -251,16 +266,24 @@ function carryError(state: CrazyState, hand: Card[], card: Card, carry: unknown)
   return null;
 }
 
-/** Takes the stacked draw-two penalty; the turn passes. */
-function takePenalty(state: CrazyState, ctx: EngineContext, out: Out) {
+/**
+ * Picks up the stacked 2s / A♠ cards. With `playAfterPickup` the player then takes
+ * their turn as normal (play, or draw one and pass); otherwise, or on a timeout, the
+ * turn passes.
+ */
+function takePenalty(state: CrazyState, ctx: EngineContext, out: Out, endTurn = false) {
   const player = state.players[state.current];
   const count = state.pendingDraw;
   let drawn = 0;
   for (let i = 0; i < count; i++) if (drawOne(state, player, ctx, out)) drawn++;
   state.pendingDraw = 0;
+  state.pendingFromAce = false;
   state.lastEvent = { playerId: player.playerId, kind: 'penalty', count: drawn };
   out.events.push({ type: 'penalty', playerId: player.playerId, data: { count: drawn } });
-  nextTurn(state, ctx);
+  if (state.config.rules.playAfterPickup && !endTurn) {
+    state.drawsThisTurn = 0;
+    setDeadline(state, ctx);
+  } else nextTurn(state, ctx);
 }
 
 const canDraw = (state: CrazyState) => state.pendingDraw > 0 || ((state.config.rules.maxDraws === 0 || state.drawsThisTurn < state.config.rules.maxDraws) && drawable(state) > 0);
@@ -292,7 +315,7 @@ function pass(state: CrazyState, ctx: EngineContext, out: Out) {
  */
 function timeoutTurn(state: CrazyState, ctx: EngineContext, out: Out) {
   const player = state.players[state.current];
-  if (state.pendingDraw > 0) return takePenalty(state, ctx, out);
+  if (state.pendingDraw > 0) return takePenalty(state, ctx, out, true);
   if (!canDraw(state)) return pass(state, ctx, out);
   drawOne(state, player, ctx, out);
   state.passesInRow = 0;
@@ -301,20 +324,20 @@ function timeoutTurn(state: CrazyState, ctx: EngineContext, out: Out) {
 }
 
 /**
- * Games saved under earlier rule sets keep the rules they started with. The first
- * release had only 8s wild, no skip or carry, and passing after the draw limit; the
- * second added 8/J wild, 7 carry and 5 skip, but no lone-7 skip, wild carrying or opener.
+ * Games saved under earlier rule sets keep the rules they started with:
+ * 1. only 8s wild, no skip or carry, passing after the draw limit;
+ * 2. 8/J wild, 7 carry and 5 skip, but no lone-7 skip, wild carrying or opener;
+ * 3. no A♠ pick-up, and picking up ended the turn.
  */
 function upgrade(s: CrazyState): CrazyState {
   const rules = s.config.rules as Partial<CrazyRules> & { eightsWild?: boolean };
-  if (typeof rules.starterOpens === 'boolean') return s;
+  if (typeof rules.aceOfSpadesDraw === 'number') return s;
   const legacy: CrazyRules = {
     ...DEFAULT_CRAZY_RULES,
     ...rules,
-    loneCarrySkips: false,
-    carryWilds: false,
-    starterOpens: false,
-    maxDraws: rules.maxDraws ?? 3,
+    aceOfSpadesDraw: 0,
+    playAfterPickup: false,
+    ...(typeof rules.starterOpens === 'boolean' ? {} : { loneCarrySkips: false, carryWilds: false, starterOpens: false, maxDraws: rules.maxDraws ?? 3 }),
     ...(Array.isArray(rules.wildRanks)
       ? {}
       : { wildRanks: rules.eightsWild === false ? [] : ['8'], skipRank: null, carryRank: null, passAfterDraws: rules.maxDraws || 3 }),
@@ -337,7 +360,8 @@ function validateRules(input: unknown): CrazyRules {
     }
   }
   if (raw.passAfterDraws !== undefined) rules.passAfterDraws = intInRange(raw.passAfterDraws, 0, 10, 'rules.passAfterDraws');
-  for (const key of ['drawTwo', 'stackDrawTwo', 'loneCarrySkips', 'carryWilds', 'starterOpens'] as const) {
+  if (raw.aceOfSpadesDraw !== undefined) rules.aceOfSpadesDraw = intInRange(raw.aceOfSpadesDraw, 0, 10, 'rules.aceOfSpadesDraw');
+  for (const key of ['drawTwo', 'stackDrawTwo', 'loneCarrySkips', 'carryWilds', 'starterOpens', 'playAfterPickup'] as const) {
     if (raw[key] !== undefined) {
       if (typeof raw[key] !== 'boolean') throw new ConfigError(`rules.${key} must be a boolean`);
       rules[key] = raw[key] as boolean;
@@ -396,6 +420,7 @@ export const crazyEngine: GameEngine<CrazyState, CrazyConfig, CrazyView> = {
       discard: starter ? [starter] : [],
       activeSuit: starter ? cardSuit(starter) : null,
       pendingDraw: 0,
+      pendingFromAce: false,
       current: first,
       phase: 'play',
       drawsThisTurn: 0,
@@ -440,7 +465,9 @@ export const crazyEngine: GameEngine<CrazyState, CrazyConfig, CrazyView> = {
         if (!playableCards(state, player.hand).includes(card)) {
           return fail(
             'ILLEGAL_CARD',
-            state.pendingDraw > 0 ? `Answer with a 2 or draw ${state.pendingDraw} cards` : 'That card does not match the suit or rank on the pile',
+            state.pendingDraw > 0
+              ? `Answer with ${state.pendingFromAce ? 'the 2♠' : 'a 2'} or pick up ${state.pendingDraw} cards`
+              : 'That card does not match the suit or rank on the pile',
           );
         }
         if (isWild(last, state.config.rules) && !(SUITS as readonly unknown[]).includes(suit)) return fail('NAME_A_SUIT', `Name the suit for your ${RANK_NAME[cardRank(last)]}`);
@@ -461,7 +488,7 @@ export const crazyEngine: GameEngine<CrazyState, CrazyConfig, CrazyView> = {
         return ok(state, out.events, out.ledger);
       }
       case 'pass': {
-        if (!canPass(state)) return fail('CANNOT_PASS', state.pendingDraw > 0 ? `Draw ${state.pendingDraw} cards or answer with a 2` : 'Draw a card first');
+        if (!canPass(state)) return fail('CANNOT_PASS', state.pendingDraw > 0 ? `Pick up ${state.pendingDraw} cards or answer with ${state.pendingFromAce ? 'the 2♠' : 'a 2'}` : 'Draw a card first');
         pass(state, ctx, out);
         return ok(state, out.events, out.ledger);
       }
@@ -520,6 +547,7 @@ export const crazyEngine: GameEngine<CrazyState, CrazyConfig, CrazyView> = {
       topCard: s.discard[s.discard.length - 1] ?? null,
       activeSuit: s.activeSuit,
       pendingDraw: s.pendingDraw,
+      pendingFromAce: !!s.pendingFromAce,
       discardCount: s.discard.length,
       discardRecent: s.discard.slice(-4),
       stockCount: s.stock.length,

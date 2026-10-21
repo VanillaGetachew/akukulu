@@ -254,6 +254,8 @@ export function CrazyTable({ state, view, act, pending, serverNow }: TableProps<
   const dealtTo = (id: string, count: number) => (landed ? Math.min(count, landed.filter((x) => x === id).length) : count);
 
   const rules = view.config.rules;
+  // Only the 2♠ answers the A♠; any 2 answers a 2.
+  const answer = view.pendingFromAce ? 'the 2♠' : 'a 2';
   const playable = useMemo(() => new Set(view.legal.play), [view.legal.play]);
   const isWild = (c: Card) => rules.wildRanks.includes(c[0] as Rank);
   const wildNames = rules.wildRanks.map((r) => RANK_LABEL[r]).join(' or ');
@@ -268,7 +270,7 @@ export function CrazyTable({ state, view, act, pending, serverNow }: TableProps<
     if (!playable.has(cards[0])) {
       setHint(
         view.pendingDraw > 0
-          ? `Answer with a 2 or draw ${view.pendingDraw}`
+          ? `Answer with ${answer} or pick up ${view.pendingDraw}`
           : view.topCard && view.activeSuit
             ? `Play a ${SUIT_SYMBOL[view.activeSuit]} card, a ${RANK_LABEL[view.topCard[0] as Rank]} or ${wildNames}`
             : 'That card cannot be played now',
@@ -297,7 +299,7 @@ export function CrazyTable({ state, view, act, pending, serverNow }: TableProps<
   const status = describe(view.lastEvent, name);
   const turnText = myTurn
     ? view.pendingDraw > 0
-      ? `የእርስዎ ተራ · answer with a 2 or draw ${view.pendingDraw}`
+      ? `የእርስዎ ተራ · answer with ${answer} or pick up ${view.pendingDraw}`
       : view.topCard
         ? 'የእርስዎ ተራ · your turn'
         : 'የእርስዎ ተራ · open with any card'
@@ -311,7 +313,7 @@ export function CrazyTable({ state, view, act, pending, serverNow }: TableProps<
       </Link>
 
       {/* Opponents */}
-      <div className="flex shrink-0 flex-wrap justify-center gap-1.5 px-11 pt-2">
+      <div data-deal="opp" className="flex shrink-0 flex-wrap justify-center gap-1.5 px-11 pt-2">
         {opponents.map((p) => (
           <Seat
             key={p.playerId}
@@ -334,7 +336,8 @@ export function CrazyTable({ state, view, act, pending, serverNow }: TableProps<
               disabled={!myTurn || !view.legal.draw || pending}
               onClick={() => void act({ type: 'draw' })}
               className="relative disabled:cursor-default"
-              aria-label={view.pendingDraw > 0 ? `Draw ${view.pendingDraw} cards` : `Draw a card (${view.stockCount} left)`}
+              aria-label={view.pendingDraw > 0 ? `Pick up ${view.pendingDraw} cards` : `Draw a card (${view.stockCount} left)`}
+              data-deal="deck"
             >
               <DeckStack count={view.stockCount} active={myTurn && view.legal.draw && !pending} />
               {myTurn && view.pendingDraw > 0 && (
@@ -381,7 +384,7 @@ export function CrazyTable({ state, view, act, pending, serverNow }: TableProps<
             You · {me.status === 'forfeited' ? 'left the game' : `${view.hand.length} cards`}
             {finished && me.points !== null && ` · ${me.points} pts`}
           </div>
-          <div ref={handRef} className="mx-auto w-full max-w-xl">
+          <div ref={handRef} data-deal="me" className="mx-auto w-full max-w-xl">
             <HandFan
               cards={deal ? order.slice(0, dealtTo(me.playerId, order.length)) : order}
               width={handWidth}

@@ -40,7 +40,8 @@ export function CardFace({ card, width, compact, star, tint }: CardFaceProps) {
   const suit = card[1] as Suit;
   const colour = suit === 'h' || suit === 'd' ? RED : BLACK;
   const label = RANK_LABEL[rank];
-  const sym = SUIT_SYMBOL[suit];
+  // U+FE0E asks for the plain text glyph, so phones never swap in an emoji ♣ or ♠.
+  const sym = `${SUIT_SYMBOL[suit]}︎`;
   const paper = tint === 'gold' ? '#fff4d1' : tint === 'violet' ? '#f1ebff' : '#ffffff';
   const border = tint === 'gold' ? '#e0a800' : tint === 'violet' ? '#8b5cf6' : '#d8d4c8';
   const court = rank === 'J' || rank === 'Q' || rank === 'K';
@@ -67,12 +68,13 @@ export function CardFace({ card, width, compact, star, tint }: CardFaceProps) {
           </text>
         ) : (
           <>
+            {/* Centred, and small enough to stay clear of both corner indices. */}
             {court ? (
-              <text x="58" y="100" textAnchor="middle" fontSize="50" opacity="0.9">
+              <text x="50" y="88" textAnchor="middle" fontSize="40" opacity="0.9">
                 {label}
               </text>
             ) : (
-              <text x="58" y="102" textAnchor="middle" fontSize="56">
+              <text x="50" y="88" textAnchor="middle" fontSize="40">
                 {sym}
               </text>
             )}

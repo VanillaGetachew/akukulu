@@ -129,7 +129,7 @@ describe('Crazy play', () => {
     expect(crazyEngine.view(next, 'b').activeSuit).toBe('s');
   });
 
-  it('a 2 makes the next player draw two and lose their turn, and 2s stack', () => {
+  it('a 2 makes the next player pick up two, and 2s stack; after picking up it is still their turn', () => {
     let s = rigged({ a: '2h 9c', b: '2c 5d', top: '7h', stockTop: 'Ks Qs Js Ts' });
     s = run(s, 'a', { type: 'play', card: '2h' });
     expect(s.pendingDraw).toBe(2);
@@ -137,11 +137,57 @@ describe('Crazy play', () => {
     expect(act(s, 'b', { type: 'play', card: '5d' })).toMatchObject({ ok: false, code: 'ILLEGAL_CARD' });
     s = run(s, 'b', { type: 'play', card: '2c' });
     expect(s.pendingDraw).toBe(4);
-    // a has no 2: drawing takes all four and the turn passes.
+    // a has no 2: drawing takes all four, then it is still a's turn to play.
     s = run(s, 'a', { type: 'draw' });
     expect(s.players[0].hand.sort()).toEqual(['9c', 'Js', 'Ks', 'Qs', 'Ts'].sort());
     expect(s.pendingDraw).toBe(0);
+    expect(s.current).toBe(0);
+    expect(crazyEngine.view(s, 'a').legal).toMatchObject({ draw: true, pass: false });
+    // The top card is the 2♣: a plays the J♠ (wild) as a normal turn.
+    s = run(s, 'a', { type: 'play', card: 'Js', suit: 's' });
     expect(s.current).toBe(1);
+  });
+
+  it('with the old option, picking up ends the turn', () => {
+    let s = rigged({ a: '2h 9c', b: '5d 6d', top: '7h', rules: { playAfterPickup: false } });
+    s = run(s, 'a', { type: 'play', card: '2h' });
+    s = run(s, 'b', { type: 'draw' });
+    expect(s.current).toBe(0);
+  });
+
+  it('the A♠ makes the next player pick up 5; only the 2♠ answers it, and the pile passes on', () => {
+    let s = rigged({ a: 'As 9c 2h', b: '2c 2s 5d', top: '7s', stockTop: 'Kh Qh Jh Th 9h 8h 6h 5h 4h' });
+    s = run(s, 'a', { type: 'play', card: 'As' });
+    expect(s).toMatchObject({ pendingDraw: 5, pendingFromAce: true, current: 1 });
+    // A 2 of another suit does not answer the A♠.
+    expect(crazyEngine.view(s, 'b').legal.play).toEqual(['2s']);
+    expect(act(s, 'b', { type: 'play', card: '2c' })).toMatchObject({ ok: false, code: 'ILLEGAL_CARD' });
+    s = run(s, 'b', { type: 'play', card: '2s' });
+    expect(s).toMatchObject({ pendingDraw: 7, pendingFromAce: false, current: 0 });
+    // Now it is a normal 2-stack: any 2 continues it.
+    expect(crazyEngine.view(s, 'a').legal.play).toEqual(['2h']);
+    s = run(s, 'a', { type: 'play', card: '2h' });
+    expect(s.pendingDraw).toBe(9);
+    s = run(s, 'b', { type: 'draw' });
+    expect(s.players[1].hand).toHaveLength(2 + 9);
+    expect(s.current).toBe(1);
+  });
+
+  it('without the 2♠, the player picks up 5 and then plays', () => {
+    let s = rigged({ a: 'As 9c', b: '2c 5d', top: '7s', stockTop: 'Kh Qh Jh Th 9h' });
+    s = run(s, 'a', { type: 'play', card: 'As' });
+    expect(crazyEngine.view(s, 'b').legal).toMatchObject({ play: [], draw: true, pass: false });
+    s = run(s, 'b', { type: 'draw' });
+    expect(s.players[1].hand.sort()).toEqual(['2c', '5d', 'Kh', 'Qh', 'Jh', 'Th', '9h'].sort());
+    expect(s.current).toBe(1);
+    // The A♠ is on top: b follows with a spade, an Ace or a wild card (here the J♥).
+    expect(crazyEngine.view(s, 'b').legal.play).toEqual(['Jh']);
+  });
+
+  it('the A♠ is played like any card: it must match the suit or rank', () => {
+    const s = rigged({ a: 'As 9c', b: '2c 5d', top: '7h' });
+    expect(act(s, 'a', { type: 'play', card: 'As' })).toMatchObject({ ok: false, code: 'ILLEGAL_CARD' });
+    expect(crazyEngine.view(rigged({ a: 'As 9c', b: '2c 5d', top: 'Ah' }), 'a').legal.play).toEqual(['As']);
   });
 
   it('without stacking, a 2 cannot be answered', () => {
@@ -304,7 +350,17 @@ describe('Crazy saved games', () => {
     const next = run(s, 'a', { type: 'play', card: '5h' });
     expect(next.current).toBe(1);
     expect(act(s, 'a', { type: 'play', card: 'Jh' }).ok).toBe(true);
-    expect(v.config.rules).toMatchObject({ loneCarrySkips: false, carryWilds: false, starterOpens: false });
+    expect(v.config.rules).toMatchObject({ loneCarrySkips: false, carryWilds: false, starterOpens: false, aceOfSpadesDraw: 0, playAfterPickup: false });
+  });
+
+  it('a game saved before the A♠ rule: the A♠ is a normal card and picking up ends the turn', () => {
+    const s = rigged({ a: 'As 2s 9c', b: '4c 4d', top: '7s', stockTop: 'Kh Qh' });
+    const { aceOfSpadesDraw: _a, playAfterPickup: _b, ...older } = DEFAULT_CRAZY_RULES;
+    s.config = { ...s.config, rules: older as never };
+    const next = run(s, 'a', { type: 'play', card: 'As' });
+    expect(next.pendingDraw).toBe(0);
+    const twos = run(s, 'a', { type: 'play', card: '2s' });
+    expect(run(twos, 'b', { type: 'draw' }).current).toBe(0);
   });
 
   it('a game saved with 8/J wild and 7 carry, before the lone-7 skip, keeps its rules', () => {

@@ -31,8 +31,9 @@ export const CRAZY_RULES: { am: string; en: string; items: string[] }[] = [
       '7 carries cards: when you play a 7, you can drop more cards of the same suit with it in one go (7♥ K♥ 3♥). A J or 8 of any suit can be carried too, because they are jokers (7♥ J♣ K♥). The last card you drop is the new top card, and its effect counts.',
       'A 7 played on its own skips the next player, like a 5.',
       '5 skips the next player. With two players, you play again.',
-      '2 is draw two: the next player draws 2 cards and misses their turn.',
-      'You can answer a 2 with your own 2. Then the next player draws 4, then 6, and so on.',
+      '2 is draw two: the next player picks up 2 cards. You can answer a 2 with your own 2, and then the next player picks up 4, then 6, and so on.',
+      'A♠ is pick up five: the next player picks up 5 cards unless they have the 2♠. The 2♠ passes the pile on (7 cards), and after that any 2 keeps it going.',
+      'After you pick up the cards from a 2 or the A♠, it is still your turn: play a card, or draw one and pass.',
     ],
   },
   {
@@ -50,7 +51,7 @@ export const CRAZY_RULES: { am: string; en: string; items: string[] }[] = [
     items: [
       'Tap a card to lift it, then tap it again (or press ጣል) to play it. Cards you cannot play are dimmed.',
       'With a 7 lifted, tap more cards of its suit (or a J or 8) to add them. They are numbered in the order they will drop. Then tap the 7 or press ጣል.',
-      'Tap the deck in the middle to draw a card, or to take the cards from 2s.',
+      'Tap the deck in the middle to draw a card, or to pick up the cards from a 2 or the A♠.',
       'እለፍ: pass your turn after drawing a card.',
       'ደርድር: sort your hand by suit and rank.',
     ],
