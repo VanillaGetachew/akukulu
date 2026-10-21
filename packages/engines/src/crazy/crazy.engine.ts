@@ -56,6 +56,8 @@ export interface CrazyState {
   pendingDraw: number;
   /** The pending pick-up started with the A♠ (only the 2♠ answers it). Missing in older saves. */
   pendingFromAce?: boolean;
+  /** The player who may not change the suit on this turn, because it was just changed. Missing in older saves. */
+  suitLockedFor?: string | null;
   current: number;
   phase: 'play' | 'finished';
   drawsThisTurn: number;
@@ -101,8 +103,14 @@ export function playableCards(state: CrazyState, hand: Card[]): Card[] {
   }
   // The starter opens an empty pile with any card.
   if (!top) return [...hand];
-  return hand.filter((c) => isWild(c, rules) || cardSuit(c) === state.activeSuit || cardRank(c) === cardRank(top));
+  // Right after a suit change, a wild card only plays if it is of the named suit (and then cannot change it).
+  const locked = suitLocked(state);
+  return hand.filter((c) => (isWild(c, rules) ? !locked || cardSuit(c) === state.activeSuit : cardSuit(c) === state.activeSuit || cardRank(c) === cardRank(top)));
 }
+
+/** The suit was just changed with a wild card, so the current player cannot change it again this turn. */
+export const suitLocked = (state: CrazyState) =>
+  state.config.rules.suitChangeCooldown && !!state.suitLockedFor && state.suitLockedFor === state.players[state.current]?.playerId;
 
 /** All 52 cards across hands, stock and discard (tests assert none is lost or duplicated). */
 export function crazyInventory(state: CrazyState): Card[] {
@@ -119,6 +127,8 @@ function setDeadline(state: CrazyState, ctx: EngineContext) {
 }
 
 function nextTurn(state: CrazyState, ctx: EngineContext) {
+  // The suit-change lock lasts for one turn: it ends when the locked player's turn ends.
+  if (state.suitLockedFor === state.players[state.current].playerId) state.suitLockedFor = null;
   const n = state.players.length;
   for (let step = 1; step <= n; step++) {
     const idx = (state.current + step) % n;
@@ -211,12 +221,15 @@ function nextActive(state: CrazyState, index: number): number {
 function play(state: CrazyState, cards: Card[], suit: Suit | undefined, ctx: EngineContext, out: Out) {
   const player = state.players[state.current];
   const { rules } = state.config;
+  const locked = suitLocked(state);
   for (const card of cards) {
     player.hand.splice(player.hand.indexOf(card), 1);
     state.discard.push(card);
   }
   const last = cards[cards.length - 1];
-  state.activeSuit = isWild(last, rules) ? suit! : cardSuit(last);
+  // A wild card names the suit, unless the suit was just changed: then the named suit stays.
+  const named = isWild(last, rules) && !locked;
+  state.activeSuit = named ? suit! : isWild(last, rules) ? (state.activeSuit ?? cardSuit(last)) : cardSuit(last);
   if (isDrawTwo(last, rules)) {
     // A 2 adds two; a 2♠ answering the A♠ passes the whole pile on (it is a normal 2-stack from here).
     state.pendingDraw += 2;
@@ -234,7 +247,7 @@ function play(state: CrazyState, cards: Card[], suit: Suit | undefined, ctx: Eng
     kind: 'play',
     card: last,
     ...(cards.length > 1 ? { cards: [...cards] } : {}),
-    ...(isWild(last, rules) ? { suit: state.activeSuit } : {}),
+    ...(named ? { suit: state.activeSuit } : {}),
     ...(skipped ? { skipped } : {}),
   };
   out.events.push({ type: 'play', playerId: player.playerId, data: { cards, suit: state.activeSuit, pendingDraw: state.pendingDraw, skipped } });
@@ -244,6 +257,8 @@ function play(state: CrazyState, cards: Card[], suit: Suit | undefined, ctx: Eng
   }
   nextTurn(state, ctx);
   if (skipped) nextTurn(state, ctx);
+  // The next player to move must follow the named suit; they cannot change it straight back.
+  if (named && rules.suitChangeCooldown) state.suitLockedFor = state.players[state.current].playerId;
 }
 
 /**
@@ -327,16 +342,17 @@ function timeoutTurn(state: CrazyState, ctx: EngineContext, out: Out) {
  * Games saved under earlier rule sets keep the rules they started with:
  * 1. only 8s wild, no skip or carry, passing after the draw limit;
  * 2. 8/J wild, 7 carry and 5 skip, but no lone-7 skip, wild carrying or opener;
- * 3. no A♠ pick-up, and picking up ended the turn.
+ * 3. no A♠ pick-up, and picking up ended the turn;
+ * 4. the suit could be changed straight back after a suit change.
  */
 function upgrade(s: CrazyState): CrazyState {
   const rules = s.config.rules as Partial<CrazyRules> & { eightsWild?: boolean };
-  if (typeof rules.aceOfSpadesDraw === 'number') return s;
+  if (typeof rules.suitChangeCooldown === 'boolean') return s;
   const legacy: CrazyRules = {
     ...DEFAULT_CRAZY_RULES,
     ...rules,
-    aceOfSpadesDraw: 0,
-    playAfterPickup: false,
+    suitChangeCooldown: false,
+    ...(typeof rules.aceOfSpadesDraw === 'number' ? {} : { aceOfSpadesDraw: 0, playAfterPickup: false }),
     ...(typeof rules.starterOpens === 'boolean' ? {} : { loneCarrySkips: false, carryWilds: false, starterOpens: false, maxDraws: rules.maxDraws ?? 3 }),
     ...(Array.isArray(rules.wildRanks)
       ? {}
@@ -361,7 +377,7 @@ function validateRules(input: unknown): CrazyRules {
   }
   if (raw.passAfterDraws !== undefined) rules.passAfterDraws = intInRange(raw.passAfterDraws, 0, 10, 'rules.passAfterDraws');
   if (raw.aceOfSpadesDraw !== undefined) rules.aceOfSpadesDraw = intInRange(raw.aceOfSpadesDraw, 0, 10, 'rules.aceOfSpadesDraw');
-  for (const key of ['drawTwo', 'stackDrawTwo', 'loneCarrySkips', 'carryWilds', 'starterOpens', 'playAfterPickup'] as const) {
+  for (const key of ['suitChangeCooldown', 'drawTwo', 'stackDrawTwo', 'loneCarrySkips', 'carryWilds', 'starterOpens', 'playAfterPickup'] as const) {
     if (raw[key] !== undefined) {
       if (typeof raw[key] !== 'boolean') throw new ConfigError(`rules.${key} must be a boolean`);
       rules[key] = raw[key] as boolean;
@@ -421,6 +437,7 @@ export const crazyEngine: GameEngine<CrazyState, CrazyConfig, CrazyView> = {
       activeSuit: starter ? cardSuit(starter) : null,
       pendingDraw: 0,
       pendingFromAce: false,
+      suitLockedFor: null,
       current: first,
       phase: 'play',
       drawsThisTurn: 0,
@@ -470,7 +487,10 @@ export const crazyEngine: GameEngine<CrazyState, CrazyConfig, CrazyView> = {
               : 'That card does not match the suit or rank on the pile',
           );
         }
-        if (isWild(last, state.config.rules) && !(SUITS as readonly unknown[]).includes(suit)) return fail('NAME_A_SUIT', `Name the suit for your ${RANK_NAME[cardRank(last)]}`);
+        // Right after a suit change the wild card plays as its own suit, so no suit is named.
+        if (isWild(last, state.config.rules) && !suitLocked(state) && !(SUITS as readonly unknown[]).includes(suit)) {
+          return fail('NAME_A_SUIT', `Name the suit for your ${RANK_NAME[cardRank(last)]}`);
+        }
         play(state, cards, suit as Suit | undefined, ctx, out);
         return ok(state, out.events, out.ledger);
       }
@@ -548,6 +568,7 @@ export const crazyEngine: GameEngine<CrazyState, CrazyConfig, CrazyView> = {
       activeSuit: s.activeSuit,
       pendingDraw: s.pendingDraw,
       pendingFromAce: !!s.pendingFromAce,
+      suitLocked: !finished && suitLocked(s),
       discardCount: s.discard.length,
       discardRecent: s.discard.slice(-4),
       stockCount: s.stock.length,

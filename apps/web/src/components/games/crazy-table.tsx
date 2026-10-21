@@ -272,13 +272,16 @@ export function CrazyTable({ state, view, act, pending, serverNow }: TableProps<
         view.pendingDraw > 0
           ? `Answer with ${answer} or pick up ${view.pendingDraw}`
           : view.topCard && view.activeSuit
-            ? `Play a ${SUIT_SYMBOL[view.activeSuit]} card, a ${RANK_LABEL[view.topCard[0] as Rank]} or ${wildNames}`
+            ? view.suitLocked
+              ? `The suit was just changed — follow ${SUIT_SYMBOL[view.activeSuit]} this turn`
+              : `Play a ${SUIT_SYMBOL[view.activeSuit]} card, a ${RANK_LABEL[view.topCard[0] as Rank]} or ${wildNames}`
             : 'That card cannot be played now',
       );
       return;
     }
-    // The last card dropped decides the effect: a wild card asks for the next suit.
-    if (isWild(cards[cards.length - 1])) setChoosing(cards);
+    // The last card dropped decides the effect: a wild card asks for the next suit,
+    // unless the suit was just changed (then it plays as its own suit).
+    if (isWild(cards[cards.length - 1]) && !view.suitLocked) setChoosing(cards);
     else play(cards);
   };
   const lead = selected[0];
@@ -363,6 +366,7 @@ export function CrazyTable({ state, view, act, pending, serverNow }: TableProps<
             {suitChanged ? 'Suit changed to' : 'Follow'}
             <span className={`grid h-6 w-6 place-items-center rounded-full bg-white text-base leading-none ${red(view.activeSuit) ? 'text-[#c8102e]' : 'text-[#17171c]'}`}>{SUIT_SYMBOL[view.activeSuit]}</span>
             {!suitChanged && <span className="font-normal text-white/70">or {RANK_LABEL[view.topCard[0] as Rank]}</span>}
+            {view.suitLocked && <span className="font-normal">· no change this turn</span>}
           </div>
         ) : (
           <div className="rounded-full bg-black/40 px-3 py-1 text-xs font-bold">

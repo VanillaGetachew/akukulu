@@ -47,7 +47,7 @@ export function CardRain({ count = 28 }: { count?: number }) {
 }
 
 /** Timing of the deal, so a table can reveal each card as it lands. */
-export const DEAL_TIMING = { shuffleMs: 1100, stepMs: 120, flightMs: 520 };
+export const DEAL_TIMING = { shuffleMs: 250, stepMs: 110, flightMs: 420 };
 
 /** Cards that have landed `elapsed` ms after the deal started. */
 export const dealtCount = (elapsed: number, total: number) =>
@@ -60,10 +60,9 @@ interface Box {
 }
 
 /**
- * Start-of-round animation: the deck is riffle-shuffled where it sits on the table,
- * then cards fly out one at a time, in an arc, to their place in the player's fan
- * (bottom) or the opponents' (top), in `sequence` order. Calls `onDone` once the last
- * card has landed.
+ * Start-of-round animation: cards slide off the table's one deck, one at a time, to
+ * their place in the player's fan (bottom) or the opponents' (top), in `sequence`
+ * order. Calls `onDone` once the last card has landed.
  *
  * Positions come from elements the table marks with `data-deal="deck" | "me" | "opp"`;
  * without them it falls back to the middle, bottom and top of the screen.
@@ -96,22 +95,10 @@ export function ShuffleAndDeal({ onDone, sequence }: { onDone: () => void; seque
 
   const counts = { me: sequence.filter((x) => x === 'me').length, opp: sequence.filter((x) => x === 'opp').length };
   const seen = { me: 0, opp: 0 };
-  const at = (b: Box) => ({ left: b.x, top: b.y });
   return (
     <div ref={root} className="pointer-events-none absolute inset-0 z-[39]" aria-hidden="true">
       {boxes && (
         <>
-          {/* Riffle shuffle on the deck: two half-decks sweep together twice. */}
-          {Array.from({ length: 5 }, (_, i) => (
-            <div key={`l${i}`} className="absolute" style={{ ...at(boxes.deck), animation: `fx-riffle-left ${shuffleMs / 2000}s ease-in-out ${i * 0.03}s 2 both`, marginTop: -i * 1.5 }}>
-              <PlayingCard card="??" />
-            </div>
-          ))}
-          {Array.from({ length: 5 }, (_, i) => (
-            <div key={`r${i}`} className="absolute" style={{ ...at(boxes.deck), animation: `fx-riffle-right ${shuffleMs / 2000}s ease-in-out ${i * 0.03 + 0.015}s 2 both`, marginTop: -i * 1.5 }}>
-              <PlayingCard card="??" />
-            </div>
-          ))}
           {sequence.map((to, i) => {
             const k = seen[to]++;
             const n = counts[to];
@@ -125,13 +112,14 @@ export function ShuffleAndDeal({ onDone, sequence }: { onDone: () => void; seque
                 className="absolute left-0 top-0 opacity-0"
                 style={
                   {
-                    animation: `fx-deal-fly ${flightMs / 1000}s cubic-bezier(.25,.75,.3,1) ${(shuffleMs + i * stepMs) / 1000}s both`,
+                    animation: `fx-deal-fly ${flightMs / 1000}s ease-out ${(shuffleMs + i * stepMs) / 1000}s both`,
                     '--x0': `${boxes.deck.x}px`,
                     '--y0': `${boxes.deck.y}px`,
                     '--x1': `${target.x + offset}px`,
                     '--y1': `${target.y}px`,
-                    '--rot': `${(k - (n - 1) / 2) * (to === 'me' ? 3 : -3) + (to === 'me' ? 360 : -360)}deg`,
-                    '--s1': to === 'me' ? '1.05' : '0.7',
+                    // Just the small tilt the card has in the fan; no spin.
+                    '--rot': `${(k - (n - 1) / 2) * (to === 'me' ? 2 : -2)}deg`,
+                    '--s1': to === 'me' ? '1' : '0.7',
                   } as React.CSSProperties
                 }
               >

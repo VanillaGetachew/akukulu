@@ -196,6 +196,48 @@ describe('Crazy play', () => {
     expect(crazyEngine.view(s, 'b').legal.play).toEqual([]);
   });
 
+  it('right after a suit change, the next player cannot change it again', () => {
+    let s = rigged({ a: 'Jc 9h 3d', b: '8s Jh 4c', top: '7h' });
+    s = run(s, 'a', { type: 'play', card: 'Jc', suit: 'd' });
+    expect(crazyEngine.view(s, 'b')).toMatchObject({ suitLocked: true, activeSuit: 'd' });
+    // b's 8♠ and J♥ cannot change the suit now: b has nothing that follows ♦, so b draws.
+    expect(crazyEngine.view(s, 'b').legal.play).toEqual([]);
+    expect(act(s, 'b', { type: 'play', card: '8s', suit: 'h' })).toMatchObject({ ok: false, code: 'ILLEGAL_CARD' });
+    s = run(s, 'b', { type: 'draw' });
+    s = run(s, 'b', { type: 'pass' });
+    // One turn has passed: a plays the 3♦, and then b may change the suit again.
+    expect(crazyEngine.view(s, 'a').suitLocked).toBe(false);
+    s = run(s, 'a', { type: 'play', card: '3d' });
+    expect(crazyEngine.view(s, 'b').legal.play).toEqual(expect.arrayContaining(['8s', 'Jh']));
+    s = run(s, 'b', { type: 'play', card: '8s', suit: 'c' });
+    expect(s.activeSuit).toBe('c');
+  });
+
+  it('a wild card of the named suit plays as a normal card during the lock', () => {
+    let s = rigged({ a: 'Jc 9h 3d', b: 'Jd 4c 5c', top: '7h' });
+    s = run(s, 'a', { type: 'play', card: 'Jc', suit: 'd' });
+    expect(crazyEngine.view(s, 'b').legal.play).toEqual(['Jd']);
+    // No suit is named: the suit stays ♦, and a may change it next turn.
+    s = run(s, 'b', { type: 'play', card: 'Jd' });
+    expect(s.activeSuit).toBe('d');
+    expect(s.lastEvent?.suit).toBeUndefined();
+    expect(crazyEngine.view(s, 'a').suitLocked).toBe(false);
+  });
+
+  it('a wild carried at the end of a 7 play also locks the next player', () => {
+    // a opens 7♣ carrying the J♦ (wild): suit named ♠. b moves next and is locked.
+    let s = rigged({ a: '7c Jd 9c', b: '8h 4s', top: '7h' });
+    s = run(s, 'a', { type: 'play', card: '7c', carry: ['Jd'], suit: 's' });
+    expect(s.current).toBe(1);
+    expect(crazyEngine.view(s, 'b')).toMatchObject({ suitLocked: true, legal: { play: ['4s'] } });
+  });
+
+  it('the cooldown can be turned off (option)', () => {
+    let s = rigged({ a: 'Jc 9h', b: '8s 4c', top: '7h', rules: { suitChangeCooldown: false } });
+    s = run(s, 'a', { type: 'play', card: 'Jc', suit: 'd' });
+    expect(crazyEngine.view(s, 'b').legal.play).toEqual(['8s']);
+  });
+
   it('a Jack is wild like an 8', () => {
     const s = rigged({ a: 'Jc Kc', b: '4c 4d', top: '7h' });
     expect(crazyEngine.view(s, 'a').legal.play).toEqual(['Jc']);
@@ -355,7 +397,7 @@ describe('Crazy saved games', () => {
 
   it('a game saved before the A♠ rule: the A♠ is a normal card and picking up ends the turn', () => {
     const s = rigged({ a: 'As 2s 9c', b: '4c 4d', top: '7s', stockTop: 'Kh Qh' });
-    const { aceOfSpadesDraw: _a, playAfterPickup: _b, ...older } = DEFAULT_CRAZY_RULES;
+    const { aceOfSpadesDraw: _a, playAfterPickup: _b, suitChangeCooldown: _c, ...older } = DEFAULT_CRAZY_RULES;
     s.config = { ...s.config, rules: older as never };
     const next = run(s, 'a', { type: 'play', card: 'As' });
     expect(next.pendingDraw).toBe(0);
@@ -365,7 +407,7 @@ describe('Crazy saved games', () => {
 
   it('a game saved with 8/J wild and 7 carry, before the lone-7 skip, keeps its rules', () => {
     const s = rigged({ a: '7c 3h Jd', b: '4c 4d', top: '7h' });
-    const { loneCarrySkips: _a, carryWilds: _b, starterOpens: _c, ...older } = DEFAULT_CRAZY_RULES;
+    const { loneCarrySkips: _a, carryWilds: _b, starterOpens: _c, aceOfSpadesDraw: _d, playAfterPickup: _e, suitChangeCooldown: _f, ...older } = DEFAULT_CRAZY_RULES;
     s.config = { ...s.config, rules: { ...older, maxDraws: 3 } as never };
     expect(run(s, 'a', { type: 'play', card: '7c' }).current).toBe(1);
     expect(act(s, 'a', { type: 'play', card: '7c', carry: ['Jd'] })).toMatchObject({ ok: false, code: 'BAD_CARRY' });

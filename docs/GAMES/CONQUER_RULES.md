@@ -112,7 +112,7 @@ Each player receives only their own hand. Opponent hand sizes, the deck count an
 - Hand order: a new deal is sorted by suit and drawn cards go on the right; nothing reorders automatically.
 - **ደርድር** (best order): rearranges the hand with the best melds first, jokers placed in the gaps they fill, then **near-melds**: run fragments (same suit, one or two apart) and same-rank pairs. Single cards come next, by suit and rank, with leftover jokers last (`arrangeHand()` / `nearMelds()`).
 - **Cards** are drawn as realistic SVG faces (`card-face.tsx`): corner indices, traditional pips, framed court cards, a printed joker and a lattice back. Faces are kept flat and simple: a corner index and one large suit (or the court letter).
-- **Deal animation:** after the prediction the deck is shuffled and the cards fly out one at a time, alternating from the starter; each card appears in its player's fan as it lands.
+- **Deal animation:** after the prediction the cards slide off the table's deck one at a time, alternating from the starter. Each card appears in its player's fan as it lands.
 - **Layout:** the hand, timer and buttons never scroll; card size follows the screen height and the buttons sit in one row. Only the table middle (deck and your melds) scrolls if it must.
 - The **deck** is drawn as a 3D stack that thins as it empties. The opponent's name sits above their fan.
 - The **opponent's melds** are shown face-up at the front of their fan at the top. Tap one (it glows green) to add the selected card to it.

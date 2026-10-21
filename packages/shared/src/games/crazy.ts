@@ -4,6 +4,11 @@ import type { Card, Rank, Suit } from '../cards';
 export interface CrazyRules {
   /** Wild ranks (8 and J): play one on anything and name the next suit. */
   wildRanks: Rank[];
+  /**
+   * After someone changes the suit with a wild card, the next player cannot change it
+   * again: they follow the named suit (a wild card of that suit plays as a normal card).
+   */
+  suitChangeCooldown: boolean;
   /** A 2 makes the next player draw two cards and lose their turn. */
   drawTwo: boolean;
   /** A player facing a draw-two may answer with their own 2 and pass the total on. */
@@ -33,6 +38,7 @@ export interface CrazyRules {
 
 export const DEFAULT_CRAZY_RULES: CrazyRules = {
   wildRanks: ['8', 'J'],
+  suitChangeCooldown: true,
   drawTwo: true,
   stackDrawTwo: true,
   aceOfSpadesDraw: 5,
@@ -117,6 +123,8 @@ export interface CrazyView {
   pendingDraw: number;
   /** The pending pick-up started with the A♠: only the 2 of Spades can answer it. */
   pendingFromAce: boolean;
+  /** The suit was just changed: the current player must follow it and cannot change it again this turn. */
+  suitLocked: boolean;
   discardCount: number;
   /** The last few discards, oldest first, for the tossed pile. */
   discardRecent: Card[];
