@@ -140,7 +140,7 @@ body {
   transition: transform 0.6s cubic-bezier(0.2, 0.85, 0.3, 1.15);
 }
 .dice3d-cube.tumbling {
-  animation: dice-tumble 0.55s linear infinite;
+  animation: dice-tumble 0.95s linear infinite;
 }
 @keyframes dice-tumble {
   from { transform: rotateX(0) rotateY(0) rotateZ(0); }

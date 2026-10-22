@@ -38,7 +38,7 @@ export default {
       animation: {
         dealIn: 'dealIn .35s cubic-bezier(.2,.8,.2,1) both',
         pop: 'pop .3s ease-out both',
-        roll: 'roll .5s linear infinite',
+        roll: 'roll .85s linear infinite',
         shimmer: 'shimmer 1.6s linear infinite',
         pulseRing: 'pulseRing 1.2s ease-out infinite',
       },

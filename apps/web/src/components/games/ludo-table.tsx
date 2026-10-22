@@ -182,7 +182,12 @@ interface Throw {
   key: number;
   /** The server has answered the roll. */
   resolved: boolean;
+  /** The die has come down on the board (it lies flat from then on). */
+  landed: boolean;
 }
+
+/** How long a throw flies before it lands (the ludo-throw animation runs 1.15 s, touching down at ~70%). */
+const THROW_LAND_MS = 820;
 
 /**
  * The die in a player's corner. Tap it to roll in place (as before), or press, drag and
@@ -349,25 +354,32 @@ export function LudoTable({ state, view, act, pending, serverNow }: TableProps<L
     const x1 = clamp(at.x + v.vx * 340, b.left + pad, b.right - pad);
     const y1 = clamp(at.y + v.vy * 340, b.top + pad, b.bottom - pad);
     const dir = v.vx >= 0 ? 1 : -1;
+    const key = Date.now();
     setThrown({
       x0: at.x,
       y0: at.y,
       x1,
       y1,
-      spin: dir * (620 + Math.random() * 360),
+      spin: dir * (420 + Math.random() * 240),
       bx: clamp(v.vx * 18, -16, 16),
       by: clamp(v.vy * 18, -16, 16),
-      key: Date.now(),
+      key,
       resolved: false,
+      landed: false,
     });
-    void act({ type: 'roll' }).then(() => setThrown((t) => (t ? { ...t, resolved: true } : t)));
+    setTimeout(() => setThrown((t) => (t && t.key === key ? { ...t, landed: true } : t)), THROW_LAND_MS);
+    void act({ type: 'roll' }).then(() => setThrown((t) => (t && t.key === key ? { ...t, resolved: true } : t)));
   };
   // The landed die stays on the board while the move is made, then is picked up again.
+  // After a six (or another extra roll) it comes back to your corner quickly so you can go again.
+  const settled = !!thrown?.resolved && !!thrown?.landed;
   useEffect(() => {
-    if (!thrown?.resolved || view.phase !== 'roll') return;
-    const t = setTimeout(() => setThrown(null), 1400);
+    if (!settled || view.phase !== 'roll') return;
+    const t = setTimeout(() => setThrown(null), myTurn ? 700 : 1400);
     return () => clearTimeout(t);
-  }, [thrown?.resolved, view.phase, view.turn]);
+  }, [settled, view.phase, view.turn, myTurn]);
+  // My die is off the board and back in my corner whenever I may roll again.
+  const dieInCorner = !thrown || (settled && view.phase === 'roll');
 
   // A little confetti burst whenever a pawn reaches home.
   const [bursts, setBursts] = useState<{ id: number; x: number; y: number }[]>([]);
@@ -438,7 +450,7 @@ export function LudoTable({ state, view, act, pending, serverNow }: TableProps<L
         right={pos.endsWith('r')}
         die={
           // My die leaves the corner while it is on the board after a throw.
-          isTurn && !(p?.playerId === user?.id && thrown) ? (
+          isTurn && !(p?.playerId === user?.id && !dieInCorner) ? (
             <Die value={dieValue} rolling={pending && view.phase === 'roll'} active={canRoll} onRoll={() => void act({ type: 'roll' })} onThrow={throwDie} />
           ) : null
         }
@@ -488,7 +500,7 @@ export function LudoTable({ state, view, act, pending, serverNow }: TableProps<L
           className="pointer-events-none fixed left-0 top-0 z-[38] grid h-14 w-14 place-items-center drop-shadow-[0_10px_8px_rgba(0,0,0,.4)]"
           style={
             {
-              animation: 'ludo-throw .7s cubic-bezier(.2,.75,.35,1) both',
+              animation: 'ludo-throw 1.15s cubic-bezier(.2,.7,.3,1) both',
               '--x0': `${thrown.x0}px`,
               '--y0': `${thrown.y0}px`,
               '--x1': `${thrown.x1}px`,
@@ -499,7 +511,14 @@ export function LudoTable({ state, view, act, pending, serverNow }: TableProps<L
             } as React.CSSProperties
           }
         >
-          <Dice3D value={thrown.resolved ? dieValue : null} spinning={!thrown.resolved} size={46} />
+          {/* 3D only while it flies; once it lands it lies flat on one face, so the number is plain to read. */}
+          {settled && dieValue ? (
+            <div className="h-12 w-12 drop-shadow-[0_4px_4px_rgba(0,0,0,.35)]">
+              <DieFace value={dieValue} />
+            </div>
+          ) : (
+            <Dice3D value={null} spinning size={46} />
+          )}
         </div>
       )}
       <Link href="/games/ludo" aria-label="Back to the lobby" className="absolute left-2 top-2 z-[36] grid h-8 w-8 place-items-center rounded-full bg-black/30 text-sm font-bold">
@@ -511,7 +530,17 @@ export function LudoTable({ state, view, act, pending, serverNow }: TableProps<L
           {corner('tr')}
         </div>
         <div ref={boxRef} className="w-full">
-          <svg ref={boardRef} viewBox="0 0 15 15" width={size} height={size} className="mx-auto block touch-manipulation select-none" role="img" aria-label="Ludo board">
+          {/* overflow visible: a pawn standing on the top row reaches above the board's edge. */}
+          <svg
+            ref={boardRef}
+            viewBox="0 0 15 15"
+            width={size}
+            height={size}
+            className="mx-auto block touch-manipulation select-none"
+            style={{ overflow: 'visible' }}
+            role="img"
+            aria-label="Ludo board"
+          >
             <defs>
               {(Object.keys(COLOR) as LudoColor[]).map((c) => (
                 <g key={c}>
