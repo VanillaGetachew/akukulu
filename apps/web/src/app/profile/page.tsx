@@ -6,6 +6,7 @@ import { GAME_CATALOG, type MatchSummary, type PlayerStatsSummary } from '@akuku
 import { api } from '@/lib/api';
 import { useSession } from '@/lib/session';
 import { Avatar, Coin, EmptyState, ErrorState, LoadingState, Page, Points } from '@/components/ui';
+import { HandHistoryList } from '@/components/games/poker-history';
 
 export default function ProfilePage() {
   const { user, refreshUser } = useSession();
@@ -103,6 +104,9 @@ export default function ProfilePage() {
           })}
         </div>
       )}
+
+      <h2 className="mb-2 mt-4 font-display text-base font-extrabold">Poker hand history</h2>
+      <HandHistoryList limit={20} empty="Hands you play at the poker tables will appear here." />
     </Page>
   );
 }

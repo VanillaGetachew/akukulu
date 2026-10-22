@@ -29,6 +29,8 @@ import {
   RoomsController,
 } from './http/public.controllers';
 import { AdminController, InternalController } from './http/admin.controllers';
+import { AdminTournamentsController, PokerController } from './http/poker.controllers';
+import { PokerService } from './poker/poker.service';
 
 export interface AppModuleOptions {
   config?: AppConfig;
@@ -63,7 +65,9 @@ export class AppModule {
         RewardsController,
         MatchesController,
         LeaderboardController,
+        PokerController,
         AdminController,
+        AdminTournamentsController,
         InternalController,
       ],
       providers: [
@@ -81,6 +85,7 @@ export class AppModule {
         RoomPresenter,
         RoomsService,
         MatchRuntimeService,
+        PokerService,
         Broadcaster,
         PresenceService,
         GameGateway,

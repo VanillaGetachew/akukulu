@@ -5,6 +5,7 @@ import type { GameSummary, MatchSummary, UserProfile } from '@akukulu/shared';
 import { api } from '@/lib/api';
 import { useSession } from '@/lib/session';
 import { ErrorState, LoadingState, Page, Toast } from '@/components/ui';
+import { AdminTournaments } from '@/components/admin-tournaments';
 
 interface Overview {
   users: number;
@@ -222,6 +223,8 @@ export default function AdminPage() {
               </div>
             )}
           </section>
+
+          <AdminTournaments onDone={setToast} />
 
           <section className="card p-4">
             <div className="mb-2 flex items-center justify-between gap-2">

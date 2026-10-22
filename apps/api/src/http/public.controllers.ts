@@ -10,6 +10,7 @@ import { MatchRuntimeService } from '../matches/match-runtime.service';
 import { RoomsService } from '../rooms/rooms.service';
 import { WalletService } from '../wallet/wallet.service';
 import { PresenceService } from '../realtime/presence.service';
+import { PokerService } from '../poker/poker.service';
 import { GameError, body, displayName, optInt, reqString, toProfile } from '../common/util';
 
 @Controller('auth')
@@ -222,7 +223,14 @@ export class MatchesController {
     if (!(await this.runtime.isPlayer(id, user.id)) && !user.isAdmin) throw new GameError('FORBIDDEN', 'Participants only', 403);
     if (match.status === 'active' && !user.isAdmin) throw new GameError('MATCH_ACTIVE', 'Replays are available after the match');
     const events = await this.dataSource.getRepository(MatchEventEntity).find({ where: { matchId: id }, order: { seq: 'ASC' } });
-    return events.map((e) => ({ seq: e.seq, type: e.type, userId: e.userId, payload: e.payload, createdAt: e.createdAt.toISOString() }));
+    // Hand histories keep every hole card; players only get back their own and the ones shown down.
+    return PokerService.redactEvents(events, user.isAdmin ? null : user.id).map((e) => ({
+      seq: e.seq,
+      type: e.type,
+      userId: e.userId,
+      payload: e.payload,
+      createdAt: e.createdAt.toISOString(),
+    }));
   }
 }
 

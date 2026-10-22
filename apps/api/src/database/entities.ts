@@ -192,7 +192,46 @@ export class RewardRequestEntity {
   @CreateDateColumn({ type: 'timestamptz' }) createdAt: Date;
 }
 
+/** A scheduled poker tournament created by an administrator. */
+@Entity('tournaments')
+@Index(['status', 'startsAt'])
+export class TournamentEntity {
+  @PrimaryGeneratedColumn('uuid') id: string;
+  @Column({ type: 'varchar' }) name: string;
+  @Column({ type: 'varchar', default: 'poker' }) gameSlug: GameSlug;
+  @Column({ type: 'varchar' }) status: 'scheduled' | 'running' | 'finished' | 'cancelled';
+  @Column({ type: 'timestamptz' }) startsAt: Date;
+  /** Entry fee in points, taken at registration and refunded on unregistering or cancellation. */
+  @Column({ type: 'integer' }) buyIn: number;
+  /** Minimum prize pool; the house adds the difference. */
+  @Column({ type: 'integer', default: 0 }) guarantee: number;
+  @Column({ type: 'integer' }) startingStack: number;
+  @Column({ type: 'integer' }) levelMinutes: number;
+  @Column({ type: 'integer', default: 0 }) lateRegLevels: number;
+  @Column({ type: 'integer' }) maxEntrants: number;
+  @Column({ type: 'integer', default: 9 }) tableSize: number;
+  @Column({ type: 'uuid', nullable: true }) matchId: string | null;
+  @Column({ type: 'uuid', nullable: true }) createdBy: string | null;
+  @CreateDateColumn({ type: 'timestamptz' }) createdAt: Date;
+  @UpdateDateColumn({ type: 'timestamptz' }) updatedAt: Date;
+}
+
+@Entity('tournament_entries')
+@Unique(['tournamentId', 'userId'])
+export class TournamentEntryEntity {
+  @PrimaryGeneratedColumn('uuid') id: string;
+  @Index()
+  @Column({ type: 'uuid' })
+  tournamentId: string;
+  @Index()
+  @Column({ type: 'uuid' })
+  userId: string;
+  @CreateDateColumn({ type: 'timestamptz' }) createdAt: Date;
+}
+
 export const ENTITIES = [
+  TournamentEntity,
+  TournamentEntryEntity,
   RewardRequestEntity,
   UserEntity,
   LedgerEntryEntity,

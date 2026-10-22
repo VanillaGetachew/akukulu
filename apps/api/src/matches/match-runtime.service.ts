@@ -18,13 +18,19 @@ import { GameError, displayName } from '../common/util';
 
 type Input =
   | { kind: 'action'; userId: string; clientActionId: string; action: Record<string, unknown> }
-  | { kind: 'tick' };
+  | { kind: 'tick' }
+  /** Taking a seat in a running match (cash tables, late tournament registration). */
+  | { kind: 'join'; userId: string; action: Record<string, unknown> };
 
 interface Committed {
   match: MatchEntity;
   players: MatchPlayerEntity[];
   touchedUsers: Set<string>;
   finished: boolean;
+  /** Players who just took a seat: they stop receiving the spectator view. */
+  joined?: string[];
+  /** Players who just stood up from an open table: they keep watching as spectators. */
+  dropped?: string[];
 }
 
 const SWEEP_INTERVAL_MS = 5_000;
@@ -172,6 +178,39 @@ export class MatchRuntimeService implements OnApplicationBootstrap, OnModuleDest
     return { match, players, touchedUsers, finished };
   }
 
+  /**
+   * Opens a match that has no room: a permanent cash table (no players yet) or a
+   * scheduled tournament (its registered players). Publishes it straight away.
+   */
+  async startStandalone(gameSlug: MatchEntity['gameSlug'], configInput: unknown, stake: number, userIds: string[]): Promise<MatchEntity> {
+    const engine = engineFor(gameSlug);
+    let config: unknown;
+    try {
+      config = engine.parseConfig(configInput, stake);
+    } catch (err) {
+      throw new GameError('BAD_CONFIG', (err as Error).message);
+    }
+    const committed = await this.dataSource.transaction(async (manager) => {
+      const balances = await this.ledger.balancesFor(manager, userIds);
+      const res = engine.start(userIds.map((id, seat) => ({ playerId: id, seat })), config, this.ctx(balances));
+      if (!res.ok) throw new GameError(res.code, res.error);
+      const match = await manager.getRepository(MatchEntity).save(
+        manager.getRepository(MatchEntity).create({ roomId: null, gameSlug, status: 'active', state: res.state, version: 1, deadline: engine.deadline(res.state) }),
+      );
+      const players = userIds.length
+        ? await manager.getRepository(MatchPlayerEntity).save(
+            userIds.map((userId, i) => manager.getRepository(MatchPlayerEntity).create({ matchId: match.id, userId, seat: engine.seatOf?.(res.state, userId) ?? i })),
+          )
+        : [];
+      const touchedUsers = new Set<string>();
+      await this.applyLedger(manager, match.id, res, touchedUsers);
+      await this.appendEvents(manager, match.id, null, null, res);
+      return { match, players, touchedUsers, finished: false };
+    });
+    await this.publish(committed);
+    return committed.match;
+  }
+
   /** Publishes the effects of a committed start (call after the transaction). */
   async afterStart(committed: Committed) {
     await this.publish(committed);
@@ -188,6 +227,14 @@ export class MatchRuntimeService implements OnApplicationBootstrap, OnModuleDest
     }
     return this.serialize(matchId, async () => {
       const committed = await this.transition(matchId, { kind: 'action', userId, clientActionId, action });
+      if (committed) await this.publish(committed);
+    });
+  }
+
+  /** Takes a seat in a running match; the engine decides whether that is allowed (and takes any buy-in). */
+  join(matchId: string, userId: string, action: Record<string, unknown>): Promise<void> {
+    return this.serialize(matchId, async () => {
+      const committed = await this.transition(matchId, { kind: 'join', userId, action });
       if (committed) await this.publish(committed);
     });
   }
@@ -217,7 +264,8 @@ export class MatchRuntimeService implements OnApplicationBootstrap, OnModuleDest
         throw new GameError('GAME_OVER', 'This match has ended');
       }
       const engine = engineFor(match.gameSlug);
-      const players = await manager.getRepository(MatchPlayerEntity).find({ where: { matchId }, order: { seat: 'ASC' } });
+      let players = await manager.getRepository(MatchPlayerEntity).find({ where: { matchId }, order: { seat: 'ASC' } });
+      const joining = input.kind === 'join' && !players.some((p) => p.userId === input.userId);
 
       if (input.kind === 'action') {
         if (!players.some((p) => p.userId === input.userId)) throw new GameError('NOT_IN_MATCH', 'You are not a player in this match', 403);
@@ -229,19 +277,39 @@ export class MatchRuntimeService implements OnApplicationBootstrap, OnModuleDest
         if (duplicate) return null; // already applied — acknowledge without re-applying
       }
 
-      const balances = await this.ledger.balancesFor(manager, players.map((p) => p.userId));
+      const balances = await this.ledger.balancesFor(manager, [...players.map((p) => p.userId), ...(joining ? [input.userId] : [])]);
       const ctx = this.ctx(balances);
       const res: EngineResult<unknown> | null =
-        input.kind === 'action' ? engine.act(match.state, input.userId, input.action, ctx) : engine.tick(match.state, ctx);
+        input.kind === 'tick' ? engine.tick(match.state, ctx) : engine.act(match.state, input.userId, input.action, ctx);
       if (res === null) return null;
       if (!res.ok) throw new GameError(res.code, res.error);
 
+      const joined: string[] = [];
+      if (joining) {
+        const repo = manager.getRepository(MatchPlayerEntity);
+        players.push(await repo.save(repo.create({ matchId, userId: input.userId, seat: engine.seatOf?.(res.state, input.userId) ?? players.length })));
+        joined.push(input.userId);
+      }
       const touchedUsers = new Set<string>();
       await this.applyLedger(manager, matchId, res, touchedUsers);
       if (input.kind === 'action') {
         await this.appendEvents(manager, matchId, input.userId, input.clientActionId, res, input.action);
+      } else if (input.kind === 'join') {
+        await this.appendEvents(manager, matchId, input.userId, null, res, input.action);
       } else {
         await this.appendEvents(manager, matchId, null, null, res);
+      }
+      // Open tables: whoever stood up leaves the roster (and can sit down again later).
+      const dropped: string[] = [];
+      const seated = engine.participants?.(res.state);
+      if (seated) {
+        const keep = new Set(seated);
+        const gone = players.filter((p) => !keep.has(p.userId));
+        if (gone.length) {
+          await manager.getRepository(MatchPlayerEntity).delete({ id: In(gone.map((p) => p.id)) });
+          dropped.push(...gone.map((p) => p.userId));
+          players = players.filter((p) => keep.has(p.userId));
+        }
       }
       match.state = res.state;
       match.version += 1;
@@ -252,7 +320,7 @@ export class MatchRuntimeService implements OnApplicationBootstrap, OnModuleDest
         finished = true;
       }
       await manager.getRepository(MatchEntity).save(match);
-      return { match, players, touchedUsers, finished };
+      return { match, players, touchedUsers, finished, joined, dropped };
     });
   }
 
@@ -433,8 +501,10 @@ export class MatchRuntimeService implements OnApplicationBootstrap, OnModuleDest
     };
   }
 
-  private async publish({ match, players, touchedUsers, finished }: Committed) {
+  private async publish({ match, players, touchedUsers, finished, joined = [], dropped = [] }: Committed) {
     this.schedule(match.id, match.status === 'active' ? match.deadline : null);
+    for (const id of joined) this.broadcaster.leave(id, spectatorChannel(match.id));
+    for (const id of dropped) this.broadcaster.join(id, spectatorChannel(match.id));
     try {
       const engine = engineFor(match.gameSlug);
       const users = await this.dataSource.getRepository(UserEntity).findBy({ id: In(players.map((p) => p.userId)) });
@@ -443,9 +513,18 @@ export class MatchRuntimeService implements OnApplicationBootstrap, OnModuleDest
       for (const p of players) {
         this.broadcaster.toUser(p.userId, 'match:state', this.buildPayload(match, engine, players, users, room?.code ?? null, p.userId, online));
       }
-      this.broadcaster.emit(spectatorChannel(match.id), 'match:state', this.buildPayload(match, engine, players, users, room?.code ?? null, null, online));
+      const spectatorView = this.buildPayload(match, engine, players, users, room?.code ?? null, null, online);
+      this.broadcaster.emit(spectatorChannel(match.id), 'match:state', spectatorView);
+      for (const id of dropped) this.broadcaster.toUser(id, 'match:state', spectatorView);
       for (const u of users) {
         if (touchedUsers.has(u.id)) this.broadcaster.toUser(u.id, 'balance:update', { balance: u.balance });
+      }
+      const cashedOut = dropped.filter((id) => touchedUsers.has(id));
+      if (cashedOut.length) {
+        // Someone who stood up still needs their new balance.
+        for (const u of await this.dataSource.getRepository(UserEntity).findBy({ id: In(cashedOut) })) {
+          this.broadcaster.toUser(u.id, 'balance:update', { balance: u.balance });
+        }
       }
       if (finished) {
         const summary = await this.summaryOf(match);

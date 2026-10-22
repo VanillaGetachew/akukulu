@@ -23,6 +23,15 @@ export class Broadcaster {
     (this.server.to(channel).emit as (e: string, ...a: unknown[]) => void)(event, ...args);
   }
 
+  /** Adds every socket of a user to a channel (e.g. to keep watching a table after standing up). */
+  join(userId: string, channel: string) {
+    this.server?.in(userChannel(userId)).socketsJoin(channel);
+  }
+
+  leave(userId: string, channel: string) {
+    this.server?.in(userChannel(userId)).socketsLeave(channel);
+  }
+
   toUser<E extends keyof ServerToClientEvents>(userId: string, event: E, ...args: Parameters<ServerToClientEvents[E]>) {
     this.emit(userChannel(userId), event, ...args);
   }

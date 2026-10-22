@@ -115,6 +115,13 @@ export interface GameEngine<S = unknown, C = unknown, V extends GameView = GameV
   placements(state: S): Placement[] | null;
   /** Personalised view: never contains information the viewer is not entitled to. */
   view(state: S, viewerId: string | null): V;
+  /**
+   * Open tables only (permanent cash games): who is seated now. Players who are not
+   * are dropped from the match until they sit down again. Null = everyone stays.
+   */
+  participants?(state: S): string[] | null;
+  /** Seat a player who joined a running match holds (for the match roster). */
+  seatOf?(state: S, playerId: string): number | null;
 }
 
 /** Deep clone for immutable state transitions (state is plain JSON). */

@@ -8,6 +8,7 @@ import { DataSource } from 'typeorm';
 import { seededRng } from '@akukulu/engines';
 import {
   GAME_SLUGS,
+  HIDDEN_CARD,
   LEGACY_CONQUER_MAINTENANCE_MESSAGE,
   NO_ENGINE_MAINTENANCE_MESSAGE,
   type BlackjackView,
@@ -20,6 +21,7 @@ import {
 import { GamesService } from './games/games.service';
 import { MatchRuntimeService } from './matches/match-runtime.service';
 import { LedgerService } from './wallet/ledger.service';
+import { PokerService } from './poker/poker.service';
 import { ADMIN_TELEGRAM_ID, client, connect, emitAck, initDataFor, startApp, type TestApp } from './testing/harness';
 
 const DB = process.env.TEST_DATABASE_URL;
@@ -411,6 +413,143 @@ suite('API integration', () => {
     expect(final.status).toBe('finished');
     expect(await balance(stay)).toBe(900 + 300);
     for (const p of three) if (p !== stay) expect(await balance(p)).toBe(900);
+  });
+
+  /** Polls until `check` passes (timers in the runtime move the game on). */
+  async function eventually<T>(read: () => Promise<T>, check: (v: T) => boolean, ms = 10_000): Promise<T> {
+    const until = Date.now() + ms;
+    for (;;) {
+      const v = await read();
+      if (check(v) || Date.now() > until) return v;
+      await new Promise((r) => setTimeout(r, 150));
+    }
+  }
+
+  it('keeps permanent poker cash tables open: sit down any time, stand up with your chips, keep a hand history', async () => {
+    const a = await login('Abebe');
+    const b = await login('Bethel');
+    const tables = (await api('GET', '/poker/tables', a.token)).body;
+    expect(tables.map((x: { bigBlind: number }) => x.bigBlind)).toEqual([10, 50, 200, 1000]);
+    const table = tables[0];
+    expect(table).toMatchObject({ smallBlind: 5, bigBlind: 10, minBuyIn: 400, maxBuyIn: 1000, seated: 0, maxSeats: 9 });
+    // Anyone can watch before sitting down.
+    const watching = await state<PokerView>(table.matchId, a);
+    expect(watching.view.cash).toMatchObject({ minBuyIn: 400, maxBuyIn: 1000 });
+    expect(watching.view.phase).toBe('waiting');
+
+    expect((await api('POST', `/poker/tables/${table.matchId}/sit`, a.token, { buyIn: 300 })).status).toBe(400);
+    expect((await api('POST', `/poker/tables/${table.matchId}/sit`, a.token, { buyIn: 500, seat: 4 })).status).toBe(200);
+    expect((await api('POST', `/poker/tables/${table.matchId}/sit`, a.token, { buyIn: 500 })).status).toBe(400);
+    expect((await api('POST', `/poker/tables/${table.matchId}/sit`, b.token, { buyIn: 1000 })).status).toBe(200);
+    expect(await balance(a)).toBe(500);
+    expect(await balance(b)).toBe(0);
+
+    // The first hand is dealt a moment after the second player sits.
+    let s = await eventually(() => state<PokerView>(table.matchId, a), (v) => v.view.phase === 'preflop');
+    expect(s.view.phase).toBe('preflop');
+    const mine = s.view.players.find((p) => p.playerId === a.id)!;
+    expect(mine.seat).toBe(4);
+    expect(mine.hole.every((c) => c !== HIDDEN_CARD)).toBe(true);
+    expect(mine.handLabel).toMatch(/High|Pair/);
+    const first = s.view.currentPlayerId === a.id ? a : b;
+    expect(await act(first, table.matchId, { type: 'fold' })).toMatchObject({ ok: true });
+
+    // a stands up between hands and gets the stack back as points.
+    s = await state<PokerView>(table.matchId, a);
+    expect(s.view.phase).toBe('handComplete');
+    const stack = s.view.players.find((p) => p.playerId === a.id)!.stack;
+    expect(await act(a, table.matchId, { type: 'leave' })).toMatchObject({ ok: true });
+    expect(await balance(a)).toBe(500 + stack);
+    s = await state<PokerView>(table.matchId, a);
+    expect(s.view.players.map((p) => p.playerId)).toEqual([b.id]);
+    expect(s.status).toBe('active');
+    expect((await api('GET', '/me/active', a.token)).body.matches.map((m: { id: string }) => m.id)).not.toContain(table.matchId);
+    expect((await api('GET', '/poker/tables', b.token)).body[0]).toMatchObject({ seated: 1, seatedHere: true });
+
+    // Both kept the hand; each sees only their own cards (nothing was shown down).
+    const history = (await api('GET', `/poker/hands?matchId=${table.matchId}`, a.token)).body;
+    expect(history).toHaveLength(1);
+    expect(history[0]).toMatchObject({ handNumber: 1, smallBlind: 5, bigBlind: 10, tableName: 'Addis 5/10' });
+    const seats = new Map(history[0].players.map((p: { playerId: string }) => [p.playerId, p]));
+    expect((seats.get(a.id) as { hole: string[] }).hole).toHaveLength(2);
+    expect((seats.get(b.id) as { hole: unknown }).hole).toBeNull();
+    expect(history[0].actions.map((x: { action: string }) => x.action)).toEqual(expect.arrayContaining(['fold']));
+    // a can sit down again later with a fresh buy-in.
+    expect((await api('POST', `/poker/tables/${table.matchId}/sit`, a.token, { buyIn: 400 })).status).toBe(200);
+    expect(await balance(a)).toBe(100 + stack);
+  });
+
+  it('runs admin-scheduled poker tournaments: registration with refunds, start on time, late registration, prizes by place', async () => {
+    const admin = await loginAdmin();
+    const runtime = t.app.get(MatchRuntimeService);
+    const poker = t.app.get(PokerService);
+    const T = Date.now();
+    const form = { name: 'Friday Freeroll', startsAt: new Date(T + 60_000).toISOString(), buyIn: 100, guarantee: 1000, startingStack: 1500, levelMinutes: 5, lateRegLevels: 1, maxEntrants: 20, tableSize: 2 };
+    const players = [await login('Hana'), await login('Dawit'), await login('Liya'), await login('Kebede')];
+    expect((await api('POST', '/admin/tournaments', players[0].token, form)).status).toBe(403);
+    const created = await api('POST', '/admin/tournaments', admin.token, form);
+    expect(created.status).toBe(201);
+    expect(created.body).toMatchObject({ status: 'scheduled', prizePool: 1000, registered: 0, canRegister: true });
+    const id = created.body.id;
+
+    for (const p of players.slice(0, 3)) expect((await api('POST', `/poker/tournaments/${id}/register`, p.token)).status).toBe(200);
+    expect((await api('POST', `/poker/tournaments/${id}/register`, players[0].token)).status).toBe(400);
+    expect(await balance(players[0])).toBe(900);
+    // Unregistering returns the buy-in; registering again takes it again.
+    expect((await api('POST', `/poker/tournaments/${id}/unregister`, players[0].token)).status).toBe(200);
+    expect(await balance(players[0])).toBe(1000);
+    expect((await api('POST', `/poker/tournaments/${id}/register`, players[0].token)).status).toBe(200);
+    const lobby = (await api('GET', '/poker/tournaments', players[0].token)).body.find((x: { id: string }) => x.id === id);
+    expect(lobby).toMatchObject({ registered: 3, isRegistered: true, status: 'scheduled' });
+    expect((await api('PATCH', `/admin/tournaments/${id}`, admin.token, { buyIn: 200 })).status).toBe(400);
+    expect((await api('PATCH', `/admin/tournaments/${id}`, admin.token, { name: 'Friday Night Freeroll' })).body.name).toBe('Friday Night Freeroll');
+
+    // Start time passes (the clock is frozen so the tables wait for the first deal).
+    runtime.now = () => T + 120_000;
+    poker.now = () => T + 120_000;
+    try {
+      await poker.startDueTournaments();
+      const running = (await api('GET', `/poker/tournaments/${id}`, players[0].token)).body;
+      expect(running).toMatchObject({ status: 'running', registered: 3, canRegister: true });
+      const s = await state<PokerView>(running.matchId, players[0]);
+      expect(s.view.tournament).toMatchObject({ kind: 'mtt', entrants: 3, tables: 2, prizePool: 1000, bigBlind: 20 });
+      // Late registration seats a fourth player.
+      expect((await api('POST', `/poker/tournaments/${id}/register`, players[3].token)).status).toBe(200);
+      expect(await balance(players[3])).toBe(900);
+      expect((await state<PokerView>(running.matchId, players[3])).view.tournament).toMatchObject({ entrants: 4, playersLeft: 4 });
+      expect((await api('POST', `/poker/tournaments/${id}/unregister`, players[3].token)).status).toBe(400);
+
+      // Three players leave before the first deal: they finish 4th, 3rd and 2nd; 4 entrants pay 65/35.
+      for (const p of players.slice(1)) expect(await act(p, running.matchId, { type: 'leave' })).toMatchObject({ ok: true });
+      const final = await state<PokerView>(running.matchId, players[0]);
+      expect(final.status).toBe('finished');
+      await poker.closeFinishedTournaments();
+      expect((await api('GET', `/poker/tournaments/${id}`, players[0].token)).body.status).toBe('finished');
+      expect(await balance(players[0])).toBe(900 + 650);
+      expect(await balance(players[3])).toBe(900 + 350);
+      expect(await balance(players[1])).toBe(900);
+      expect(await balance(players[2])).toBe(900);
+      const summary = (await api('GET', `/matches/${running.matchId}`, players[0].token)).body;
+      expect(summary.players.find((p: { userId: string }) => p.userId === players[0].id)).toMatchObject({ placement: 1, outcome: 'win' });
+
+      // A tournament nobody else joins is cancelled at its start time and the buy-in comes back.
+      const lonely = (await api('POST', '/admin/tournaments', admin.token, { ...form, name: 'Lonely', startsAt: new Date(T + 90_000).toISOString() })).body;
+      await api('POST', `/poker/tournaments/${lonely.id}/register`, players[1].token);
+      expect(await balance(players[1])).toBe(800);
+      await poker.startDueTournaments();
+      expect((await api('GET', `/poker/tournaments/${lonely.id}`, players[1].token)).body.status).toBe('cancelled');
+      expect(await balance(players[1])).toBe(900);
+    } finally {
+      runtime.now = () => Date.now();
+      poker.now = () => Date.now();
+    }
+
+    // An administrator can cancel a scheduled tournament; every buy-in is returned.
+    const later = (await api('POST', '/admin/tournaments', admin.token, { ...form, name: 'Later', startsAt: new Date(Date.now() + 3_600_000).toISOString() })).body;
+    await api('POST', `/poker/tournaments/${later.id}/register`, players[2].token);
+    expect(await balance(players[2])).toBe(800);
+    expect((await api('POST', `/admin/tournaments/${later.id}/cancel`, admin.token, {})).body.status).toBe('cancelled');
+    expect(await balance(players[2])).toBe(900);
   });
 
   it('plays a blackjack session with a hidden dealer hole card', async () => {

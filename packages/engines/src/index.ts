@@ -1,7 +1,7 @@
 import type { GameSlug } from '@akukulu/shared';
 import type { GameEngine } from './core';
 import { ludoEngine } from './ludo/ludo.engine';
-import { pokerEngine } from './poker/poker.engine';
+import { pokerGameEngine } from './poker/poker-mtt';
 import { blackjackEngine } from './blackjack/blackjack.engine';
 import { conquerEngine } from './conquer/conquer.engine';
 import { crazyEngine } from './crazy/crazy.engine';
@@ -9,6 +9,7 @@ import { crazyEngine } from './crazy/crazy.engine';
 export * from './core';
 export * from './ludo/ludo.engine';
 export * from './poker/poker.engine';
+export * from './poker/poker-mtt';
 export * from './poker/hand-evaluator';
 export * from './blackjack/blackjack.engine';
 export * from './conquer/conquer.engine';
@@ -19,7 +20,7 @@ export * from './crazy/crazy.engine';
 
 export const ENGINES: Partial<Record<GameSlug, GameEngine<any, any>>> = {
   ludo: ludoEngine,
-  poker: pokerEngine,
+  poker: pokerGameEngine,
   blackjack: blackjackEngine,
   conquer: conquerEngine,
   crazy: crazyEngine,

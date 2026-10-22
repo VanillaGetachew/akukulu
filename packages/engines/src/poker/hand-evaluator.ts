@@ -111,3 +111,37 @@ export function evaluateBest(cards: Card[]): EvaluatedHand {
 export function compareHands(a: Card[], b: Card[]): number {
   return evaluateBest(a).score - evaluateBest(b).score;
 }
+
+const RANK_NAME: Record<string, [string, string]> = {
+  '2': ['Two', 'Twos'], '3': ['Three', 'Threes'], '4': ['Four', 'Fours'], '5': ['Five', 'Fives'], '6': ['Six', 'Sixes'],
+  '7': ['Seven', 'Sevens'], '8': ['Eight', 'Eights'], '9': ['Nine', 'Nines'], T: ['Ten', 'Tens'], J: ['Jack', 'Jacks'],
+  Q: ['Queen', 'Queens'], K: ['King', 'Kings'], A: ['Ace', 'Aces'],
+};
+
+/**
+ * Plain-words name of the best hand in `cards` (hole cards plus whatever board is out):
+ * "Ace High", "Pair of Kings", "Two Pair, Aces & Kings", "Full House, Sevens over Twos".
+ * Null for fewer than two cards.
+ */
+export function describeHand(cards: Card[]): string | null {
+  if (cards.length < 2) return null;
+  const one = (c: Card) => RANK_NAME[cardRank(c)][0];
+  const many = (c: Card) => RANK_NAME[cardRank(c)][1];
+  if (cards.length < 5) {
+    const sorted = [...cards].sort((a, b) => RANK_VALUE[cardRank(b)] - RANK_VALUE[cardRank(a)]);
+    const pair = sorted.find((c, i) => sorted.some((d, j) => j !== i && cardRank(d) === cardRank(c)));
+    return pair ? `Pair of ${many(pair)}` : `${one(sorted[0])} High`;
+  }
+  const { categoryIndex, category, best } = evaluateBest(cards);
+  switch (categoryIndex) {
+    case 0: return `${one(best[0])} High`;
+    case 1: return `Pair of ${many(best[0])}`;
+    case 2: return `Two Pair, ${many(best[0])} & ${many(best[2])}`;
+    case 3: return `Three of a Kind, ${many(best[0])}`;
+    case 4: return `Straight, ${one(best[0])} High`;
+    case 5: return `Flush, ${one(best[0])} High`;
+    case 6: return `Full House, ${many(best[0])} over ${many(best[3])}`;
+    case 7: return `Four of a Kind, ${many(best[0])}`;
+    default: return category === 'Royal Flush' ? 'Royal Flush' : `Straight Flush, ${one(best[0])} High`;
+  }
+}
