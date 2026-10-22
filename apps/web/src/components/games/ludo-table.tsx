@@ -91,10 +91,20 @@ function Star({ x, y, size, fill, stroke }: { x: number; y: number; size: number
 function Pawn({ color }: { color: LudoColor }) {
   return (
     <g>
-      <ellipse cx="0" cy="0.3" rx="0.3" ry="0.1" fill="#000" opacity="0.28" />
-      <path d="M -0.26 0.3 Q -0.27 0.12 -0.1 -0.02 L 0.1 -0.02 Q 0.27 0.12 0.26 0.3 Z" fill={`url(#pawn-${color})`} stroke={DARK[color]} strokeWidth="0.03" />
-      <circle cx="0" cy="-0.16" r="0.19" fill={`url(#pawn-${color})`} stroke={DARK[color]} strokeWidth="0.03" />
-      <ellipse cx="-0.06" cy="-0.22" rx="0.06" ry="0.045" fill="#fff" opacity="0.75" />
+      {/* Soft shadow falling to the lower right. */}
+      <ellipse cx="0.12" cy="0.3" rx="0.31" ry="0.14" fill="url(#pawn-shadow)" />
+      {/* A pin: flared body with a rounded base, slim neck, round head. */}
+      <path
+        d="M -0.075 -0.3 C -0.09 -0.13 -0.26 0.03 -0.27 0.18 C -0.28 0.3 -0.15 0.34 0 0.34 C 0.15 0.34 0.28 0.3 0.27 0.18 C 0.26 0.03 0.09 -0.13 0.075 -0.3 Z"
+        fill={`url(#pawn-body-${color})`}
+        stroke={DARK[color]}
+        strokeWidth="0.018"
+      />
+      <ellipse cx="0" cy="-0.3" rx="0.1" ry="0.035" fill={DARK[color]} opacity="0.55" />
+      <circle cx="0" cy="-0.43" r="0.165" fill={`url(#pawn-${color})`} stroke={DARK[color]} strokeWidth="0.018" />
+      {/* Highlights: a streak down the body and a spot on the head. */}
+      <path d="M -0.13 0.2 C -0.14 0.07 -0.08 -0.09 -0.045 -0.2" fill="none" stroke="#fff" strokeWidth="0.04" strokeLinecap="round" opacity="0.5" />
+      <ellipse cx="-0.055" cy="-0.49" rx="0.055" ry="0.038" fill="#fff" opacity="0.85" />
     </g>
   );
 }
@@ -108,15 +118,42 @@ const PIPS: Record<number, [number, number][]> = {
   6: [[30, 28], [70, 28], [30, 50], [70, 50], [30, 72], [70, 72]],
 };
 
-/** The white die face (no value yet: faint pips). */
-function DieFace({ value, spinning }: { value: number | null; spinning?: boolean }) {
+/** Where each value sits on the cube, and the cube turn that brings that face to the front. */
+const FACES: { value: number; place: string; show: string }[] = [
+  { value: 1, place: 'rotateY(0deg)', show: 'rotateY(0deg)' },
+  { value: 6, place: 'rotateY(180deg)', show: 'rotateY(180deg)' },
+  { value: 3, place: 'rotateY(90deg)', show: 'rotateY(-90deg)' },
+  { value: 4, place: 'rotateY(-90deg)', show: 'rotateY(90deg)' },
+  { value: 5, place: 'rotateX(90deg)', show: 'rotateX(-90deg)' },
+  { value: 2, place: 'rotateX(-90deg)', show: 'rotateX(90deg)' },
+];
+
+/**
+ * A real 3D die: a cube with six pipped faces, tipped so its top and side show. It
+ * tumbles while the roll is in the air and settles with the rolled number facing up.
+ */
+function Dice3D({ value, spinning, size }: { value: number | null; spinning?: boolean; size: number }) {
+  const show = FACES.find((f) => f.value === (value ?? 5))!.show;
   return (
-    <svg viewBox="0 0 100 100" className={`h-full w-full ${spinning ? 'animate-roll' : value ? 'animate-pop' : ''}`} key={`${value}-${spinning}`}>
-      <rect x="4" y="4" width="92" height="92" rx="22" fill="#fbfaf5" stroke="#d6d2c4" strokeWidth="3" />
-      {(value ? PIPS[value] : [[30, 30], [70, 70]]).map(([x, y], i) => (
-        <circle key={i} cx={x} cy={y} r="9.5" fill={value ? '#1b1b26' : '#c9c4b6'} />
-      ))}
-    </svg>
+    <div className="dice3d" style={{ width: size, height: size }}>
+      <div className={`dice3d-cube ${spinning ? 'tumbling' : ''}`} style={spinning ? undefined : { transform: `rotateX(-22deg) rotateY(28deg) ${show}` }}>
+        {FACES.map((f) => (
+          <div key={f.value} className="dice3d-face" style={{ transform: `${f.place} translateZ(${size / 2}px)` }}>
+            <svg viewBox="0 0 100 100" className="h-full w-full">
+              <defs>
+                <radialGradient id={`pip-${size}`} cx="40%" cy="35%" r="65%">
+                  <stop offset="0" stopColor="#4a4a58" />
+                  <stop offset="1" stopColor="#101018" />
+                </radialGradient>
+              </defs>
+              {PIPS[f.value].map(([x, y], i) => (
+                <circle key={i} cx={x} cy={y} r="9.5" fill={f.value === 1 ? '#c8102e' : `url(#pip-${size})`} />
+              ))}
+            </svg>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -190,7 +227,7 @@ function Die({
       className={`relative z-[38] grid h-14 w-14 shrink-0 touch-none select-none place-items-center rounded-2xl bg-[#13306b] p-1.5 shadow-lg ring-2 ${active ? 'cursor-grab ring-white' : 'ring-[#2a4c9a]'} ${active && !drag ? 'animate-pulseRing' : ''}`}
       style={drag ? { transform: `translate(${drag.dx}px, ${drag.dy}px) scale(1.15) rotate(${drag.dx / 4}deg)`, cursor: 'grabbing' } : { transition: 'transform .15s' }}
     >
-      <DieFace value={value} spinning={rolling} />
+      <Dice3D value={value} spinning={rolling} size={36} />
     </div>
   );
 }
@@ -435,7 +472,7 @@ export function LudoTable({ state, view, act, pending, serverNow }: TableProps<L
         // The thrown die tumbling to where it was thrown; it shows the number once the server answers.
         <div
           key={thrown.key}
-          className="pointer-events-none fixed left-0 top-0 z-[38] h-14 w-14 rounded-2xl drop-shadow-[0_8px_10px_rgba(0,0,0,.45)]"
+          className="pointer-events-none fixed left-0 top-0 z-[38] grid h-14 w-14 place-items-center drop-shadow-[0_10px_8px_rgba(0,0,0,.4)]"
           style={
             {
               animation: 'ludo-throw .7s cubic-bezier(.2,.75,.35,1) both',
@@ -449,7 +486,7 @@ export function LudoTable({ state, view, act, pending, serverNow }: TableProps<L
             } as React.CSSProperties
           }
         >
-          <DieFace value={thrown.resolved ? dieValue : null} spinning={!thrown.resolved} />
+          <Dice3D value={thrown.resolved ? dieValue : null} spinning={!thrown.resolved} size={46} />
         </div>
       )}
       <Link href="/games/ludo" aria-label="Back to the lobby" className="absolute left-2 top-2 z-[36] grid h-8 w-8 place-items-center rounded-full bg-black/30 text-sm font-bold">
@@ -464,12 +501,23 @@ export function LudoTable({ state, view, act, pending, serverNow }: TableProps<L
           <svg ref={boardRef} viewBox="0 0 15 15" width={size} height={size} className="mx-auto block touch-manipulation select-none" role="img" aria-label="Ludo board">
             <defs>
               {(Object.keys(COLOR) as LudoColor[]).map((c) => (
-                <radialGradient key={c} id={`pawn-${c}`} cx="35%" cy="30%" r="75%">
-                  <stop offset="0" stopColor={LIGHT[c]} />
-                  <stop offset="0.55" stopColor={COLOR[c]} />
-                  <stop offset="1" stopColor={DARK[c]} />
-                </radialGradient>
+                <g key={c}>
+                  <radialGradient id={`pawn-${c}`} cx="35%" cy="30%" r="75%">
+                    <stop offset="0" stopColor={LIGHT[c]} />
+                    <stop offset="0.55" stopColor={COLOR[c]} />
+                    <stop offset="1" stopColor={DARK[c]} />
+                  </radialGradient>
+                  <linearGradient id={`pawn-body-${c}`} x1="0" y1="0" x2="1" y2="0">
+                    <stop offset="0" stopColor={LIGHT[c]} />
+                    <stop offset="0.4" stopColor={COLOR[c]} />
+                    <stop offset="1" stopColor={DARK[c]} />
+                  </linearGradient>
+                </g>
               ))}
+              <radialGradient id="pawn-shadow" cx="50%" cy="50%" r="50%">
+                <stop offset="0" stopColor="#000" stopOpacity="0.38" />
+                <stop offset="1" stopColor="#000" stopOpacity="0" />
+              </radialGradient>
             </defs>
             <g transform={`rotate(${deg} 7.5 7.5)`}>
               <rect width="15" height="15" rx="0.45" fill="#fff" stroke="#163a7a" strokeWidth="0.08" />
@@ -534,22 +582,15 @@ export function LudoTable({ state, view, act, pending, serverNow }: TableProps<L
             {placed.map((t) => (
               <g
                 key={t.key}
-                style={{ transform: `translate(${t.x}px, ${t.y - 0.08}px)`, transition: `transform ${STEP_MS - 20}ms ease-out`, cursor: t.movable ? 'pointer' : 'default' }}
+                style={{ transform: `translate(${t.x}px, ${t.y + 0.02}px)`, transition: `transform ${STEP_MS - 20}ms ease-out`, cursor: t.movable ? 'pointer' : 'default' }}
                 onClick={() => t.movable && void act({ type: 'move', token: t.token })}
                 role={t.movable ? 'button' : undefined}
                 aria-label={t.movable ? `Move ${t.color} pawn ${t.token + 1}` : undefined}
               >
-                {/* Pawns a third bigger; one you can move glows and bobs so it is easy to spot. */}
-                <g transform="scale(1.3)">
-                  {t.movable && (
-                    <>
-                      <circle r="0.48" cy="0.18" fill="#fff6a8" className="ludo-glow" style={{ transformBox: 'fill-box', transformOrigin: 'center' }} />
-                      <circle r="0.48" cy="0.18" fill="none" stroke="#fff" strokeWidth="0.07" />
-                    </>
-                  )}
-                  <g className={t.movable ? 'ludo-bob' : undefined}>
-                    <Pawn color={t.color} />
-                  </g>
+                {/* Pawns a quarter bigger; one you can move stands in a gently breathing ring. */}
+                <g transform="scale(1.25)">
+                  {t.movable && <ellipse cy="0.29" rx="0.36" ry="0.17" fill="rgba(255,255,255,.28)" stroke="#fff" strokeWidth="0.045" className="ludo-ring" />}
+                  <Pawn color={t.color} />
                 </g>
               </g>
             ))}
