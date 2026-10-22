@@ -88,6 +88,25 @@ body {
   background-size: auto, 120px 120px;
 }
 
+/* Ludo table: deep blue with a soft dot pattern. */
+.ludo-bg {
+  background-color: #1d4596;
+  background-image:
+    radial-gradient(ellipse at center, rgba(255, 255, 255, 0.08), transparent 70%),
+    radial-gradient(circle, rgba(0, 0, 0, 0.16) 3px, transparent 3.5px);
+  background-size: auto, 34px 34px;
+}
+
+/* A revealed card peels onto the table (ዶቤ win). */
+.fx-peel {
+  animation: fx-peel 0.55s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+@keyframes fx-peel {
+  0% { opacity: 0; transform: translateY(-26px) rotate(-14deg) scale(0.6); }
+  60% { opacity: 1; transform: translateY(3px) rotate(2deg) scale(1.05); }
+  100% { opacity: 1; transform: none; }
+}
+
 /* ---- Card animations: deal, winner's card rain ---- */
 /* A dealt card: slides off the deck straight to its place in the fan. */
 @keyframes fx-deal-fly {

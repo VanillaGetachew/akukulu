@@ -254,6 +254,31 @@ function TurnBar({ view, serverNow, state, mine }: { view: ConquerView; serverNo
   );
 }
 
+/**
+ * A ዶቤ win, revealed slowly so everyone sees it: the five pairs and then the set of
+ * three peel onto the table one card at a time.
+ */
+function DobeReveal({ dobe, wild }: { dobe: { pairs: Card[][]; triple: Card[] }; wild: Set<Card> }) {
+  const groups = [...dobe.pairs, dobe.triple];
+  let n = 0;
+  return (
+    <div className="rounded-xl bg-gold/10 p-2">
+      <div className="mb-1.5 text-center font-ethiopic text-sm font-black text-gold">ዶቤ · five pairs and a set of three</div>
+      <div className="flex flex-wrap justify-center gap-2">
+        {groups.map((g, gi) => (
+          <div key={gi} className={`flex -space-x-2 rounded-lg p-0.5 ${gi === groups.length - 1 ? 'ring-1 ring-gold/60' : ''}`}>
+            {g.map((c) => (
+              <div key={c} className="fx-peel" style={{ animationDelay: `${0.35 * n++}s` }}>
+                <MiniCard placed={{ card: c, as: c, wild: wild.has(c) }} width={30} />
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /** Shown to the player whose turn timer ran out: return within the grace period, or give up the round. */
 function GracePopup({ view, serverNow, onGiveUp, pending }: { view: ConquerView; serverNow: () => number; onGiveUp: () => void; pending: boolean }) {
   const [now, setNow] = useState(serverNow());
@@ -279,7 +304,7 @@ function GracePopup({ view, serverNow, onGiveUp, pending }: { view: ConquerView;
         <button className="btn-primary py-3" onClick={() => setDismissed(graceAt)}>
           <span className="font-ethiopic">ወደ ጨዋታው ተመለስ</span> · Return to game
         </button>
-        <button className="btn-ghost py-2.5 text-danger" disabled={pending} onClick={onGiveUp}>
+        <button className="rounded-xl bg-danger py-3 font-bold text-white shadow transition active:scale-95 disabled:opacity-50" disabled={pending} onClick={onGiveUp}>
           <span className="font-ethiopic">ተሸንፌያለሁ</span> · Give up this round
         </button>
       </div>
@@ -751,10 +776,13 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
                       ? 'Won by forfeit.'
                       : 'The deck ran out.'}
             </div>
+            {result.dobe && <DobeReveal dobe={result.dobe} wild={wild} />}
             {(() => {
               const stake = view.config.stake;
-              // Points that changed hands: the stake, or double it on a ጆከር ለመሬት finish (older results have no `won`).
-              const amount = result.won ?? stake;
+              // The winner gains `won` (older results have none); each loser loses an equal share of it.
+              const gained = result.won ?? stake;
+              const lost = Math.round(gained / Math.max(1, view.players.length - 1));
+              const amount = result.winnerId === user?.id ? gained : lost;
               const mine = result.winnerId === null ? 0 : result.winnerId === user?.id ? amount : -amount;
               return (
                 <div className={`flex items-center justify-center gap-2 rounded-xl py-2.5 text-lg font-black ${mine > 0 ? 'bg-lime/15 text-lime' : mine < 0 ? 'bg-danger/15 text-danger' : 'bg-white/5 text-muted'}`}>
@@ -765,7 +793,8 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
             })()}
             {view.players.map((p) => {
               const won = result.won ?? view.config.stake;
-              const delta = result.winnerId === null ? 0 : p.playerId === result.winnerId ? won : -won;
+              const share = Math.round(won / Math.max(1, view.players.length - 1));
+              const delta = result.winnerId === null ? 0 : p.playerId === result.winnerId ? won : -share;
               return (
                 <div key={p.playerId} className="grid gap-1">
                   <div className="flex justify-between text-xs font-bold">
