@@ -3,7 +3,7 @@
 Engine: `packages/engines/src/poker/poker.engine.ts` · Evaluator: `hand-evaluator.ts` · Tests alongside.
 
 ## Format
-- **Sit-and-go table** for 2–9 players (`maxSeats`, default 6).
+- **Cash game** (default, `mode: 'cash'`) for 2–9 players (`maxSeats`, default 6). Tournaments are described under *Tournaments (Sit & Go)* below.
 - Every player buys in for the room's stake (default 500 points; minimum 100) and receives that many chips (1 point = 1 chip).
 - Blinds: big blind = buy-in ÷ 50 (min 2) unless configured; small blind = half the big blind. Buy-in must be ≥ 10 big blinds. Blinds do not increase.
 - The table plays hands until one player holds every chip, or `maxHands` is reached (0 = unlimited), or fewer than two players remain.
@@ -45,3 +45,20 @@ Engine: `packages/engines/src/poker/poker.engine.ts` · Evaluator: `hand-evaluat
 
 ## Results
 - Placements rank players by final chips (ties broken by who stayed longer). The unique chip leader is the winner; tied leaders get a draw; everyone else a loss. `pointsDelta` is the player's net ledger total for the match.
+
+## Tournaments (Sit & Go)
+The lobby has two sections, **Cash games** and **Tournaments**, like the big poker sites. Sources for the format: [VIP-Grinders Sit & Go guide](https://www.vip-grinders.com/poker-strategy/tournaments/sit-and-go-poker/), [PokerNews Sit & Go strategy](https://www.pokernews.com/strategy/how-to-develop-a-winning-sit-and-go-tournament-strategy-23865.htm).
+
+- Room option `config.mode: 'tournament'`. The room stake is the **buy-in**, which may be free. Every buy-in goes into the **prize pool** (`buyIn × entrants`).
+- Everyone starts with **1,500 tournament chips** (`POKER_TOURNAMENT_STACK`). Chips are not points: there is no cash-out, and a player who leaves forfeits their chips.
+- **Blinds** start at 10/20 and rise every **6 hands** (`levelHands`, 2–20) through `POKER_TOURNAMENT_BIG_BLINDS` (20, 30, 50, 100, 150, 200, 300, 400, 600, 800, 1000, …), with the small blind always half the big blind.
+- A player who busts is out. Players who bust in the same hand are ranked by the stack they started that hand with. The table plays on until one player holds every chip.
+- **Payouts** by finishing place (`pokerPayouts`): winner takes all with 2–3 entrants, **65 / 35** with 4–6, **50 / 30 / 20** with 7–9. Rounding leftovers go to the winner. Prizes are paid once at the end (ledger keys `prize:<player>`), and placements follow the finishing order.
+- A Sit & Go starts as soon as everyone seated is ready (2–9 seats). Quick play only matches tables of the same mode.
+
+## Table
+- Dark room with an oval green felt and a dark rail. On a phone the oval stands upright; on wide screens it lies flat. You sit at the bottom centre and the other seats spread round the rail.
+- Each seat shows an avatar, a name and stack tag, the opponent's two cards tucked at the avatar, and the last action (Fold, All-in, call, …). The player to act has a **yellow countdown ring** with the seconds left. Bets sit as chip stacks in front of each seat, the pot is in the middle above the board, and a **D** button marks the dealer.
+- Your hole cards are face up next to your seat. Winners get a gold outline and a result line ("You won 640 with Two Pair").
+- Actions: **Fold**, **Check / Call**, **Bet / Raise to** with a slider and **Min, ½ pot, ¾ pot, Pot, All-in** presets (pot-sized raises count the call). Out of turn, a **Check / fold** box acts for you automatically.
+- Tournament bar: level, next blinds and how many hands until they rise, prize pool, players left, and "You finished 3rd — prize …" when you are out.

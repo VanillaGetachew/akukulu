@@ -1,6 +1,10 @@
 import {
   DEFAULT_POKER_CONFIG,
   HIDDEN_CARD,
+  POKER_TOURNAMENT_BIG_BLINDS,
+  POKER_TOURNAMENT_LEVEL_HANDS,
+  POKER_TOURNAMENT_STACK,
+  pokerPayouts,
   standardDeck,
   type Card,
   type PokerConfig,
@@ -72,6 +76,26 @@ export interface PokerState {
   nextHandAt: number | null;
   lastHand: PokerHandResult | null;
   exits: number;
+  /** Tournament: players who started (the prize pool is their buy-ins). Missing at cash tables / older saves. */
+  entrants?: number;
+}
+
+const isTournament = (state: { config: PokerConfig }) => state.config.mode === 'tournament';
+
+/** Tournament blind level for a hand number (levels rise every `levelHands` hands). */
+function levelFor(config: PokerConfig, handNumber: number): number {
+  const per = config.levelHands ?? POKER_TOURNAMENT_LEVEL_HANDS;
+  return Math.min(POKER_TOURNAMENT_BIG_BLINDS.length - 1, Math.floor(Math.max(0, handNumber - 1) / per));
+}
+
+/**
+ * Tournament finishing order: players still in (most chips first), then everyone who
+ * is out, the last one out ranked highest.
+ */
+function tournamentRanking(state: PokerState): PokerSeatState[] {
+  const alive = state.players.filter((p) => p.status === 'active').sort((a, b) => b.stack - a.stack);
+  const out = state.players.filter((p) => p.status !== 'active').sort((a, b) => (b.exitOrder ?? 0) - (a.exitOrder ?? 0));
+  return [...alive, ...out];
 }
 
 interface Out {
@@ -162,6 +186,11 @@ function setActionDeadline(state: PokerState, ctx: EngineContext) {
 function cashOut(state: PokerState, p: PokerSeatState, out: Out, reason: string) {
   if (p.finalChips !== null) return;
   p.finalChips = p.stack;
+  // Tournament chips are not points: a player who leaves forfeits them (prizes are paid by place).
+  if (isTournament(state)) {
+    p.stack = 0;
+    return;
+  }
   if (p.stack > 0) {
     out.ledger.push({ playerId: p.playerId, amount: p.stack, key: `cashout:${p.playerId}`, type: 'cashout', description: `Poker cash-out (${reason})` });
   }
@@ -169,6 +198,17 @@ function cashOut(state: PokerState, p: PokerSeatState, out: Out, reason: string)
 }
 
 function finishMatch(state: PokerState, out: Out) {
+  if (isTournament(state)) {
+    // Pay the prize pool by finishing place.
+    const ranking = tournamentRanking(state);
+    const entrants = state.entrants ?? state.players.length;
+    const prizes = pokerPayouts(state.config.buyIn * entrants, entrants);
+    ranking.forEach((p, i) => {
+      const prize = prizes[i] ?? 0;
+      if (prize > 0) out.ledger.push({ playerId: p.playerId, amount: prize, key: `prize:${p.playerId}`, type: 'payout', description: `Poker Sit & Go — ${i + 1}${['st', 'nd', 'rd'][i] ?? 'th'} place` });
+    });
+    for (const p of state.players) if (p.status === 'active') p.finalChips = p.stack;
+  }
   for (const p of state.players) {
     if (p.status === 'active') cashOut(state, p, out, 'table closed');
   }
@@ -184,21 +224,22 @@ function endHand(state: PokerState, ctx: EngineContext, out: Out, result: PokerH
   state.current = null;
   state.turnDeadline = null;
   state.phase = 'handComplete';
-  for (const p of state.players) {
-    if (p.status !== 'active') continue;
+  // Players out this hand: those who busted with the smaller starting stack finish lower.
+  const leaving = state.players.filter((p) => p.status === 'active' && (p.pendingLeave || p.stack === 0));
+  leaving.sort((a, b) => a.handStartStack - b.handStartStack);
+  for (const p of leaving) {
     if (p.pendingLeave) {
       cashOut(state, p, out, 'left table');
       p.status = 'left';
-      p.exitOrder = ++state.exits;
-    } else if (p.stack === 0) {
+    } else {
       p.status = 'busted';
       p.finalChips = 0;
-      p.exitOrder = ++state.exits;
     }
+    p.exitOrder = ++state.exits;
   }
   out.events.push({ type: 'hand_complete', data: { handNumber: state.handNumber, net: result.net } });
   const remaining = state.players.filter((p) => p.status === 'active').length;
-  const handLimit = state.config.maxHands > 0 && state.handNumber >= state.config.maxHands;
+  const handLimit = !isTournament(state) && state.config.maxHands > 0 && state.handNumber >= state.config.maxHands;
   if (remaining < 2 || handLimit) {
     finishMatch(state, out);
   } else {
@@ -311,6 +352,11 @@ function startHand(state: PokerState, ctx: EngineContext, out: Out) {
     return;
   }
   state.handNumber += 1;
+  if (isTournament(state)) {
+    // Blinds rise every few hands.
+    const bb = POKER_TOURNAMENT_BIG_BLINDS[levelFor(state.config, state.handNumber)];
+    state.config = { ...state.config, bigBlind: bb, smallBlind: bb / 2 };
+  }
   if (state.handNumber > 1 || !eligible(state.players[state.button])) {
     state.button = nextIndex(state, state.button, eligible)!;
   }
@@ -428,6 +474,18 @@ export const pokerEngine: GameEngine<PokerState, PokerConfig, PokerView> = {
     const raw = asRecord(input);
     const c: PokerConfig = { ...DEFAULT_POKER_CONFIG };
     if (raw.maxSeats !== undefined) c.maxSeats = intInRange(raw.maxSeats, 2, 9, 'maxSeats');
+    if (raw.mode !== undefined && raw.mode !== 'cash' && raw.mode !== 'tournament') throw new ConfigError('mode must be cash or tournament');
+    if (raw.mode === 'tournament') {
+      // Sit & Go: the stake is the buy-in (it may be free); chips are tournament chips, not points.
+      c.mode = 'tournament';
+      c.buyIn = intInRange(stake, 0, 1_000_000, 'buy-in');
+      c.startingStack = POKER_TOURNAMENT_STACK;
+      c.levelHands = raw.levelHands !== undefined ? intInRange(raw.levelHands, 2, 20, 'levelHands') : POKER_TOURNAMENT_LEVEL_HANDS;
+      c.bigBlind = POKER_TOURNAMENT_BIG_BLINDS[0];
+      c.smallBlind = c.bigBlind / 2;
+      if (raw.turnSeconds !== undefined) c.turnSeconds = intInRange(raw.turnSeconds, 10, 120, 'turnSeconds');
+      return c;
+    }
     if (stake > 0) c.buyIn = intInRange(stake, 100, 1_000_000, 'buy-in');
     if (raw.bigBlind !== undefined) c.bigBlind = intInRange(raw.bigBlind, 2, c.buyIn, 'bigBlind');
     else c.bigBlind = Math.max(2, Math.floor(c.buyIn / 50));
@@ -444,16 +502,20 @@ export const pokerEngine: GameEngine<PokerState, PokerConfig, PokerView> = {
     if (players.length < 2 || players.length > config.maxSeats) return fail('BAD_PLAYER_COUNT', `Poker needs 2–${config.maxSeats} players`);
     const out: Out = { events: [], ledger: [] };
     const ordered = [...players].sort((a, b) => a.seat - b.seat);
+    const tournament = config.mode === 'tournament';
+    const stack = tournament ? (config.startingStack ?? POKER_TOURNAMENT_STACK) : config.buyIn;
     for (const p of ordered) {
       if ((ctx.balances[p.playerId] ?? 0) < config.buyIn) return fail('INSUFFICIENT_BALANCE', 'A player cannot cover the buy-in');
-      out.ledger.push({ playerId: p.playerId, amount: -config.buyIn, key: `buyin:${p.playerId}`, type: 'buyin', description: "Poker buy-in" });
+      if (config.buyIn > 0) {
+        out.ledger.push({ playerId: p.playerId, amount: -config.buyIn, key: `buyin:${p.playerId}`, type: 'buyin', description: tournament ? 'Poker Sit & Go buy-in' : 'Poker buy-in' });
+      }
     }
     const state: PokerState = {
       config,
       players: ordered.map((p) => ({
         playerId: p.playerId,
         seat: p.seat,
-        stack: config.buyIn,
+        stack,
         hole: [],
         committed: 0,
         totalCommitted: 0,
@@ -465,10 +527,11 @@ export const pokerEngine: GameEngine<PokerState, PokerConfig, PokerView> = {
         pendingLeave: false,
         missedTurns: 0,
         lastAction: null,
-        handStartStack: config.buyIn,
+        handStartStack: stack,
         finalChips: null,
         exitOrder: null,
       })),
+      ...(tournament ? { entrants: ordered.length } : {}),
       handNumber: 0,
       button: ctx.rng.int(ordered.length),
       smallBlindIndex: null,
@@ -556,6 +619,9 @@ export const pokerEngine: GameEngine<PokerState, PokerConfig, PokerView> = {
 
   placements(s) {
     if (s.phase !== 'finished') return null;
+    if (isTournament(s)) {
+      return tournamentRanking(s).map<Placement>((p, i) => ({ playerId: p.playerId, placement: i + 1, outcome: i === 0 ? 'win' : 'loss' }));
+    }
     const ranked = [...s.players].sort(
       (a, b) => (b.finalChips ?? 0) - (a.finalChips ?? 0) || (b.exitOrder ?? Infinity) - (a.exitOrder ?? Infinity),
     );
@@ -574,6 +640,30 @@ export const pokerEngine: GameEngine<PokerState, PokerConfig, PokerView> = {
       for (const h of s.lastHand.showdown) revealed.set(h.playerId, h.hole);
     }
     const viewerIndex = s.players.findIndex((p) => p.playerId === viewerId);
+    // Tournament: blind level, prize pool and finishing places.
+    let tournament: PokerView['tournament'] = null;
+    const places = new Map<string, number>();
+    if (isTournament(s)) {
+      const entrants = s.entrants ?? s.players.length;
+      const level = levelFor(s.config, Math.max(1, s.handNumber));
+      const per = s.config.levelHands ?? POKER_TOURNAMENT_LEVEL_HANDS;
+      const nextBb = POKER_TOURNAMENT_BIG_BLINDS[level + 1] ?? null;
+      tournamentRanking(s).forEach((p, i) => {
+        if (p.status !== 'active' || s.phase === 'finished') places.set(p.playerId, i + 1);
+      });
+      tournament = {
+        level: level + 1,
+        smallBlind: s.config.smallBlind,
+        bigBlind: s.config.bigBlind,
+        nextSmallBlind: nextBb === null ? null : nextBb / 2,
+        nextBigBlind: nextBb,
+        handsToNextLevel: nextBb === null ? 0 : (level + 1) * per - Math.max(1, s.handNumber) + 1,
+        prizePool: s.config.buyIn * entrants,
+        payouts: pokerPayouts(s.config.buyIn * entrants, entrants),
+        entrants,
+        playersLeft: s.players.filter((p) => p.status === 'active').length,
+      };
+    }
     return {
       game: 'poker',
       config: s.config,
@@ -601,12 +691,14 @@ export const pokerEngine: GameEngine<PokerState, PokerConfig, PokerView> = {
         isButton: i === s.button,
         isSmallBlind: i === s.smallBlindIndex,
         isBigBlind: i === s.bigBlindIndex,
+        place: places.get(p.playerId) ?? null,
       })),
       currentPlayerId: s.current !== null ? s.players[s.current].playerId : null,
       turnDeadline: s.turnDeadline,
       nextHandAt: s.nextHandAt,
       legal: viewerIndex >= 0 ? legalPokerActions(s, viewerIndex) : null,
       lastHand: s.lastHand,
+      tournament,
     };
   },
 };

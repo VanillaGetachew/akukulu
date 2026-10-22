@@ -382,6 +382,37 @@ suite('API integration', () => {
     expect(await balance(other)).toBe(1005);
   });
 
+  it('runs a poker Sit & Go: buy-ins to a prize pool, 1500 tournament chips, the winner is paid by place', async () => {
+    const three = [await login('Selam'), await login('Tesfaye'), await login('Yonas')];
+    const created = await api('POST', '/rooms/quick-play', three[0].token, { gameSlug: 'poker', stake: 100, config: { mode: 'tournament' } });
+    expect(created.body.config).toMatchObject({ mode: 'tournament' });
+    // A cash table with the same buy-in is a different table.
+    const cash = await api('POST', '/rooms/quick-play', three[1].token, { gameSlug: 'poker', stake: 100 });
+    expect(cash.body.code).not.toBe(created.body.code);
+    await api('POST', `/rooms/${cash.body.code}/leave`, three[1].token);
+    for (const p of three.slice(1)) await api('POST', `/rooms/${created.body.code}/join`, p.token);
+    let room;
+    for (const p of three) room = (await api('POST', `/rooms/${created.body.code}/ready`, p.token, { ready: true })).body;
+    expect(room.status).toBe('in_progress');
+    for (const p of three) expect(await balance(p)).toBe(900);
+    const s = await state<PokerView>(room.matchId, three[0]);
+    expect(s.view.tournament).toMatchObject({ prizePool: 300, payouts: [300], entrants: 3, bigBlind: 20 });
+    expect(s.view.players.every((p) => p.stack + p.totalCommitted === 1500)).toBe(true);
+    // Two players leave: the last one in wins the whole pool; leaving forfeits tournament chips.
+    const byId = new Map(three.map((p) => [p.id, p]));
+    const stay = byId.get(s.view.currentPlayerId!)!;
+    for (const p of three) if (p !== stay) await act(p, room.matchId, { type: 'leave' });
+    await act(stay, room.matchId, { type: 'fold' }).catch(() => undefined);
+    let final = await state<PokerView>(room.matchId, stay);
+    for (let i = 0; i < 20 && final.status !== 'finished'; i++) {
+      if (final.view.currentPlayerId === stay.id) await act(stay, room.matchId, { type: final.view.legal?.canCheck ? 'check' : 'fold' });
+      final = await state<PokerView>(room.matchId, stay);
+    }
+    expect(final.status).toBe('finished');
+    expect(await balance(stay)).toBe(900 + 300);
+    for (const p of three) if (p !== stay) expect(await balance(p)).toBe(900);
+  });
+
   it('plays a blackjack session with a hidden dealer hole card', async () => {
     const p = await login('Lulit');
     const created = await api('POST', '/rooms', p.token, { gameSlug: 'blackjack', stake: 10 });

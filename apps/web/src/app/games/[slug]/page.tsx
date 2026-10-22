@@ -18,10 +18,18 @@ const STAKES: Record<GameSlug, { label: string; options: number[]; default: numb
   conquer: { label: 'Stake per round', options: [0, 50, 100, 250, 500, 1000, 2500, 5000], default: 0, min: 0 },
   crazy: { label: 'Entry stake', options: [0, 50, 100, 250, 500, 1000, 2500, 5000], default: 0, min: 0 },
 };
+/** Poker Sit & Go buy-ins (the buy-in goes to the prize pool; free tournaments are allowed). */
+const SNG_STAKES = { label: 'Tournament buy-in', options: [0, 100, 250, 500, 1000, 2500, 5000, 10000], default: 100, min: 0 };
 
 const RULES: Record<GameSlug, string[]> = {
   ludo: ['Roll a 6 to bring a token out.', 'Land on an opponent to send it home — except on star and start squares.', 'A 6, a capture or reaching home earns another roll. Three 6s in a row ends your turn.', 'Exact roll needed to finish. First to bring all four tokens home wins the pot.'],
-  poker: ["No-limit Texas Hold'em. Two hole cards, five community cards.", 'Blinds rotate each hand. Check, bet, call, raise or fold.', 'All-ins create side pots. Best five-card hand wins.', 'Your buy-in becomes chips; your final stack returns to your balance.'],
+  poker: [
+    "No-limit Texas Hold'em. Two hole cards, five community cards; the best five-card hand wins.",
+    'Blinds rotate each hand. Check, bet, call, raise or fold; all-ins create side pots.',
+    'Cash games: your buy-in becomes chips, and the chips you hold go back to your balance when you leave.',
+    'Tournaments (Sit & Go): everyone pays the same buy-in into a prize pool and starts with 1,500 chips. Blinds rise every 6 hands; bust out and you are out. The prize pool is paid by finishing place.',
+    'Use the bet slider or the ½ pot, ¾ pot, pot and all-in buttons. Tick Check / fold to act automatically when it is your turn.',
+  ],
   blackjack: ['Get closer to 21 than the dealer without going over.', 'Blackjack pays 3:2. Dealer stands on all 17s.', 'Double on any two cards, split pairs up to four hands.', 'Split aces get one card each.'],
   conquer: [],
   crazy: [],
@@ -68,6 +76,8 @@ export default function GameLobby() {
   // Conquer table size (4 players play with two decks) and the 4-player ዶቤ option.
   const [conquerPlayers, setConquerPlayers] = useState<2 | 4>(2);
   const [dobe, setDobe] = useState(false);
+  // Poker: cash games or Sit & Go tournaments.
+  const [pokerMode, setPokerMode] = useState<'cash' | 'tournament'>('cash');
 
   const load = useCallback(async () => {
     if (!isGameSlug(slug)) return;
@@ -111,14 +121,21 @@ export default function GameLobby() {
       </Page>
     );
   }
-  const stakes = STAKES[slug];
+  const tournament = slug === 'poker' && pokerMode === 'tournament';
+  const stakes = tournament ? SNG_STAKES : STAKES[slug];
   const balance = user?.balance ?? 0;
   const joker = slug === 'conquer' && (jokerToGround || (dobe && conquerPlayers === 4));
   // Points needed to sit at a table with this stake (twice the stake for ጆከር ለመሬት or ዶቤ).
   const need = (s: number, double = joker) => s * (double ? 2 : 1);
   const affordable = balance >= need(stake);
   const roomConfig =
-    slug === 'conquer' ? { jokerToGround, ...(conquerPlayers === 4 ? { players: 4, dobe } : {}) } : undefined;
+    slug === 'conquer'
+      ? { jokerToGround, ...(conquerPlayers === 4 ? { players: 4, dobe } : {}) }
+      : slug === 'poker'
+        ? { mode: pokerMode }
+        : undefined;
+  // A private poker table seats the chosen number of players.
+  const privateConfig = slug === 'poker' ? { ...roomConfig, maxSeats: maxPlayers } : roomConfig;
   const customValue = custom.trim() === '' ? null : Number(custom);
   const customError =
     customValue === null
@@ -159,6 +176,38 @@ export default function GameLobby() {
           ) : (
             <>
               <section className="card mb-4 grid gap-4 p-4">
+                {slug === 'poker' && (
+                  <div className="grid grid-cols-2 gap-1 rounded-xl bg-black/25 p-1" role="tablist" aria-label="Poker game type">
+                    {(['cash', 'tournament'] as const).map((m) => (
+                      <button
+                        key={m}
+                        role="tab"
+                        aria-selected={pokerMode === m}
+                        onClick={() => {
+                          setPokerMode(m);
+                          const next = m === 'tournament' ? SNG_STAKES : STAKES.poker;
+                          setStake(next.default);
+                          setCustom('');
+                        }}
+                        className={`rounded-lg py-2 text-sm font-extrabold transition ${pokerMode === m ? 'bg-lime text-[#07071a] shadow' : 'text-muted'}`}
+                      >
+                        {m === 'cash' ? 'Cash games' : 'Tournaments'}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {tournament && (
+                  <div className="rounded-xl border border-gold/40 bg-gold/10 p-3 text-xs">
+                    <div className="mb-1 text-sm font-extrabold text-gold">Sit &amp; Go · Turbo</div>
+                    <ul className="grid gap-0.5 text-muted">
+                      <li>• Everyone pays the buy-in into the prize pool and starts with 1,500 chips.</li>
+                      <li>• Blinds start at 10/20 and go up every 6 hands.</li>
+                      <li>• Bust out and you are out. The last player with chips wins.</li>
+                      <li>• Prizes: winner takes all (2–3 players), 65% / 35% (4–6), 50% / 30% / 20% (7–9).</li>
+                      <li>• Starts as soon as everyone seated is ready.</li>
+                    </ul>
+                  </div>
+                )}
                 <div>
                   <div className="mb-2 text-xs font-bold uppercase tracking-wide text-muted">{stakes.label}</div>
                   <div className="grid grid-cols-4 gap-2">
@@ -263,7 +312,7 @@ export default function GameLobby() {
                     <button
                       className="btn-ghost"
                       disabled={busy || !affordable || !!customError}
-                      onClick={() => run(() => api('/rooms', { body: { gameSlug: slug, stake, visibility: 'private', maxPlayers, config: roomConfig } }))}
+                      onClick={() => run(() => api('/rooms', { body: { gameSlug: slug, stake, visibility: 'private', maxPlayers, config: privateConfig } }))}
                     >
                       Private room
                     </button>
@@ -309,6 +358,9 @@ export default function GameLobby() {
                                 {r.stake === 0 ? 'Free' : (<><Coin className="h-3 w-3" /> {r.stake}</>)} · {r.code}
                                 {r.config.jokerToGround === true && <span className="ml-1 rounded-full bg-gold/20 px-1.5 font-ethiopic font-bold text-gold">ጆከር ለመሬት</span>}
                                 {r.config.dobe === true && <span className="ml-1 rounded-full bg-gold/20 px-1.5 font-ethiopic font-bold text-gold">ዶቤ</span>}
+                                {r.gameSlug === 'poker' && (
+                                  <span className="ml-1 rounded-full bg-white/10 px-1.5 font-bold">{r.config.mode === 'tournament' ? 'Sit & Go' : 'Cash'}</span>
+                                )}
                               </div>
                             </div>
                           </div>

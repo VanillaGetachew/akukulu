@@ -234,6 +234,8 @@ export class RoomsService {
     const players = conquer && config.players === 4 ? 4 : 2;
     const jokerToGround = conquer && config.jokerToGround === true;
     const dobe = conquer && players === 4 && config.dobe === true;
+    // Poker: cash games and Sit & Go tournaments are separate tables.
+    const pokerMode = slug === 'poker' && config.mode === 'tournament' ? 'tournament' : 'cash';
     const candidates: { code: string }[] = await this.dataSource.query(
       `SELECT r.code FROM rooms r
        LEFT JOIN room_players rp ON rp."roomId" = r.id
@@ -241,11 +243,12 @@ export class RoomsService {
          AND COALESCE((r.config->>'jokerToGround')::boolean, false) = $4
          AND COALESCE((r.config->>'dobe')::boolean, false) = $5
          AND ($1 <> 'conquer' OR COALESCE((r.config->>'players')::int, 2) = $6)
+         AND ($1 <> 'poker' OR COALESCE(r.config->>'mode', 'cash') = $7)
        GROUP BY r.id
        HAVING COUNT(rp.id) < r."maxPlayers" AND BOOL_AND(rp."userId" IS DISTINCT FROM $3)
        ORDER BY COUNT(rp.id) DESC, r."createdAt" ASC
        LIMIT 5`,
-      [slug, wanted, user.id, jokerToGround, dobe, players],
+      [slug, wanted, user.id, jokerToGround, dobe, players, pokerMode],
     );
     for (const c of candidates) {
       try {
@@ -254,7 +257,12 @@ export class RoomsService {
         if (!(err instanceof GameError) || !['ROOM_FULL', 'ROOM_CLOSED'].includes(err.code)) throw err;
       }
     }
-    const options = { ...(players === 4 ? { players } : {}), ...(jokerToGround ? { jokerToGround } : {}), ...(dobe ? { dobe } : {}) };
+    const options = {
+      ...(players === 4 ? { players } : {}),
+      ...(jokerToGround ? { jokerToGround } : {}),
+      ...(dobe ? { dobe } : {}),
+      ...(pokerMode === 'tournament' ? { mode: pokerMode } : {}),
+    };
     return this.create(user, { gameSlug: slug, stake: wanted, ...(Object.keys(options).length ? { config: options } : {}) });
   }
 

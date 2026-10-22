@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_POKER_CONFIG, HIDDEN_CARD, standardDeck, type PokerConfig } from '@akukulu/shared';
+import { DEFAULT_POKER_CONFIG, HIDDEN_CARD, POKER_TOURNAMENT_STACK, pokerPayouts, standardDeck, type PokerConfig } from '@akukulu/shared';
 import { seededRng, type EngineContext, type EngineResult, type LedgerIntent } from '../core';
 import { buildPots, pokerEngine, type PokerState } from './poker.engine';
 
@@ -296,6 +296,99 @@ describe('Poker simulated tables', () => {
         expect(ledger.reduce((sum, l) => sum + l.amount, 0)).toBe(0);
         expect(new Set(ledger.map((l) => l.key)).size).toBe(ledger.length);
         expect(pokerEngine.placements(s)).toHaveLength(count);
+      }
+    });
+  }
+});
+
+describe('Poker Sit & Go tournaments', () => {
+  const SNG = (stake: number, extra: Record<string, unknown> = {}) => pokerEngine.parseConfig({ mode: 'tournament', ...extra }, stake);
+  const seats = (n: number) => Array.from({ length: n }, (_, i) => ({ playerId: `p${i}`, seat: i }));
+
+  it('takes the buy-in into a prize pool and starts everyone on 1500 chips at 10/20', () => {
+    const config = SNG(200);
+    expect(config).toMatchObject({ mode: 'tournament', buyIn: 200, startingStack: POKER_TOURNAMENT_STACK, smallBlind: 10, bigBlind: 20 });
+    const res = expectOk(pokerEngine.start(seats(6), config, ctx()));
+    expect(res.ledger.map((l) => l.amount)).toEqual(Array(6).fill(-200));
+    expect(res.state.players.reduce((n, p) => n + p.stack + p.totalCommitted, 0)).toBe(6 * 1500);
+    const v = pokerEngine.view(res.state, 'p0');
+    expect(v.tournament).toMatchObject({ level: 1, bigBlind: 20, nextBigBlind: 30, prizePool: 1200, payouts: [780, 420], entrants: 6, playersLeft: 6 });
+    expect(SNG(0).buyIn).toBe(0);
+    expect(pokerEngine.view(table([1000, 1000]), 'p0').tournament).toBeNull();
+  });
+
+  it('pays the prize pool by finishing place: all to the winner, 65/35, or 50/30/20', () => {
+    expect(pokerPayouts(300, 3)).toEqual([300]);
+    expect(pokerPayouts(1000, 5)).toEqual([650, 350]);
+    expect(pokerPayouts(901, 9)).toEqual([451, 270, 180]);
+  });
+
+  it('raises the blinds every few hands', () => {
+    let s = expectOk(pokerEngine.start(seats(3), SNG(100, { levelHands: 2 }), ctx())).state;
+    const blinds: number[] = [];
+    for (let hand = 0; hand < 5; hand++) {
+      blinds.push(s.config.bigBlind);
+      // Everyone folds to the big blind.
+      while (s.phase !== 'handComplete') s = act(s, current(s), { type: 'fold' }).state;
+      s = expectOk(pokerEngine.tick(s, ctx(s.nextHandAt!))).state;
+    }
+    expect(blinds).toEqual([20, 20, 30, 30, 50]);
+    // Hand 6 is the second hand at level 3 (hands 5-6): one hand left before the blinds rise.
+    expect(s.handNumber).toBe(6);
+    expect(pokerEngine.view(s, 'p0').tournament).toMatchObject({ level: 3, handsToNextLevel: 1 });
+  });
+
+  it('a player who leaves forfeits their chips: no cash-out in a tournament', () => {
+    let s = expectOk(pokerEngine.start(seats(3), SNG(100), ctx())).state;
+    const out = s.players.find((p, i) => i !== s.current)!;
+    const res = act(s, out.playerId, { type: 'leave' });
+    expect(res.ledger).toEqual([]);
+    s = res.state;
+    while (s.phase !== 'handComplete') s = act(s, current(s), { type: 'fold' }).state;
+    expect(s.players.find((p) => p.playerId === out.playerId)).toMatchObject({ status: 'left', stack: 0 });
+  });
+
+  for (const count of [2, 4, 7]) {
+    it(`plays ${count}-player Sit & Gos to one winner and pays every prize once`, () => {
+      for (let seed = 1; seed <= 6; seed++) {
+        const rng = seededRng(seed * 37 + count);
+        const c = (now: number): EngineContext => ({ rng, now, balances: new Proxy({}, { get: () => 1e9 }) });
+        const config = SNG(100, { levelHands: 3, maxSeats: 9 });
+        let now = NOW;
+        const start = expectOk(pokerEngine.start(seats(count), config, c(now)));
+        let s = start.state;
+        const ledger = [...start.ledger];
+        let steps = 0;
+        while (!pokerEngine.isFinished(s)) {
+          if (++steps > 200_000) throw new Error('did not terminate');
+          now += 1000;
+          let res: EngineResult<PokerState> | null;
+          if (s.phase === 'handComplete') res = pokerEngine.tick(s, c(s.nextHandAt!));
+          else {
+            const id = s.players[s.current!].playerId;
+            const legal = pokerEngine.view(s, id).legal!;
+            const roll = rng.int(10);
+            const action = roll < 2 ? { type: 'allIn' } : roll < 4 ? { type: 'fold' } : { type: legal.canCheck ? 'check' : 'call' };
+            res = pokerEngine.act(s, id, action, c(now));
+            if (res.ok === false) res = pokerEngine.act(s, id, { type: legal.canCheck ? 'check' : 'fold' }, c(now));
+          }
+          const r = expectOk(res);
+          ledger.push(...r.ledger);
+          s = r.state;
+          // Tournament chips are never created or destroyed while nobody leaves.
+          const chips = s.players.reduce((n, p) => n + p.stack + (s.phase === 'handComplete' || s.phase === 'finished' ? 0 : p.totalCommitted), 0);
+          expect(chips).toBe(count * POKER_TOURNAMENT_STACK);
+        }
+        const prizes = ledger.filter((l) => l.type === 'payout');
+        expect(prizes.map((l) => l.amount)).toEqual(pokerPayouts(100 * count, count));
+        expect(ledger.reduce((n, l) => n + l.amount, 0)).toBe(0);
+        expect(new Set(ledger.map((l) => l.key)).size).toBe(ledger.length);
+        const placements = pokerEngine.placements(s)!;
+        expect(placements).toHaveLength(count);
+        expect(placements[0]).toMatchObject({ outcome: 'win' });
+        // The winner is the last player with chips, and the 1st prize goes to them.
+        expect(prizes[0].playerId).toBe(placements[0].playerId);
+        expect(pokerEngine.view(s, 'p0').players.every((p) => p.place !== null)).toBe(true);
       }
     });
   }
