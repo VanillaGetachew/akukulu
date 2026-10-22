@@ -125,6 +125,8 @@ export default function GameLobby() {
     );
   }
   const tournament = slug === 'poker' && pokerMode === 'tournament';
+  // Poker cash games are the always-open tables; no private-table form or room list.
+  const pokerCash = slug === 'poker' && pokerMode === 'cash';
   const stakes = tournament ? SNG_STAKES : STAKES[slug];
   const balance = user?.balance ?? 0;
   const joker = slug === 'conquer' && (jokerToGround || (dobe && conquerPlayers === 4));
@@ -201,6 +203,7 @@ export default function GameLobby() {
                   <PokerLobby mode={pokerMode} />
                 </>
               )}
+              {!pokerCash && (
               <section className="card mb-4 grid gap-4 p-4">
                 {slug === 'poker' && (
                   <h2 className="font-display text-base font-extrabold">{tournament ? 'Sit & Go · starts when the table is ready' : 'Private cash table'}</h2>
@@ -343,8 +346,9 @@ export default function GameLobby() {
                   </form>
                 )}
               </section>
+              )}
 
-              {!game.solo && (
+              {!game.solo && !pokerCash && (
                 <section className="mb-4">
                   <h2 className="mb-2 font-display text-base font-extrabold">Open tables</h2>
                   {rooms === null ? (

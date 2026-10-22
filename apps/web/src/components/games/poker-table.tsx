@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import { HIDDEN_CARD, type PokerPlayerView, type PokerTournamentView, type PokerView } from '@akukulu/shared';
 import { api } from '@/lib/api';
 import { useSession } from '@/lib/session';
@@ -70,6 +70,17 @@ function Chips({ amount, big }: { amount: number; big?: boolean }) {
   );
 }
 
+/** A small blue card back, as tucked beside an opponent's avatar. */
+function MiniBack({ style }: { style?: CSSProperties }) {
+  return (
+    <svg viewBox="0 0 18 25" className="h-[25px] w-[18px] drop-shadow" style={style} aria-hidden>
+      <rect x="0.5" y="0.5" width="17" height="24" rx="2.5" fill="#fff" />
+      <rect x="2" y="2" width="14" height="21" rx="1.6" fill="#2563eb" />
+      <path d="M9 6.5l3.5 6-3.5 6-3.5-6z" fill="none" stroke="#bfdbfe" strokeWidth="1.2" />
+    </svg>
+  );
+}
+
 /** A seat: round avatar (with a countdown ring on their turn), name and stack below; purple name while acting. */
 function Seat({
   p,
@@ -77,7 +88,6 @@ function Seat({
   photoUrl,
   you,
   turn,
-  cardsLeft,
   reveal,
   winner,
   ratio,
@@ -90,7 +100,6 @@ function Seat({
   photoUrl?: string | null;
   you: boolean;
   turn: boolean;
-  cardsLeft: boolean;
   /** Where shown-down cards go: beside a side seat (outer side), under a top seat, above a bottom seat. */
   reveal: 'left' | 'right' | 'above' | 'below';
   winner: boolean;
@@ -126,40 +135,43 @@ function Seat({
     </div>
   );
   return (
-    <div className={`flex w-[80px] flex-col items-center ${out || p.folded ? 'opacity-55' : ''}`}>
+    <div className="flex w-[94px] flex-col items-center">
       {shownCards && reveal === 'above' && <div className="relative z-[2] -mb-3">{shownCards}</div>}
-      <div className="relative grid h-[54px] w-[54px] place-items-center">
+      <div className={`relative grid h-[56px] w-[56px] place-items-center ${out || p.folded ? 'opacity-60' : ''}`}>
         {shownCards && (reveal === 'left' || reveal === 'right') && (
           <div className={`absolute top-1/2 z-[2] -translate-y-1/2 ${reveal === 'left' ? 'right-[calc(100%-6px)]' : 'left-[calc(100%-6px)]'}`}>{shownCards}</div>
         )}
-        {/* Card backs tucked behind the avatar while the hand is on. */}
+        <div className={`relative rounded-full ring-2 ${turn ? 'ring-transparent' : winner ? 'ring-gold' : 'ring-[#1c2530]'}`}>
+          <Avatar name={name} photoUrl={photoUrl} size={50} />
+        </div>
+        {/* Two small card backs at the avatar's shoulder while the hand is on. */}
         {holding && !faceUp && (
-          <div className={`absolute -top-1 flex -space-x-3 ${cardsLeft ? '-left-4' : '-right-4'}`}>
-            {p.hole.map((c, i) => (
-              <div key={i} className="w-[20px]" style={{ transform: `rotate(${(i ? 12 : -4) * (cardsLeft ? -1 : 1)}deg)` }}>
-                <PlayingCard card={c} size="sm" />
-              </div>
+          <div className="absolute -right-2.5 top-3 z-[2] flex">
+            {p.hole.map((_, i) => (
+              <MiniBack key={i} style={{ transform: `rotate(${i ? 12 : -4}deg)`, marginLeft: i ? -11 : 0 }} />
             ))}
           </div>
         )}
-        <div className={`relative rounded-full ring-2 ${turn ? 'ring-transparent' : winner ? 'ring-gold' : 'ring-black/40'}`}>
-          <Avatar name={name} photoUrl={photoUrl} size={44} />
-        </div>
         {turn && (
           <>
-            <svg viewBox="0 0 54 54" className="absolute inset-0 -rotate-90">
-              <circle cx="27" cy="27" r={R} fill="none" stroke="rgba(0,0,0,.45)" strokeWidth="4" />
-              <circle cx="27" cy="27" r={R} fill="none" stroke={ratio > 0.3 ? '#a78bfa' : '#ff5a4f'} strokeWidth="4" strokeLinecap="round" strokeDasharray={C} strokeDashoffset={C * (1 - ratio)} />
+            <svg viewBox="0 0 56 56" className="absolute inset-0 -rotate-90">
+              <circle cx="28" cy="28" r={R + 1} fill="none" stroke="rgba(0,0,0,.45)" strokeWidth="3.5" />
+              <circle cx="28" cy="28" r={R + 1} fill="none" stroke={ratio > 0.3 ? '#a855f7' : '#ff5a4f'} strokeWidth="3.5" strokeLinecap="round" strokeDasharray={C} strokeDashoffset={C * (1 - ratio)} />
             </svg>
-            <span className="absolute -right-2 -top-1 grid h-5 min-w-5 place-items-center rounded-full bg-[#7c3aed] px-1 text-[10px] font-black text-white shadow">{secs}</span>
+            <span className="absolute -left-2 -top-1 grid h-5 min-w-5 place-items-center rounded-full bg-[#8b2cf5] px-1 text-[10px] font-black text-white shadow">{secs}</span>
           </>
         )}
-        {tag && <span className="absolute bottom-0 z-[3] whitespace-nowrap rounded bg-[#2a2d36] px-1.5 text-[9px] font-black uppercase leading-4 text-white/85 shadow ring-1 ring-black/40">{tag}</span>}
+        {tag && <span className="absolute -bottom-0.5 z-[3] whitespace-nowrap rounded-sm bg-[#d9dce2] px-1.5 text-[10px] font-bold leading-4 text-[#1c2530] shadow">{tag}</span>}
       </div>
-      <div className={`mt-1 max-w-full truncate rounded px-1.5 text-[11px] font-extrabold leading-4 ${turn ? 'bg-[#7c3aed] text-white' : winner ? 'bg-gold text-[#15171d]' : 'text-white'}`}>
-        {you ? 'You' : name}
+      {/* Name and stack in one box under the avatar; purple while it is their turn. */}
+      <div
+        className={`-mt-1 w-full rounded-md px-1 py-0.5 text-center shadow-lg ring-1 ${
+          turn ? 'bg-[#8b2cf5] ring-[#a855f7]' : winner ? 'bg-[#1c2530] ring-2 ring-gold' : 'bg-[#1c2530]/95 ring-black/40'
+        } ${out || p.folded ? 'opacity-70' : ''}`}
+      >
+        <div className={`truncate text-[11px] font-semibold leading-4 ${turn ? 'text-white' : 'text-white/75'}`}>{you ? 'You' : name}</div>
+        <div className="text-[13px] font-bold tabular-nums leading-4 text-white">{p.stack.toLocaleString()}</div>
       </div>
-      <div className="mt-0.5 rounded-full bg-black/60 px-2 text-[11px] font-black tabular-nums leading-4 text-white ring-1 ring-white/10">{p.stack.toLocaleString()}</div>
       {p.handLabel && !p.folded && (
         <div className={`mt-0.5 w-max max-w-[120px] rounded px-1.5 text-center text-[10px] font-extrabold leading-[13px] text-gold ${you ? 'bg-black/70 ring-1 ring-gold/40' : 'bg-black/55'}`}>{p.handLabel}</div>
       )}
@@ -385,7 +397,7 @@ function SitDown({ matchId, seat, cash, onDone }: { matchId: string; seat: numbe
 
 function CornerButton({ label, onClick, children }: { label: string; onClick: () => void; children: ReactNode }) {
   return (
-    <button aria-label={label} title={label} onClick={onClick} className="grid h-10 w-10 place-items-center rounded-full bg-black/45 text-white/90 shadow-lg ring-1 ring-white/10 active:scale-95">
+    <button aria-label={label} title={label} onClick={onClick} className="grid h-12 w-12 place-items-center rounded-full bg-[#3a4049] text-white shadow-lg ring-1 ring-black/40 active:scale-95">
       {children}
     </button>
   );
@@ -427,15 +439,53 @@ export function PokerTable({ state, view, act, pending, serverNow }: TableProps<
   const cx = areaW / 2;
   const cy = areaH / 2;
 
+  // Stake-style table: a stadium (straight sides, round ends). Seats are spread evenly round
+  // the rail by distance, starting with me at the bottom centre.
+  const railW = feltW + 14;
+  const railH = feltH + 14;
+  const pointOnRail = (t: number) => {
+    const vertical = railH >= railW;
+    const r = (vertical ? railW : railH) / 2;
+    const straight = Math.abs(railH - railW);
+    const total = 2 * straight + 2 * Math.PI * r;
+    let d = (((t % 1) + 1) % 1) * total;
+    const arc = (ax: number, ay: number, from: number, len: number) => {
+      const a = from + len / r;
+      return { x: ax + r * Math.cos(a), y: ay + r * Math.sin(a) };
+    };
+    if (vertical) {
+      const top = cy - straight / 2;
+      const bottom = cy + straight / 2;
+      const q = (Math.PI * r) / 2;
+      if (d < q) return arc(cx, bottom, Math.PI / 2, d);
+      d -= q;
+      if (d < straight) return { x: cx - r, y: bottom - d };
+      d -= straight;
+      if (d < Math.PI * r) return arc(cx, top, Math.PI, d);
+      d -= Math.PI * r;
+      if (d < straight) return { x: cx + r, y: top + d };
+      d -= straight;
+      return arc(cx, bottom, 0, d);
+    }
+    const left = cx - straight / 2;
+    const right = cx + straight / 2;
+    if (d < straight / 2) return { x: cx - d, y: cy + r };
+    d -= straight / 2;
+    if (d < Math.PI * r) return arc(left, cy, Math.PI / 2, d);
+    d -= Math.PI * r;
+    if (d < straight) return { x: left + d, y: cy - r };
+    d -= straight;
+    if (d < Math.PI * r) return arc(right, cy, -Math.PI / 2, d);
+    d -= Math.PI * r;
+    return { x: right - d, y: cy + r };
+  };
   // Seat positions round the oval with me at the bottom. Cash tables keep every seat in its
   // place (so empty seats can be taken); other tables space the players evenly.
   const slots = cash ? view.config.maxSeats : Math.max(n, 1);
   const anchor = cash ? (me?.seat ?? 0) : 0;
   const slotOf = (p: PokerPlayerView, i: number) => (cash ? (p.seat - anchor + slots) % slots : (i - Math.max(0, meIndex) + n) % n);
-  const seatAt = (k: number) => {
-    const a = Math.PI / 2 + (2 * Math.PI * k) / slots;
-    return { x: cx + (feltW / 2 + 6) * Math.cos(a), y: cy + (feltH / 2 + 6) * Math.sin(a) };
-  };
+  // Avatars sit on the rail; the name box hangs below.
+  const seatAt = (k: number) => pointOnRail(k / slots);
   const cardSize = feltW >= 270 ? 'md' : 'sm';
 
   const ratioFor = (p: PokerPlayerView) => {
@@ -472,19 +522,30 @@ export function PokerTable({ state, view, act, pending, serverNow }: TableProps<
   return (
     <div className="fixed inset-0 z-[35] flex flex-col overflow-hidden text-white" style={{ backgroundColor: '#2a0a10', backgroundImage: `${FLEUR}, radial-gradient(ellipse at center, #4a121c 0%, #2a0a10 75%)` }}>
       {/* Top bar: menu, the table tab, and the table id. */}
-      <div className="flex shrink-0 items-center gap-2 bg-black/30 px-2 py-1.5">
-        <button aria-label="Menu" className="grid h-8 w-8 place-items-center rounded-lg bg-white/10" onClick={() => setSheet('menu')}>
+      <div className="flex shrink-0 items-center gap-2 px-2 pt-2">
+        <button aria-label="Menu" className="grid h-9 w-9 place-items-center rounded-full bg-[#3a4049] shadow" onClick={() => setSheet('menu')}>
           <svg viewBox="0 0 20 20" className="h-4 w-4" fill="currentColor">
-            <rect x="3" y="4" width="14" height="2" rx="1" />
-            <rect x="3" y="9" width="14" height="2" rx="1" />
-            <rect x="3" y="14" width="14" height="2" rx="1" />
+            <rect x="3" y="4" width="14" height="2.2" rx="1.1" />
+            <rect x="3" y="9" width="14" height="2.2" rx="1.1" />
+            <rect x="3" y="14" width="14" height="2.2" rx="1.1" />
           </svg>
         </button>
-        <div className="min-w-0 truncate rounded-t-lg border-b-2 border-[#e8762c] bg-white/10 px-3 py-1 text-xs font-extrabold">{tableTitle}</div>
-        <Link href="/games/poker" className="rounded-lg bg-white/10 px-2 py-1 text-xs font-bold text-white/80">
-          Lobby
+        <div className="min-w-0 max-w-[45%] truncate rounded-full bg-[#3a4049] px-3 py-2 text-xs font-bold shadow">{tableTitle}</div>
+        <Link href="/games/poker" aria-label="Lobby — another table" className="grid h-9 w-9 place-items-center rounded-full bg-[#3a4049] text-xl font-bold leading-none shadow">
+          +
         </Link>
-        <span className="ml-auto shrink-0 text-[10px] font-bold tabular-nums text-white/45">ID {state.matchId.slice(0, 8).toUpperCase()}</span>
+        <button
+          aria-label={t ? 'Tournament info' : 'Hand history'}
+          className="ml-auto grid h-9 w-9 place-items-center rounded-full bg-[#3a4049] shadow"
+          onClick={() => setSheet(t ? 'tournament' : 'history')}
+        >
+          <svg viewBox="0 0 20 20" className="h-[18px] w-[18px]" fill="currentColor">
+            <path d="M5 2.5h10v1.8h2.5v2.2a3.5 3.5 0 0 1-3.3 3.5A5 5 0 0 1 11 12.3v2.2h3v2.5H6v-2.5h3v-2.2a5 5 0 0 1-3.2-2.3A3.5 3.5 0 0 1 2.5 6.5V4.3H5V2.5zm0 3.3H4v.7c0 .8.5 1.5 1.2 1.8A5 5 0 0 1 5 7.5V5.8zm10 0v1.7c0 .3 0 .6-.1.8.7-.3 1.1-1 1.1-1.8v-.7h-1z" />
+          </svg>
+        </button>
+      </div>
+      <div className="mt-1.5 shrink-0 px-2">
+        <span className="rounded-md bg-black/35 px-2 py-0.5 text-[11px] font-semibold tabular-nums text-white/70">#{state.matchId.replace(/-/g, '').slice(0, 9).toUpperCase()}</span>
       </div>
       {t && (
         <button className="mx-2 mt-1.5 flex shrink-0 flex-wrap items-center justify-center gap-1.5 text-[11px] font-bold" onClick={() => setSheet('tournament')}>
@@ -505,29 +566,38 @@ export function PokerTable({ state, view, act, pending, serverNow }: TableProps<
 
       <div ref={boxRef} className="relative mx-auto min-h-0 w-full max-w-[830px] flex-1">
         <div className="relative mx-auto" style={{ width: areaW, height: areaH }}>
-          {/* The table: an orange rail round an oval blue felt. */}
+          {/* The table: a dark rail with a thin gold line round a blue felt, straight sides and round ends. */}
           <div
-            className="absolute rounded-[50%] shadow-[0_20px_45px_rgba(0,0,0,.65)]"
-            style={{ left: cx - feltW / 2 - 13, top: cy - feltH / 2 - 13, width: feltW + 26, height: feltH + 26, background: 'linear-gradient(160deg,#f7a24a 0%,#e8762c 45%,#b9541a 100%)' }}
+            className="absolute shadow-[0_22px_50px_rgba(0,0,0,.7)]"
+            style={{ left: cx - feltW / 2 - 16, top: cy - feltH / 2 - 16, width: feltW + 32, height: feltH + 32, borderRadius: (Math.min(feltW, feltH) + 32) / 2, background: 'linear-gradient(180deg,#3d4148 0%,#2b2e34 50%,#202328 100%)' }}
           />
-          <div className="absolute rounded-[50%] ring-[3px] ring-black/35" style={{ left: cx - feltW / 2 - 2, top: cy - feltH / 2 - 2, width: feltW + 4, height: feltH + 4 }} />
           <div
-            className="absolute overflow-hidden rounded-[50%] shadow-[inset_0_0_45px_rgba(0,0,0,.5)]"
-            style={{ left: cx - feltW / 2, top: cy - feltH / 2, width: feltW, height: feltH, background: 'radial-gradient(ellipse at center, #3b82c9 0%, #2564a8 55%, #184a85 100%)' }}
+            className="absolute overflow-hidden"
+            style={{
+              left: cx - feltW / 2,
+              top: cy - feltH / 2,
+              width: feltW,
+              height: feltH,
+              borderRadius: Math.min(feltW, feltH) / 2,
+              border: '3px solid #e0a431',
+              boxShadow: 'inset 0 0 40px rgba(0,0,0,.35)',
+              background: 'radial-gradient(ellipse at center, #2f7bd0 0%, #2468bb 60%, #1d5aa6 100%)',
+            }}
           >
-            <div className="absolute inset-[9%] rounded-[50%] border border-white/10" />
+            <div className="absolute inset-0 grid place-items-center">
+              <span className="select-none font-display font-black italic tracking-tight text-white/20" style={{ fontSize: Math.round(Math.min(feltW, feltH) / 4.2) }}>
+                Akukulu
+              </span>
+            </div>
           </div>
 
           {/* Middle: the info line, the pot and the board. */}
+          <div className="absolute max-w-[80%] truncate text-center text-[10px] font-semibold text-white/50" style={{ left: cx, top: cy + feltH * 0.36, transform: 'translate(-50%, -50%)', width: feltW * 0.8 }}>
+            {infoLine}
+          </div>
           <div className="absolute flex flex-col items-center gap-1.5" style={{ left: cx, top: cy, width: Math.min(feltW * 0.84, 330), transform: 'translate(-50%, -55%)' }}>
-            <div className="max-w-full truncate text-center text-[10px] font-semibold text-white/55">{infoLine}</div>
             <div className="flex h-6 items-center gap-1.5">
-              {view.pot > 0 && (
-                <>
-                  <span className="text-xs font-black text-white/90">Pot: {view.pot.toLocaleString()}</span>
-                  <Chips amount={view.pot} />
-                </>
-              )}
+              {view.pot > 0 && <span className="rounded-md bg-black/25 px-2 py-0.5 text-xs font-semibold text-white">Pot: {view.pot.toLocaleString()}</span>}
             </div>
             <div className="flex gap-1">
               {view.community.map((c, i) => (
@@ -548,10 +618,12 @@ export function PokerTable({ state, view, act, pending, serverNow }: TableProps<
               return (
                 <div key={`free${seat}`} className="absolute" style={{ left: x, top: y, transform: 'translate(-50%, -50%)', zIndex: 5 }}>
                   {me ? (
-                    <div className="h-11 w-11 rounded-full border-2 border-dashed border-white/15 bg-black/20" />
+                    <div className="h-11 w-11 rounded-full bg-[#2b3038]/60" />
                   ) : (
-                    <button className="grid h-12 w-12 place-items-center rounded-full border-2 border-dashed border-white/40 bg-black/35 text-[11px] font-black uppercase text-white/90 active:scale-95" onClick={() => setSheet({ sit: seat })}>
-                      Sit
+                    <button aria-label={`Sit in seat ${seat + 1}`} className="grid h-12 w-12 place-items-center rounded-full bg-[#3a4049]/95 text-white shadow-lg ring-1 ring-black/40 active:scale-95" onClick={() => setSheet({ sit: seat })}>
+                      <svg viewBox="0 0 20 20" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M10 3.5v9M6 9l4 4 4-4M5 16.5h10" />
+                      </svg>
                     </button>
                   )}
                 </div>
@@ -566,15 +638,14 @@ export function PokerTable({ state, view, act, pending, serverNow }: TableProps<
             const isMe = p.playerId === user?.id;
             return (
               <div key={p.playerId}>
-                <div className="absolute" style={{ left: x, top: y, transform: 'translate(-50%, -50%)', zIndex: 5 }}>
+                <div className="absolute" style={{ left: x, top: y, transform: 'translate(-50%, -28px)', zIndex: 5 }}>
                   <Seat
                     p={p}
                     name={info?.displayName ?? 'Player'}
                     photoUrl={info?.photoUrl}
                     you={isMe}
                     turn={p.playerId === view.currentPlayerId && !done}
-                    cardsLeft={x < cx - 4}
-                    reveal={Math.abs(x - cx) > feltW * 0.25 ? (x < cx ? 'left' : 'right') : y < cy ? 'below' : 'above'}
+                    reveal={y < cy - feltH * 0.3 ? 'below' : 'above'}
                     winner={winners.has(p.playerId)}
                     ratio={ratioFor(p)}
                     secs={secsLeft}
@@ -583,14 +654,18 @@ export function PokerTable({ state, view, act, pending, serverNow }: TableProps<
                   />
                 </div>
                 {p.committed > 0 && (
-                  <div className="absolute" style={{ ...toward(isMe ? 0.42 : 0.36), transform: 'translate(-50%, -50%)', zIndex: 4 }}>
+                  <div className="absolute" style={{ ...toward(isMe ? 0.5 : y < cy ? 0.46 : 0.38), transform: 'translate(-50%, -50%)', zIndex: 4 }}>
                     <Chips amount={p.committed} />
                   </div>
                 )}
                 {p.isButton && (
                   <div
                     className="absolute grid h-6 w-6 place-items-center rounded-full bg-white text-[11px] font-black text-[#15171d] shadow ring-2 ring-black/25"
-                    style={{ ...toward(Math.abs(x - cx) > feltW * 0.25 ? 0.14 : 0.26), transform: `translate(-50%, -50%) ${Math.abs(x - cx) > feltW * 0.25 ? 'translate(0, -34px)' : 'translate(30px, 0)'}`, zIndex: 4 }}
+                    style={
+                      Math.abs(x - cx) > feltW * 0.25
+                        ? { left: x + (x < cx ? 64 : -64), top: y + (y < cy ? -22 : 34), transform: 'translate(-50%, -50%)', zIndex: 6 }
+                        : { ...toward(y < cy ? 0.5 : 0.3), transform: 'translate(-50%, -50%) translate(40px, 0)', zIndex: 4 }
+                    }
                   >
                     D
                   </div>
@@ -601,7 +676,7 @@ export function PokerTable({ state, view, act, pending, serverNow }: TableProps<
 
           {/* My two cards face up beside my seat, with what I have right now under them. */}
           {me && me.hole.length > 0 && (
-            <div className="absolute flex flex-col items-start gap-1" style={{ left: cx + 44, top: seatAt(0).y, transform: 'translateY(-55%)', zIndex: 6 }}>
+            <div className="absolute flex flex-col items-start gap-1" style={{ left: cx + 50, top: seatAt(0).y, transform: 'translateY(-70%)', zIndex: 6 }}>
               <div className="flex -space-x-3">
                 {me.hole.map((c, i) => (
                   <div key={c} className={me.folded ? 'opacity-40' : ''} style={{ transform: `rotate(${i ? 7 : -5}deg) translateY(${i ? 2 : 0}px)` }}>
@@ -624,9 +699,10 @@ export function PokerTable({ state, view, act, pending, serverNow }: TableProps<
           </CornerButton>
         </div>
         <div className="absolute bottom-2 right-2 z-[7]">
-          <CornerButton label="Settings" onClick={() => setSheet('settings')}>
-            <svg viewBox="0 0 20 20" className="h-5 w-5" fill="currentColor">
-              <path d="M11.3 1.5l.4 2.1c.5.2 1 .5 1.4.8l2-.8 1.3 2.3-1.6 1.4c.1.5.1 1 0 1.5l1.6 1.4-1.3 2.3-2-.8c-.4.3-.9.6-1.4.8l-.4 2.1H8.7l-.4-2.1c-.5-.2-1-.5-1.4-.8l-2 .8-1.3-2.3 1.6-1.4a4.7 4.7 0 0 1 0-1.5L3.6 5.9l1.3-2.3 2 .8c.4-.3.9-.6 1.4-.8l.4-2.1h2.6zM10 7a3 3 0 1 0 0 6 3 3 0 0 0 0-6z" />
+          <CornerButton label="Auto check / fold and settings" onClick={() => setSheet('settings')}>
+            <svg viewBox="0 0 22 22" className="h-6 w-6">
+              <circle cx="11" cy="11" r="9" fill="#fff" />
+              <path d="M6.8 11.3l2.8 2.8 5.6-5.8" fill="none" stroke="#3a4049" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
           </CornerButton>
         </div>
