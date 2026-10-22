@@ -4,6 +4,66 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { PlayingCard } from '@/components/ui';
 
 const RAIN_FACES = ['As', 'Kh', 'Qd', 'Jc', 'Ah', 'Ks', 'Qc', 'Jd', 'Ts', '7h', 'X1', 'Ad'];
+const CONFETTI = ['#e53935', '#2e9e48', '#f6b80e', '#1f7fdc', '#ffffff', '#ff7ab6'];
+
+/**
+ * The Ludo winner's celebration: a golden trophy pops up while confetti in the four
+ * board colours bursts out and drifts down. Purely decorative and click-through.
+ */
+export function LudoWin({ count = 90 }: { count?: number }) {
+  const bits = useMemo(
+    () =>
+      Array.from({ length: count }, (_, i) => ({
+        color: CONFETTI[i % CONFETTI.length],
+        left: Math.random() * 100,
+        delay: Math.random() * 1.6,
+        duration: 2.4 + Math.random() * 2.2,
+        r0: Math.random() * 360,
+        r1: Math.random() * 1080 - 540,
+        drift: Math.random() * 160 - 80,
+        w: 6 + Math.random() * 6,
+        round: i % 5 === 0,
+      })),
+    [count],
+  );
+  return (
+    <div className="pointer-events-none fixed inset-0 z-[45] overflow-hidden" aria-hidden="true">
+      {bits.map((b, i) => (
+        <div
+          key={i}
+          className="absolute top-0"
+          style={
+            {
+              left: `${b.left}%`,
+              animation: `fx-fall ${b.duration}s cubic-bezier(.3,.1,.6,1) ${b.delay}s both`,
+              '--r0': `${b.r0}deg`,
+              '--r1': `${b.r1}deg`,
+              '--drift': `${b.drift}px`,
+            } as React.CSSProperties
+          }
+        >
+          <div style={{ width: b.w, height: b.round ? b.w : b.w * 0.45, background: b.color, borderRadius: b.round ? '50%' : 2 }} />
+        </div>
+      ))}
+      <div className="absolute inset-x-0 top-[12%] flex justify-center">
+        <svg viewBox="0 0 100 100" className="h-28 w-28 drop-shadow-[0_6px_14px_rgba(0,0,0,.45)]" style={{ animation: 'fx-trophy 1.2s cubic-bezier(.2,.9,.3,1.4) both' }}>
+          <defs>
+            <linearGradient id="trophy-gold" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stopColor="#fff3b0" />
+              <stop offset="0.45" stopColor="#f6c431" />
+              <stop offset="1" stopColor="#b9790a" />
+            </linearGradient>
+          </defs>
+          <path d="M28 14 h44 v14 c0 18 -10 30 -22 32 c-12 -2 -22 -14 -22 -32 z" fill="url(#trophy-gold)" stroke="#8a5a00" strokeWidth="2" />
+          <path d="M28 20 h-12 c0 14 8 20 14 20 M72 20 h12 c0 14 -8 20 -14 20" fill="none" stroke="#c98d10" strokeWidth="5" strokeLinecap="round" />
+          <rect x="44" y="60" width="12" height="12" fill="#d9a21b" />
+          <rect x="32" y="72" width="36" height="10" rx="3" fill="url(#trophy-gold)" stroke="#8a5a00" strokeWidth="2" />
+          <path d="M50 22 l4 8 9 1 -7 6 2 9 -8 -5 -8 5 2 -9 -7 -6 9 -1 z" fill="#fff8d8" />
+        </svg>
+      </div>
+    </div>
+  );
+}
 
 /** Cards falling from the sky — shown to the winner. Purely decorative and click-through. */
 export function CardRain({ count = 28 }: { count?: number }) {

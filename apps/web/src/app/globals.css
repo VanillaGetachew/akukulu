@@ -114,6 +114,37 @@ body {
   90% { opacity: 1; }
   100% { transform: translate(calc(var(--x1) - 50%), calc(var(--y1) - 50%)) rotate(var(--rot)) scale(var(--s1)); opacity: 0; }
 }
+/* Ludo winner's trophy. */
+@keyframes fx-trophy {
+  0% { opacity: 0; transform: translateY(40px) scale(0.3) rotate(-20deg); }
+  70% { opacity: 1; transform: translateY(-6px) scale(1.12) rotate(4deg); }
+  100% { opacity: 1; transform: none; }
+}
+/* Ludo: a pawn you can move bobs; a thrown die tumbles to where it was thrown; confetti when a pawn gets home. */
+.ludo-bob {
+  animation: ludo-bob 0.7s ease-in-out infinite alternate;
+}
+@keyframes ludo-bob {
+  from { transform: translateY(0); }
+  to { transform: translateY(-0.16px); }
+}
+.ludo-glow {
+  animation: ludo-glow 0.9s ease-in-out infinite alternate;
+}
+@keyframes ludo-glow {
+  from { opacity: 0.35; transform: scale(0.85); }
+  to { opacity: 1; transform: scale(1.15); }
+}
+@keyframes ludo-throw {
+  0% { transform: translate(calc(var(--x0) - 50%), calc(var(--y0) - 50%)) rotate(0deg) scale(1.15); }
+  70% { transform: translate(calc(var(--x1) - 50%), calc(var(--y1) - 50%)) rotate(var(--spin)) scale(1); }
+  82% { transform: translate(calc(var(--x1) - 50% + var(--bx)), calc(var(--y1) - 50% + var(--by))) rotate(calc(var(--spin) + 20deg)) scale(1); }
+  100% { transform: translate(calc(var(--x1) - 50%), calc(var(--y1) - 50%)) rotate(calc(var(--spin) + 30deg)) scale(1); }
+}
+@keyframes ludo-confetti {
+  0% { opacity: 1; transform: translate(0, 0) rotate(0deg); }
+  100% { opacity: 0; transform: translate(var(--dx), var(--dy)) rotate(var(--r)); }
+}
 @keyframes fx-fall {
   0% { transform: translate3d(0, -20vh, 0) rotate(var(--r0)); opacity: 0; }
   10% { opacity: 1; }
