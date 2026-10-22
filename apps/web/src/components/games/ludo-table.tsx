@@ -128,15 +128,28 @@ const FACES: { value: number; place: string; show: string }[] = [
   { value: 2, place: 'rotateX(-90deg)', show: 'rotateX(90deg)' },
 ];
 
+/** The flat die in a player's corner (no value yet: faint pips). */
+function DieFace({ value, spinning }: { value: number | null; spinning?: boolean }) {
+  return (
+    <svg viewBox="0 0 100 100" className={`h-full w-full ${spinning ? 'animate-roll' : value ? 'animate-pop' : ''}`} key={`${value}-${spinning}`}>
+      <rect x="4" y="4" width="92" height="92" rx="22" fill="#fbfaf5" stroke="#d6d2c4" strokeWidth="3" />
+      {(value ? PIPS[value] : [[30, 30], [70, 70]]).map(([x, y], i) => (
+        <circle key={i} cx={x} cy={y} r="9.5" fill={value ? '#1b1b26' : '#c9c4b6'} />
+      ))}
+    </svg>
+  );
+}
+
 /**
- * A real 3D die: a cube with six pipped faces, tipped so its top and side show. It
- * tumbles while the roll is in the air and settles with the rolled number facing up.
+ * The thrown die, in 3D: a cube with six pipped faces. It tumbles in the air and lands
+ * with the rolled face looking straight at you (only slightly tipped), so the number is
+ * easy to read.
  */
 function Dice3D({ value, spinning, size }: { value: number | null; spinning?: boolean; size: number }) {
   const show = FACES.find((f) => f.value === (value ?? 5))!.show;
   return (
     <div className="dice3d" style={{ width: size, height: size }}>
-      <div className={`dice3d-cube ${spinning ? 'tumbling' : ''}`} style={spinning ? undefined : { transform: `rotateX(-22deg) rotateY(28deg) ${show}` }}>
+      <div className={`dice3d-cube ${spinning ? 'tumbling' : ''}`} style={spinning ? undefined : { transform: `rotateX(-9deg) rotateY(11deg) ${show}` }}>
         {FACES.map((f) => (
           <div key={f.value} className="dice3d-face" style={{ transform: `${f.place} translateZ(${size / 2}px)` }}>
             <svg viewBox="0 0 100 100" className="h-full w-full">
@@ -227,7 +240,7 @@ function Die({
       className={`relative z-[38] grid h-14 w-14 shrink-0 touch-none select-none place-items-center rounded-2xl bg-[#13306b] p-1.5 shadow-lg ring-2 ${active ? 'cursor-grab ring-white' : 'ring-[#2a4c9a]'} ${active && !drag ? 'animate-pulseRing' : ''}`}
       style={drag ? { transform: `translate(${drag.dx}px, ${drag.dy}px) scale(1.15) rotate(${drag.dx / 4}deg)`, cursor: 'grabbing' } : { transition: 'transform .15s' }}
     >
-      <Dice3D value={value} spinning={rolling} size={36} />
+      <DieFace value={value} spinning={rolling} />
     </div>
   );
 }
