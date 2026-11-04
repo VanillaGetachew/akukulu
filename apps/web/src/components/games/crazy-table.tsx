@@ -310,8 +310,8 @@ export function CrazyTable({ state, view, act, pending, serverNow }: TableProps<
   const suitChanged = !!view.topCard && view.activeSuit !== view.topCard[1];
 
   return (
-    <div className="felt-pattern fixed inset-0 z-[35] flex flex-col overflow-hidden text-white">
-      <Link href="/games/crazy" aria-label="Back to the lobby" className="absolute left-2 top-2 z-[36] grid h-8 w-8 place-items-center rounded-full bg-black/40 text-sm font-bold">
+    <div className="felt-pattern fixed inset-0 z-[35] flex flex-col overflow-hidden text-white" style={{ paddingTop: 'var(--safe-top)', paddingBottom: 'var(--safe-bottom)' }}>
+      <Link href="/games/crazy" aria-label="Back to the lobby" className="absolute left-2 z-[36] grid h-10 w-10 place-items-center rounded-full bg-black/40 text-base font-bold ring-1 ring-white/10 transition hover:bg-black/50" style={{ top: 'calc(var(--safe-top) + 8px)' }}>
         ←
       </Link>
 

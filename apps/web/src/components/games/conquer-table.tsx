@@ -370,7 +370,7 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
   const dealtTo = (id: string | undefined) => (landed ? landed.filter((x) => x === id).length : Infinity);
   const dealtMine = dealtTo(user?.id);
   const vh = useViewportHeight();
-  const handCardW = vh < 560 ? 42 : vh < 660 ? 48 : vh < 780 ? 54 : 60;
+  const handCardW = vh < 560 ? 42 : vh < 660 ? 48 : vh < 780 ? 56 : vh < 900 ? 62 : 68;
   const [hint, setHint] = useState<string | null>(null);
   const [handRef, handWidth] = useWidth<HTMLDivElement>();
   const [oppRef, oppWidth] = useWidth<HTMLDivElement>();
@@ -486,8 +486,8 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
   };
 
   const shell = (children: React.ReactNode) => (
-    <div className="felt-pattern fixed inset-0 z-[35] flex flex-col overflow-hidden text-white">
-      <Link href="/games/conquer" aria-label="Back to the lobby" className="absolute left-2 top-2 z-[36] grid h-8 w-8 place-items-center rounded-full bg-black/40 text-sm font-bold">
+    <div className="felt-pattern fixed inset-0 z-[35] flex flex-col overflow-hidden text-white" style={{ paddingTop: 'var(--safe-top)', paddingBottom: 'var(--safe-bottom)' }}>
+      <Link href="/games/conquer" aria-label="Back to the lobby" className="absolute left-2 z-[36] grid h-10 w-10 place-items-center rounded-full bg-black/40 text-base font-bold ring-1 ring-white/10 transition hover:bg-black/50" style={{ top: 'calc(var(--safe-top) + 8px)' }}>
         ←
       </Link>
       {children}

@@ -1147,7 +1147,7 @@ export function PokerTable({ state, view, act, pending, serverNow }: TableProps<
   };
 
   return (
-    <div className="fixed inset-0 z-[35] flex flex-col overflow-hidden text-white" style={{ backgroundColor: '#2a0a10', backgroundImage: `${FLEUR}, radial-gradient(ellipse at center, #4a121c 0%, #2a0a10 75%)` }}>
+    <div className="fixed inset-0 z-[35] flex flex-col overflow-hidden text-white" style={{ paddingTop: 'var(--safe-top)', backgroundColor: '#2a0a10', backgroundImage: `${FLEUR}, radial-gradient(ellipse at center, #4a121c 0%, #2a0a10 75%)` }}>
       {/* Top bar: menu, the table tab (my cards once dealt), a new table, and the trophy panel. */}
       <div className="flex shrink-0 items-center gap-2 px-2 pt-2">
         <RoundButton label="Menu" onClick={() => setSheet('menu')}>

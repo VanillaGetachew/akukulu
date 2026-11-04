@@ -207,7 +207,10 @@ function Corner({
 }) {
   return (
     <div className={`flex items-center gap-2 ${right ? 'flex-row-reverse' : ''} ${out ? 'opacity-40' : ''}`}>
-      <div className={`relative grid h-14 w-14 shrink-0 place-items-center rounded-xl border-[3px] bg-[#c9d6f2] shadow-md ${turn ? 'border-white' : 'border-[#e8eefb]'}`} style={turn ? { boxShadow: `0 0 0 3px ${COLOR[color]}` } : undefined}>
+      <div
+        className={`relative grid h-14 w-14 shrink-0 place-items-center rounded-2xl transition duration-200 ${turn ? 'scale-105' : ''}`}
+        style={{ background: turn ? COLOR[color] : 'rgba(255,255,255,.1)', boxShadow: turn ? `0 0 0 3px rgba(255,255,255,.9), 0 0 22px 2px ${COLOR[color]}` : 'inset 0 0 0 1px rgba(255,255,255,.14)' }}
+      >
         {name ? (
           <Avatar name={name} photoUrl={photoUrl} size={44} />
         ) : (
@@ -220,8 +223,8 @@ function Corner({
       </div>
       {name && (
         <div className={`min-w-0 ${right ? 'text-right' : ''}`}>
-          <div className="max-w-[6.5rem] truncate text-xs font-extrabold text-white">{you ? 'You' : name}</div>
-          <div className="text-[10px] font-semibold text-white/70">{out ? 'left' : winner ? 'Winner!' : `${home}/4 home`}</div>
+          <div className="max-w-[6.5rem] truncate text-[13px] font-bold text-white">{you ? 'You' : name}</div>
+          <div className={`text-[11px] font-semibold ${turn ? 'text-white' : 'text-white/60'}`}>{out ? 'Left the game' : winner ? 'Winner' : turn ? 'Playing now' : `${home} of 4 home`}</div>
         </div>
       )}
       {die}
@@ -262,7 +265,7 @@ export function LudoTable({ state, view, act, pending, serverNow }: TableProps<L
   // A fixed board size from the screen, so it never zooms in or out during play.
   const [boxRef, boxWidth] = useWidth<HTMLDivElement>();
   const vh = useViewportHeight();
-  const size = Math.max(240, Math.min(boxWidth, vh - 250, 600));
+  const size = Math.max(240, Math.min(boxWidth - 12, vh - 250, 600));
 
   // Tokens at their shown positions, spread when several share a square.
   const placed: { key: string; color: LudoColor; token: number; x: number; y: number; movable: boolean }[] = [];
@@ -322,7 +325,7 @@ export function LudoTable({ state, view, act, pending, serverNow }: TableProps<L
       ? `${nameOf(state, view.winnerId)} wins!`
       : myTurn
         ? view.phase === 'roll'
-          ? 'Your turn — tap the die'
+          ? 'Your turn: tap the die'
           : 'Tap a glowing pawn to move it'
         : `${nameOf(state, view.currentPlayerId)}'s turn`;
   const eventText = ev
@@ -350,8 +353,8 @@ export function LudoTable({ state, view, act, pending, serverNow }: TableProps<L
   };
 
   return (
-    <div className="ludo-bg fixed inset-0 z-[35] flex flex-col overflow-hidden text-white">
-      <Link href="/games/ludo" aria-label="Back to the lobby" className="absolute left-2 top-2 z-[36] grid h-8 w-8 place-items-center rounded-full bg-black/30 text-sm font-bold">
+    <div className="ludo-bg fixed inset-0 z-[35] flex flex-col overflow-hidden text-white" style={{ paddingTop: 'var(--safe-top)' }}>
+      <Link href="/games/ludo" aria-label="Back to the lobby" className="absolute left-2 z-[36] grid h-10 w-10 place-items-center rounded-full bg-black/30 text-base font-bold ring-1 ring-white/10 transition hover:bg-black/50" style={{ top: 'calc(var(--safe-top) + 8px)' }}>
         ←
       </Link>
       <div className="mx-auto flex min-h-0 w-full max-w-[600px] flex-1 flex-col justify-center px-2 pt-10">
@@ -366,8 +369,8 @@ export function LudoTable({ state, view, act, pending, serverNow }: TableProps<L
             viewBox="0 0 15 15"
             width={size}
             height={size}
-            className="mx-auto block touch-manipulation select-none"
-            style={{ overflow: 'visible' }}
+            className="mx-auto block touch-manipulation select-none rounded-[14px] drop-shadow-[0_18px_30px_rgba(0,0,0,.45)]"
+            style={{ overflow: 'visible', outline: '5px solid #0b1d47', outlineOffset: 0 }}
             role="img"
             aria-label="Ludo board"
           >
@@ -511,7 +514,7 @@ export function LudoTable({ state, view, act, pending, serverNow }: TableProps<L
         </div>
       </div>
       <div className="shrink-0 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-        <div className="mx-auto max-w-[600px] rounded-xl bg-[#0d2457]/80 px-3 py-2 shadow-inner">
+        <div className="mx-auto max-w-[600px] rounded-2xl border border-white/10 bg-[#0b1d47]/85 px-4 py-2.5 backdrop-blur">
           <div className="flex items-center justify-between gap-2 text-sm font-bold">
             <span className="truncate">{status}</span>
             {view.phase !== 'finished' && <TurnClock deadline={view.turnDeadline} serverNow={serverNow} total={view.config.turnSeconds} />}

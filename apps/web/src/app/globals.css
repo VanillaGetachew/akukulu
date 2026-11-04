@@ -2,21 +2,39 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * Akukulu design tokens.
+ * Midnight navy surfaces in three steps (ink → panel → panel-2), one emerald accent for actions,
+ * champagne gold for value (points, prizes, winners), ivory for cards. Channels are RGB so Tailwind
+ * opacity modifiers work (bg-panel/80). Token names are kept from v1 so every screen picks them up.
+ */
 :root {
-  /* Colour tokens as RGB channels so Tailwind opacity modifiers work. */
-  --ink: 7 7 26;
-  --night: 13 12 36;
-  --panel: 25 21 54;
-  --panel-2: 35 29 71;
-  --charcoal: 27 27 38;
-  --line: rgba(255, 255, 255, 0.08);
-  --fg: 243 241 255;
-  --muted: 154 149 189;
-  --lime: 46 230 122;
-  --lime-deep: 18 184 90;
-  --gold: 255 201 74;
-  --danger: 255 90 122;
-  --violet: 139 92 246;
+  --ink: 6 10 20; /* #060A14 page */
+  --night: 10 16 30; /* #0A101E sunken areas, nav */
+  --panel: 15 23 40; /* #0F1728 cards */
+  --panel-2: 23 34 56; /* #172238 raised controls */
+  --charcoal: 30 38 54;
+  --line: rgba(150, 172, 214, 0.11);
+  --line-strong: rgba(150, 172, 214, 0.2);
+  --fg: 242 245 250; /* #F2F5FA */
+  --muted: 140 152 177; /* #8C98B1 */
+  --lime: 34 212 138; /* #22D48A emerald — primary actions, live state */
+  --lime-deep: 13 158 99;
+  --gold: 230 199 127; /* #E6C77F champagne — points, prizes, winners */
+  --gold-deep: 176 141 72;
+  --danger: 240 86 110;
+  --violet: 104 136 245; /* steel blue — secondary badges (kept name for compatibility) */
+  --ivory: 251 248 241;
+
+  /* Telegram safe areas (Bot API 8+: fullscreen mode); 0 elsewhere. */
+  --safe-top: max(env(safe-area-inset-top), calc(var(--tg-safe-area-inset-top, 0px) + var(--tg-content-safe-area-inset-top, 0px)));
+  --safe-bottom: max(env(safe-area-inset-bottom), var(--tg-safe-area-inset-bottom, 0px));
+
+  /* Motion */
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --dur-fast: 120ms;
+  --dur: 200ms;
+  --dur-slow: 320ms;
   color-scheme: dark;
 }
 
@@ -30,45 +48,81 @@ body {
 
 body {
   min-height: 100dvh;
+  /* One quiet emerald glow at the top; everything else is flat midnight. */
   background:
-    radial-gradient(1200px 500px at 50% -200px, rgba(139, 92, 246, 0.22), transparent 70%),
-    radial-gradient(800px 400px at 110% 10%, rgba(46, 230, 122, 0.08), transparent 70%),
+    radial-gradient(900px 380px at 50% -220px, rgba(34, 212, 138, 0.09), transparent 70%),
     rgb(var(--ink));
   background-attachment: fixed;
+  font-feature-settings: 'ss01', 'cv11';
+}
+
+::selection {
+  background: rgba(34, 212, 138, 0.35);
+}
+
+:focus-visible {
+  outline: 2px solid rgb(var(--lime));
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+
+/* The tibeb band: the woven border of Ethiopian habesha cloth, in gold and emerald. Akukulu's signature. */
+.tibeb {
+  height: 10px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='10' viewBox='0 0 28 10'%3E%3Cpath d='M0 0h28v1H0zM0 9h28v1H0z' fill='%23e6c77f' fill-opacity='.55'/%3E%3Cpath d='M7 1.6 10.4 5 7 8.4 3.6 5z' fill='%23e6c77f'/%3E%3Cpath d='M7 3.4 8.6 5 7 6.6 5.4 5z' fill='%23060a14'/%3E%3Cpath d='M21 2.4 23.6 5 21 7.6 18.4 5z' fill='%2322d48a'/%3E%3Cpath d='M12.5 5h3M0 5h1.5M26.5 5H28' stroke='%23e6c77f' stroke-opacity='.6'/%3E%3C/svg%3E");
+  background-repeat: repeat-x;
+  background-size: 28px 10px;
 }
 
 @layer components {
+  /* Surfaces: one radius per level (cards 16px, controls 12px, chips full). */
   .card {
-    @apply rounded-2xl border border-line bg-panel/90 shadow-card;
+    @apply rounded-2xl border border-line bg-panel;
+  }
+  .card-raised {
+    @apply rounded-2xl border border-line bg-panel2;
   }
   .btn {
-    @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold transition active:scale-[.97] disabled:cursor-not-allowed disabled:opacity-40;
+    @apply inline-flex min-h-[44px] select-none items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold transition duration-150 active:scale-[.97] disabled:cursor-not-allowed disabled:opacity-40 disabled:active:scale-100;
   }
   .btn-primary {
-    @apply btn bg-lime text-ink shadow-glow hover:brightness-110;
+    @apply btn bg-lime text-ink shadow-[0_6px_20px_-8px_rgba(34,212,138,.7)] hover:brightness-110;
+  }
+  .btn-gold {
+    @apply btn bg-gold text-ink hover:brightness-105;
   }
   .btn-ghost {
-    @apply btn border border-line bg-panel2 text-fg hover:bg-white/10;
+    @apply btn border border-line bg-panel2 text-fg hover:border-[color:var(--line-strong)] hover:bg-[#1c2944];
+  }
+  .btn-quiet {
+    @apply btn text-muted hover:bg-white/5 hover:text-fg;
   }
   .btn-danger {
     @apply btn bg-danger/90 text-white hover:bg-danger;
   }
+  .btn-sm {
+    @apply min-h-[36px] rounded-lg px-3 py-1.5 text-xs;
+  }
   .chip {
-    @apply inline-flex items-center gap-1 rounded-full border border-line bg-black/30 px-2.5 py-1 text-xs font-semibold text-muted;
+    @apply inline-flex items-center gap-1 rounded-full border border-line bg-white/[0.03] px-2.5 py-1 text-xs font-semibold text-muted;
+  }
+  .chip-on {
+    @apply border-lime/50 bg-lime/10 text-lime;
   }
   .input {
-    @apply w-full rounded-xl border border-line bg-black/30 px-3 py-2.5 text-sm text-fg outline-none placeholder:text-muted/60 focus:border-lime/60;
+    @apply min-h-[44px] w-full rounded-xl border border-line bg-night px-3 py-2.5 text-sm text-fg outline-none transition placeholder:text-muted/60 focus:border-lime/60;
+  }
+  .label {
+    @apply text-[13px] font-semibold text-muted;
+  }
+  .section-title {
+    @apply font-display text-[19px] font-bold tracking-[-0.01em] text-fg;
   }
   .skeleton {
-    @apply animate-shimmer rounded-xl bg-[linear-gradient(90deg,rgba(255,255,255,.04),rgba(255,255,255,.1),rgba(255,255,255,.04))] bg-[length:200%_100%];
+    @apply animate-shimmer rounded-xl bg-[linear-gradient(90deg,rgba(255,255,255,.035),rgba(255,255,255,.08),rgba(255,255,255,.035))] bg-[length:200%_100%];
   }
 }
 
-.felt {
-  background:
-    radial-gradient(ellipse at center, rgba(46, 230, 122, 0.18), transparent 65%),
-    radial-gradient(ellipse at center, #133a2a 0%, #0b2419 60%, #08170f 100%);
-}
 
 @media (prefers-reduced-motion: reduce) {
   *,
@@ -79,18 +133,27 @@ body {
   }
 }
 
-/* Card-table felt with a faint suit pattern (Conquer and Crazy tables). */
+/* Card-table baize (Conquer and Crazy): deep emerald with a soft lamp-light centre, darker edges and a faint suit weave. */
 .felt-pattern {
-  background-color: #0f5a33;
+  background-color: #0b4a2f;
   background-image:
-    radial-gradient(ellipse at center, rgba(255, 255, 255, 0.06), transparent 70%),
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120' viewBox='0 0 120 120'%3E%3Cg fill='%23000' fill-opacity='0.13'%3E%3Cpath d='M30 12c6 8 14 12 14 20a7 7 0 0 1-12 5l2 9h-8l2-9a7 7 0 0 1-12-5c0-8 8-12 14-20z'/%3E%3Cpath d='M90 14l12 16-12 16-12-16z'/%3E%3Cpath d='M30 92c-8-6-14-10-14-17a7 7 0 0 1 14-3 7 7 0 0 1 14 3c0 7-6 11-14 17z'/%3E%3Ccircle cx='90' cy='76' r='6'/%3E%3Ccircle cx='83' cy='86' r='6'/%3E%3Ccircle cx='97' cy='86' r='6'/%3E%3Cpath d='M88 86h4l2 12h-8z'/%3E%3C/g%3E%3C/svg%3E");
-  background-size: auto, 120px 120px;
+    radial-gradient(ellipse 70% 55% at 50% 45%, rgba(255, 255, 255, 0.07), transparent 70%),
+    radial-gradient(ellipse 120% 90% at 50% 50%, transparent 55%, rgba(0, 0, 0, 0.42) 100%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120' viewBox='0 0 120 120'%3E%3Cg fill='%23000' fill-opacity='0.09'%3E%3Cpath d='M30 12c6 8 14 12 14 20a7 7 0 0 1-12 5l2 9h-8l2-9a7 7 0 0 1-12-5c0-8 8-12 14-20z'/%3E%3Cpath d='M90 14l12 16-12 16-12-16z'/%3E%3Cpath d='M30 92c-8-6-14-10-14-17a7 7 0 0 1 14-3 7 7 0 0 1 14 3c0 7-6 11-14 17z'/%3E%3Ccircle cx='90' cy='76' r='6'/%3E%3Ccircle cx='83' cy='86' r='6'/%3E%3Ccircle cx='97' cy='86' r='6'/%3E%3Cpath d='M88 86h4l2 12h-8z'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: auto, auto, 120px 120px;
+}
+
+/* The blackjack table: emerald baize under a warm light. */
+.felt {
+  background-color: #0b4a2f;
+  background-image:
+    radial-gradient(ellipse 80% 50% at 50% 30%, rgba(255, 240, 200, 0.09), transparent 70%),
+    radial-gradient(ellipse 130% 100% at 50% 40%, transparent 50%, rgba(0, 0, 0, 0.5) 100%);
 }
 
 /* Ludo table: deep blue with a soft dot pattern. */
 .ludo-bg {
-  background-color: #1d4596;
+  background-color: #14306c;
   background-image:
     radial-gradient(ellipse at center, rgba(255, 255, 255, 0.08), transparent 70%),
     radial-gradient(circle, rgba(0, 0, 0, 0.16) 3px, transparent 3.5px);

@@ -13,50 +13,57 @@ interface Active {
   matches: { id: string; gameSlug: GameSlug; roomId: string | null }[];
 }
 
+function PlayTag({ disabled, className }: { disabled: boolean; className: string }) {
+  return (
+    <span className={`h-10 min-w-[68px] place-items-center rounded-xl px-4 text-[13px] font-bold transition ${disabled ? 'border border-line text-muted' : 'bg-lime text-ink group-hover:brightness-110'} ${className}`}>
+      {disabled ? 'Details' : 'Play'}
+    </span>
+  );
+}
+
+/** A game: artwork, name, what it is, who is playing, and Play. A row on phones, a tall card on wide screens. */
 function GameCard({ game }: { game: GameSummary }) {
   const disabled = !game.playable;
+  const badge = game.maintenance ? 'Coming soon' : !game.enabled ? 'Paused' : game.beta && game.playable ? 'Beta' : null;
   return (
     <Link
       href={`/games/${game.slug}`}
-      className={`group card relative flex flex-col overflow-hidden p-2.5 transition hover:-translate-y-0.5 hover:border-lime/40 ${disabled ? 'opacity-80' : ''}`}
+      className="group relative grid grid-cols-[72px_1fr_auto] items-center gap-3 min-[375px]:grid-cols-[88px_1fr_auto] min-[375px]:gap-3.5 rounded-2xl border border-line bg-panel p-2.5 pr-3.5 transition duration-200 hover:border-lineStrong hover:bg-[#121d33] active:scale-[.99] sm:grid-cols-1 sm:gap-0 sm:p-0"
     >
-      <div className="relative aspect-square overflow-hidden rounded-xl">
-        <GameThumb slug={game.slug} />
-        {game.maintenance && (
-          <span className="absolute left-2 top-2 rounded-full bg-gold px-2 py-0.5 text-[10px] font-black uppercase text-ink">Coming soon</span>
-        )}
-        {game.beta && game.playable && (
-          <span className="absolute right-2 top-2 rounded-full bg-violet px-2 py-0.5 text-[10px] font-black uppercase text-white">Beta</span>
-        )}
-        {!game.maintenance && !game.enabled && (
-          <span className="absolute left-2 top-2 rounded-full bg-danger px-2 py-0.5 text-[10px] font-black uppercase text-white">Paused</span>
+      <div className="relative h-[72px] overflow-hidden rounded-xl min-[375px]:h-[88px] sm:aspect-[16/10] sm:h-auto sm:rounded-b-none sm:rounded-t-2xl">
+        <div className="h-full w-full transition duration-300 group-hover:scale-[1.04]">
+          <GameThumb slug={game.slug} />
+        </div>
+        {badge && (
+          <span className={`absolute left-1.5 top-1.5 rounded-md px-1.5 py-0.5 text-[10px] font-bold sm:left-3 sm:top-3 ${badge === 'Beta' ? 'bg-ink/80 text-gold' : 'bg-gold text-ink'}`}>{badge}</span>
         )}
       </div>
-      <div className="mt-2.5 px-0.5">
-        <div className="font-display text-[15px] font-extrabold leading-tight">{game.name}</div>
-        <div className="truncate text-[11px] text-muted">{game.tagline}</div>
+      <div className="min-w-0 sm:px-4 sm:pt-3.5">
+        <div className="font-display text-[17px] font-bold leading-tight tracking-[-0.01em]">{game.name}</div>
+        <div className="mt-0.5 truncate text-[13px] text-muted">{game.tagline}</div>
+        <div className="mt-1.5 flex items-center justify-between gap-2 sm:mb-4 sm:mt-3">
+          <span className="flex items-center gap-1.5 text-xs font-semibold text-muted">
+            <span className={`h-1.5 w-1.5 rounded-full ${game.activePlayers > 0 ? 'bg-lime shadow-[0_0_0_3px_rgba(34,212,138,.18)]' : 'bg-muted/50'}`} aria-hidden />
+            {game.activePlayers > 0 ? `${game.activePlayers} playing now` : 'Be the first at a table'}
+          </span>
+          <PlayTag disabled={disabled} className="hidden sm:grid" />
+        </div>
       </div>
-      <div className="mt-2 flex items-center justify-between px-0.5">
-        <span className="flex items-center gap-1 text-[11px] font-bold text-muted">
-          <span className={`h-1.5 w-1.5 rounded-full ${game.activePlayers > 0 ? 'bg-lime' : 'bg-muted/50'}`} />
-          {game.activePlayers} playing
-        </span>
-        <span className={`rounded-lg px-2 py-1 text-[11px] font-black ${disabled ? 'bg-white/5 text-muted' : 'bg-lime text-ink'}`}>
-          {disabled ? 'Info' : 'Play'}
-        </span>
-      </div>
+      <PlayTag disabled={disabled} className="grid sm:hidden" />
     </Link>
   );
 }
 
 function GridSkeleton() {
   return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-      {Array.from({ length: 4 }, (_, i) => (
-        <div key={i} className="card p-2.5">
-          <div className="skeleton aspect-square" />
-          <div className="skeleton mt-3 h-4 w-2/3" />
-          <div className="skeleton mt-2 h-3 w-1/2" />
+    <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3 sm:gap-4">
+      {Array.from({ length: 5 }, (_, i) => (
+        <div key={i} className="grid grid-cols-[88px_1fr] items-center gap-3.5 rounded-2xl border border-line bg-panel p-2.5 sm:grid-cols-1 sm:p-0">
+          <div className="skeleton h-[88px] sm:aspect-[16/10] sm:h-auto" />
+          <div className="grid gap-2 sm:p-4">
+            <div className="skeleton h-4 w-2/3" />
+            <div className="skeleton h-3 w-1/2" />
+          </div>
         </div>
       ))}
     </div>
@@ -99,44 +106,62 @@ export default function Lobby() {
   const allMaintenance = games !== null && games.length > 0 && games.every((g) => !g.playable);
   const resumable = active?.rooms.filter((r) => r.status === 'in_progress' || r.status === 'waiting') ?? [];
 
+  const firstName = user?.firstName?.trim();
+
   return (
     <Page onRefresh={load} refreshing={refreshing}>
-      <section className="card relative mb-4 overflow-hidden border-violet/30 bg-[linear-gradient(120deg,#2a1f63,#160f3a_60%,#0e1f2a)]">
-        <div className="grid grid-cols-[1fr_auto] items-center gap-2 p-5">
-          <div>
-            <span className="chip mb-2 border-lime/30 text-lime">Free to play</span>
-            <h1 className="font-display text-2xl font-extrabold leading-tight sm:text-3xl">
-              Selam{user ? `, ${user.firstName}` : ''}!
-              <br />
-              <span className="text-lime">Roll in</span> and play.
-            </h1>
-            <p className="mt-1.5 max-w-xs text-xs text-muted">Five classic games, real opponents, virtual points only.</p>
-            <Link href="/rewards" className="btn-primary mt-3">
-              <Coin /> {dailyAvailable ? 'Claim free reward' : 'Free rewards'}
-            </Link>
-          </div>
-          <Emblem size={150} className="h-32 w-32 sm:h-40 sm:w-40" />
+      {/* Greeting: short, so the games stay above the fold. The tibeb band is the one flourish. */}
+      <section className="mb-5 flex items-end justify-between gap-4 lg:mb-8">
+        <div className="min-w-0">
+          <h1 className="font-display text-[28px] font-bold leading-[1.1] tracking-[-0.025em] sm:text-[34px] lg:text-[40px]">
+            Selam{firstName ? `, ${firstName}` : ''}
+          </h1>
+          <p className="mt-1.5 max-w-md text-[15px] text-muted">Pick a table. Every seat is a real player, and every point is free.</p>
+          <div className="tibeb mt-4 w-40 lg:w-56" aria-hidden />
         </div>
+        <Emblem size={150} className="hidden h-36 w-36 shrink-0 drop-shadow-[0_10px_30px_rgba(230,199,127,.18)] lg:block" />
       </section>
 
+      {dailyAvailable && (
+        <Link
+          href="/rewards"
+          className="mb-5 flex items-center gap-3 rounded-2xl border border-gold/25 bg-[linear-gradient(100deg,rgba(230,199,127,.12),rgba(230,199,127,.03))] px-4 py-3 transition hover:border-gold/45"
+        >
+          <Coin className="h-8 w-8" />
+          <div className="min-w-0 flex-1">
+            <div className="text-sm font-bold text-fg">Your daily reward is ready</div>
+            <div className="text-[13px] text-muted">Free points to play with today</div>
+          </div>
+          <span className="btn-gold btn-sm">Claim</span>
+        </Link>
+      )}
+
       {resumable.length > 0 && (
-        <section className="mb-4 grid gap-2">
+        <section className="mb-6 grid gap-2" aria-label="Your games in progress">
           {resumable.map((r) => (
-            <Link key={r.id} href={`/room/${r.code}`} className="card flex items-center justify-between border-lime/40 px-4 py-3">
-              <div>
-                <div className="text-sm font-bold capitalize">{r.gameSlug} — {r.status === 'in_progress' ? 'match in progress' : 'waiting room'}</div>
-                <div className="text-xs text-muted">Room {r.code} · {r.players.length}/{r.maxPlayers} players</div>
+            <Link key={r.id} href={`/room/${r.code}`} className="flex items-center gap-3 rounded-2xl border border-lime/35 bg-lime/[0.06] px-4 py-3 transition hover:border-lime/60">
+              <span className="relative flex h-2.5 w-2.5" aria-hidden>
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-lime/60" />
+                <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-lime" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-bold">
+                  {games?.find((g) => g.slug === r.gameSlug)?.name ?? r.gameSlug}: {r.status === 'in_progress' ? 'match in progress' : 'waiting room'}
+                </div>
+                <div className="text-[13px] text-muted">
+                  Room {r.code}, {r.players.length} of {r.maxPlayers} players
+                </div>
               </div>
-              <span className="btn-primary px-3 py-1.5 text-xs">{r.status === 'in_progress' ? 'Resume' : 'Open'}</span>
+              <span className="btn-primary btn-sm">{r.status === 'in_progress' ? 'Resume' : 'Open'}</span>
             </Link>
           ))}
         </section>
       )}
 
-      <div className="mb-3 flex items-end justify-between">
-        <h2 className="font-display text-lg font-extrabold">Games</h2>
-        <Link href="/leaderboard" className="text-xs font-bold text-lime">
-          Leaderboard →
+      <div className="mb-3 flex items-baseline justify-between">
+        <h2 className="section-title">Games</h2>
+        <Link href="/leaderboard" className="text-[13px] font-semibold text-muted transition hover:text-lime">
+          Leaderboard
         </Link>
       </div>
 
@@ -145,13 +170,11 @@ export default function Lobby() {
       ) : !games ? (
         <GridSkeleton />
       ) : games.length === 0 ? (
-        <EmptyState title="No games available" body="Please check back shortly." />
+        <EmptyState title="No games right now" body="The tables are being set up. Pull to refresh in a minute." />
       ) : (
         <>
-          {allMaintenance && (
-            <div className="card mb-3 border-gold/30 px-4 py-3 text-sm text-gold">All games are under maintenance right now. Please check back soon.</div>
-          )}
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+          {allMaintenance && <div className="mb-3 rounded-2xl border border-gold/30 bg-gold/5 px-4 py-3 text-sm text-gold">Every game is under maintenance. Check back soon.</div>}
+          <div className="grid gap-2.5 sm:grid-cols-2 sm:gap-4 lg:grid-cols-3">
             {games.map((g) => (
               <GameCard key={g.slug} game={g} />
             ))}
@@ -159,8 +182,8 @@ export default function Lobby() {
         </>
       )}
 
-      <p className="mt-6 text-center text-[11px] text-muted/80">
-        Points are free virtual credits. They cannot be bought, transferred, or exchanged for money.
+      <p className="mx-auto mt-8 max-w-sm text-center text-xs leading-relaxed text-muted/80">
+        Points are free virtual credits. They can&apos;t be bought, transferred or exchanged for money.
       </p>
     </Page>
   );
