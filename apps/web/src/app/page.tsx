@@ -5,7 +5,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { GameSlug, GameSummary, RoomSummary } from '@akukulu/shared';
 import { api } from '@/lib/api';
 import { useSession } from '@/lib/session';
-import { Emblem, GameThumb } from '@/components/art';
+import { Emblem, GameThumbClassic } from '@/components/art';
 import { Coin, EmptyState, ErrorState, Page } from '@/components/ui';
 
 interface Active {
@@ -13,57 +13,50 @@ interface Active {
   matches: { id: string; gameSlug: GameSlug; roomId: string | null }[];
 }
 
-function PlayTag({ disabled, className }: { disabled: boolean; className: string }) {
-  return (
-    <span className={`h-10 min-w-[68px] place-items-center rounded-xl px-4 text-[13px] font-bold transition ${disabled ? 'border border-line text-muted' : 'bg-lime text-ink group-hover:brightness-110'} ${className}`}>
-      {disabled ? 'Details' : 'Play'}
-    </span>
-  );
-}
-
-/** A game: artwork, name, what it is, who is playing, and Play. A row on phones, a tall card on wide screens. */
 function GameCard({ game }: { game: GameSummary }) {
   const disabled = !game.playable;
-  const badge = game.maintenance ? 'Coming soon' : !game.enabled ? 'Paused' : game.beta && game.playable ? 'Beta' : null;
   return (
     <Link
       href={`/games/${game.slug}`}
-      className="group relative grid grid-cols-[72px_1fr_auto] items-center gap-3 min-[375px]:grid-cols-[88px_1fr_auto] min-[375px]:gap-3.5 rounded-2xl border border-line bg-panel p-2.5 pr-3.5 transition duration-200 hover:border-lineStrong hover:bg-[#121d33] active:scale-[.99] sm:grid-cols-1 sm:gap-0 sm:p-0"
+      className={`group card relative flex flex-col overflow-hidden p-2.5 transition hover:-translate-y-0.5 hover:border-lime/40 ${disabled ? 'opacity-80' : ''}`}
     >
-      <div className="relative h-[72px] overflow-hidden rounded-xl min-[375px]:h-[88px] sm:aspect-[16/10] sm:h-auto sm:rounded-b-none sm:rounded-t-2xl">
-        <div className="h-full w-full transition duration-300 group-hover:scale-[1.04]">
-          <GameThumb slug={game.slug} />
-        </div>
-        {badge && (
-          <span className={`absolute left-1.5 top-1.5 rounded-md px-1.5 py-0.5 text-[10px] font-bold sm:left-3 sm:top-3 ${badge === 'Beta' ? 'bg-ink/80 text-gold' : 'bg-gold text-ink'}`}>{badge}</span>
+      <div className="relative aspect-square overflow-hidden rounded-xl">
+        <GameThumbClassic slug={game.slug} />
+        {game.maintenance && (
+          <span className="absolute left-2 top-2 rounded-full bg-gold px-2 py-0.5 text-[10px] font-black uppercase text-ink">Coming soon</span>
+        )}
+        {game.beta && game.playable && (
+          <span className="absolute right-2 top-2 rounded-full bg-violet px-2 py-0.5 text-[10px] font-black uppercase text-white">Beta</span>
+        )}
+        {!game.maintenance && !game.enabled && (
+          <span className="absolute left-2 top-2 rounded-full bg-danger px-2 py-0.5 text-[10px] font-black uppercase text-white">Paused</span>
         )}
       </div>
-      <div className="min-w-0 sm:px-4 sm:pt-3.5">
-        <div className="font-display text-[17px] font-bold leading-tight tracking-[-0.01em]">{game.name}</div>
-        <div className="mt-0.5 truncate text-[13px] text-muted">{game.tagline}</div>
-        <div className="mt-1.5 flex items-center justify-between gap-2 sm:mb-4 sm:mt-3">
-          <span className="flex items-center gap-1.5 text-xs font-semibold text-muted">
-            <span className={`h-1.5 w-1.5 rounded-full ${game.activePlayers > 0 ? 'bg-lime shadow-[0_0_0_3px_rgba(34,212,138,.18)]' : 'bg-muted/50'}`} aria-hidden />
-            {game.activePlayers > 0 ? `${game.activePlayers} playing now` : 'Be the first at a table'}
-          </span>
-          <PlayTag disabled={disabled} className="hidden sm:grid" />
-        </div>
+      <div className="mt-2.5 px-0.5">
+        <div className="font-display text-[15px] font-extrabold leading-tight">{game.name}</div>
+        <div className="truncate text-[11px] text-muted">{game.tagline}</div>
       </div>
-      <PlayTag disabled={disabled} className="grid sm:hidden" />
+      <div className="mt-2 flex items-center justify-between px-0.5">
+        <span className="flex items-center gap-1 text-[11px] font-bold text-muted">
+          <span className={`h-1.5 w-1.5 rounded-full ${game.activePlayers > 0 ? 'bg-lime' : 'bg-muted/50'}`} />
+          {game.activePlayers} playing
+        </span>
+        <span className={`rounded-lg px-2 py-1 text-[11px] font-black ${disabled ? 'bg-white/5 text-muted' : 'bg-lime text-ink'}`}>
+          {disabled ? 'Info' : 'Play'}
+        </span>
+      </div>
     </Link>
   );
 }
 
 function GridSkeleton() {
   return (
-    <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3 sm:gap-4">
-      {Array.from({ length: 5 }, (_, i) => (
-        <div key={i} className="grid grid-cols-[88px_1fr] items-center gap-3.5 rounded-2xl border border-line bg-panel p-2.5 sm:grid-cols-1 sm:p-0">
-          <div className="skeleton h-[88px] sm:aspect-[16/10] sm:h-auto" />
-          <div className="grid gap-2 sm:p-4">
-            <div className="skeleton h-4 w-2/3" />
-            <div className="skeleton h-3 w-1/2" />
-          </div>
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+      {Array.from({ length: 4 }, (_, i) => (
+        <div key={i} className="card p-2.5">
+          <div className="skeleton aspect-square" />
+          <div className="skeleton mt-3 h-4 w-2/3" />
+          <div className="skeleton mt-2 h-3 w-1/2" />
         </div>
       ))}
     </div>
@@ -174,7 +167,7 @@ export default function Lobby() {
       ) : (
         <>
           {allMaintenance && <div className="mb-3 rounded-2xl border border-gold/30 bg-gold/5 px-4 py-3 text-sm text-gold">Every game is under maintenance. Check back soon.</div>}
-          <div className="grid gap-2.5 sm:grid-cols-2 sm:gap-4 lg:grid-cols-3">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
             {games.map((g) => (
               <GameCard key={g.slug} game={g} />
             ))}
