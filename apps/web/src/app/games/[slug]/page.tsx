@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import { isGameSlug, type GameSlug, type GameSummary, type RoomSummary } from '@akukulu/shared';
@@ -81,6 +82,8 @@ export default function GameLobby() {
   const [dobe, setDobe] = useState(false);
   // Poker: cash games or Sit & Go tournaments.
   const [pokerMode, setPokerMode] = useState<'cash' | 'tournament'>('cash');
+  // Games of this kind I am still in (left the table without finishing), to jump back into.
+  const [active, setActive] = useState<{ rooms: RoomSummary[] } | null>(null);
 
   const load = useCallback(async () => {
     if (!isGameSlug(slug)) return;
@@ -91,6 +94,7 @@ export default function GameLobby() {
       setGame(g);
       if (g?.playable && !g.solo) setRooms(await api<RoomSummary[]>(`/games/${slug}/rooms`));
       else setRooms([]);
+      setActive(await api<{ rooms: RoomSummary[] }>('/me/active').catch(() => null));
       setError(null);
     } catch (err) {
       setError((err as Error).message);
@@ -162,6 +166,28 @@ export default function GameLobby() {
         <LoadingState />
       ) : (
         <>
+          {(() => {
+            const mine = active?.rooms.filter((r) => r.gameSlug === slug && (r.status === 'in_progress' || r.status === 'waiting')) ?? [];
+            // (Poker cash tables and tournaments show "Back to table" in their own list below.)
+            if (!mine.length) return null;
+            return (
+              <section className="mb-4 grid gap-2">
+                {mine.map((r) => (
+                  <Link key={r.id} href={`/room/${r.code}`} className="card flex items-center justify-between border-lime/40 px-4 py-3">
+                    <div>
+                      <div className="text-sm font-bold capitalize">
+                        {r.gameSlug} — {r.status === 'in_progress' ? 'match in progress' : 'waiting room'}
+                      </div>
+                      <div className="text-xs text-muted">
+                        Room {r.code} · {r.players.length}/{r.maxPlayers} players
+                      </div>
+                    </div>
+                    <span className="btn-primary px-3 py-1.5 text-xs">{r.status === 'in_progress' ? 'Resume' : 'Open'}</span>
+                  </Link>
+                ))}
+              </section>
+            );
+          })()}
           <section className="card mb-4 flex gap-4 p-4">
             <div className="h-24 w-24 shrink-0 overflow-hidden rounded-xl">
               <GameThumb slug={slug} />

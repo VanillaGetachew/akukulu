@@ -118,16 +118,6 @@ const PIPS: Record<number, [number, number][]> = {
   6: [[30, 28], [70, 28], [30, 50], [70, 50], [30, 72], [70, 72]],
 };
 
-/** Where each value sits on the cube, and the cube turn that brings that face to the front. */
-const FACES: { value: number; place: string; show: string }[] = [
-  { value: 1, place: 'rotateY(0deg)', show: 'rotateY(0deg)' },
-  { value: 6, place: 'rotateY(180deg)', show: 'rotateY(180deg)' },
-  { value: 3, place: 'rotateY(90deg)', show: 'rotateY(-90deg)' },
-  { value: 4, place: 'rotateY(-90deg)', show: 'rotateY(90deg)' },
-  { value: 5, place: 'rotateX(90deg)', show: 'rotateX(-90deg)' },
-  { value: 2, place: 'rotateX(-90deg)', show: 'rotateX(90deg)' },
-];
-
 /** The flat die in a player's corner (no value yet: faint pips). */
 function DieFace({ value, spinning }: { value: number | null; spinning?: boolean }) {
   return (
@@ -140,113 +130,18 @@ function DieFace({ value, spinning }: { value: number | null; spinning?: boolean
   );
 }
 
-/**
- * The thrown die, in 3D: a cube with six pipped faces. It tumbles in the air and lands
- * with the rolled face looking straight at you (only slightly tipped), so the number is
- * easy to read.
- */
-function Dice3D({ value, spinning, size }: { value: number | null; spinning?: boolean; size: number }) {
-  const show = FACES.find((f) => f.value === (value ?? 5))!.show;
+/** The die in a player's corner: tap it to roll. */
+function Die({ value, rolling, active, onRoll }: { value: number | null; rolling: boolean; active: boolean; onRoll: () => void }) {
   return (
-    <div className="dice3d" style={{ width: size, height: size }}>
-      <div className={`dice3d-cube ${spinning ? 'tumbling' : ''}`} style={spinning ? undefined : { transform: `rotateX(-9deg) rotateY(11deg) ${show}` }}>
-        {FACES.map((f) => (
-          <div key={f.value} className="dice3d-face" style={{ transform: `${f.place} translateZ(${size / 2}px)` }}>
-            <svg viewBox="0 0 100 100" className="h-full w-full">
-              <defs>
-                <radialGradient id={`pip-${size}`} cx="40%" cy="35%" r="65%">
-                  <stop offset="0" stopColor="#4a4a58" />
-                  <stop offset="1" stopColor="#101018" />
-                </radialGradient>
-              </defs>
-              {PIPS[f.value].map(([x, y], i) => (
-                <circle key={i} cx={x} cy={y} r="9.5" fill={f.value === 1 ? '#c8102e' : `url(#pip-${size})`} />
-              ))}
-            </svg>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-interface Throw {
-  /** Release point and landing point, in screen pixels. */
-  x0: number;
-  y0: number;
-  x1: number;
-  y1: number;
-  spin: number;
-  bx: number;
-  by: number;
-  key: number;
-  /** The server has answered the roll. */
-  resolved: boolean;
-  /** The die has come down on the board (it lies flat from then on). */
-  landed: boolean;
-}
-
-/** How long a throw flies before it lands (the ludo-throw animation runs 1.15 s, touching down at ~70%). */
-const THROW_LAND_MS = 820;
-
-/**
- * The die in a player's corner. Tap it to roll in place (as before), or press, drag and
- * let go to pick it up and throw it: it flies onto the board where it was thrown.
- */
-function Die({
-  value,
-  rolling,
-  active,
-  onRoll,
-  onThrow,
-}: {
-  value: number | null;
-  rolling: boolean;
-  active: boolean;
-  onRoll: () => void;
-  onThrow: (at: { x: number; y: number }, velocity: { vx: number; vy: number }) => void;
-}) {
-  const [drag, setDrag] = useState<{ dx: number; dy: number } | null>(null);
-  const start = useRef<{ x: number; y: number } | null>(null);
-  const trail = useRef<{ x: number; y: number; t: number }[]>([]);
-  const end = () => {
-    start.current = null;
-    setDrag(null);
-  };
-  return (
-    <div
-      role="button"
-      tabIndex={active ? 0 : -1}
-      aria-disabled={!active}
-      aria-label={active ? 'Roll the die (tap), or drag and let go to throw it' : value ? `Die shows ${value}` : 'Die'}
-      onKeyDown={(e) => active && (e.key === 'Enter' || e.key === ' ') && onRoll()}
-      onPointerDown={(e) => {
-        if (!active) return;
-        start.current = { x: e.clientX, y: e.clientY };
-        trail.current = [{ x: e.clientX, y: e.clientY, t: performance.now() }];
-        e.currentTarget.setPointerCapture(e.pointerId);
-        setDrag({ dx: 0, dy: 0 });
-      }}
-      onPointerMove={(e) => {
-        if (!start.current) return;
-        trail.current = [...trail.current.slice(-5), { x: e.clientX, y: e.clientY, t: performance.now() }];
-        setDrag({ dx: e.clientX - start.current.x, dy: e.clientY - start.current.y });
-      }}
-      onPointerUp={(e) => {
-        if (!start.current) return;
-        const moved = Math.hypot(e.clientX - start.current.x, e.clientY - start.current.y);
-        const first = trail.current[0];
-        const dt = Math.max(16, performance.now() - first.t);
-        end();
-        if (moved < 12) onRoll();
-        else onThrow({ x: e.clientX, y: e.clientY }, { vx: (e.clientX - first.x) / dt, vy: (e.clientY - first.y) / dt });
-      }}
-      onPointerCancel={end}
-      className={`relative z-[38] grid h-14 w-14 shrink-0 touch-none select-none place-items-center rounded-2xl bg-[#13306b] p-1.5 shadow-lg ring-2 ${active ? 'cursor-grab ring-white' : 'ring-[#2a4c9a]'} ${active && !drag ? 'animate-pulseRing' : ''}`}
-      style={drag ? { transform: `translate(${drag.dx}px, ${drag.dy}px) scale(1.15) rotate(${drag.dx / 4}deg)`, cursor: 'grabbing' } : { transition: 'transform .15s' }}
+    <button
+      type="button"
+      disabled={!active}
+      aria-label={active ? 'Roll the die' : value ? `Die shows ${value}` : 'Die'}
+      onClick={() => active && onRoll()}
+      className={`relative z-[38] grid h-14 w-14 shrink-0 select-none place-items-center rounded-2xl bg-[#13306b] p-1.5 shadow-lg ring-2 disabled:cursor-default ${active ? 'cursor-pointer ring-white animate-pulseRing active:scale-95' : 'ring-[#2a4c9a]'}`}
     >
       <DieFace value={value} spinning={rolling} />
-    </div>
+    </button>
   );
 }
 
@@ -344,42 +239,6 @@ export function LudoTable({ state, view, act, pending, serverNow }: TableProps<L
   const shown = useWalkingTokens(view.players);
   const boardRef = useRef<SVGSVGElement>(null);
 
-  // A thrown die flies from where it was let go to a spot on the board in the throw's direction.
-  const [thrown, setThrown] = useState<Throw | null>(null);
-  const throwDie = (at: { x: number; y: number }, v: { vx: number; vy: number }) => {
-    const b = boardRef.current?.getBoundingClientRect();
-    if (!b) return void act({ type: 'roll' });
-    const pad = 34;
-    const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
-    const x1 = clamp(at.x + v.vx * 340, b.left + pad, b.right - pad);
-    const y1 = clamp(at.y + v.vy * 340, b.top + pad, b.bottom - pad);
-    const dir = v.vx >= 0 ? 1 : -1;
-    const key = Date.now();
-    setThrown({
-      x0: at.x,
-      y0: at.y,
-      x1,
-      y1,
-      spin: dir * (420 + Math.random() * 240),
-      bx: clamp(v.vx * 18, -16, 16),
-      by: clamp(v.vy * 18, -16, 16),
-      key,
-      resolved: false,
-      landed: false,
-    });
-    setTimeout(() => setThrown((t) => (t && t.key === key ? { ...t, landed: true } : t)), THROW_LAND_MS);
-    void act({ type: 'roll' }).then(() => setThrown((t) => (t && t.key === key ? { ...t, resolved: true } : t)));
-  };
-  // The landed die stays on the board while the move is made, then is picked up again.
-  // After a six (or another extra roll) it comes back to your corner quickly so you can go again.
-  const settled = !!thrown?.resolved && !!thrown?.landed;
-  useEffect(() => {
-    if (!settled || view.phase !== 'roll') return;
-    const t = setTimeout(() => setThrown(null), myTurn ? 700 : 1400);
-    return () => clearTimeout(t);
-  }, [settled, view.phase, view.turn, myTurn]);
-  // My die is off the board and back in my corner whenever I may roll again.
-  const dieInCorner = !thrown || (settled && view.phase === 'roll');
 
   // A little confetti burst whenever a pawn reaches home.
   const [bursts, setBursts] = useState<{ id: number; x: number; y: number }[]>([]);
@@ -449,9 +308,8 @@ export function LudoTable({ state, view, act, pending, serverNow }: TableProps<L
         winner={!!p && view.winnerId === p.playerId}
         right={pos.endsWith('r')}
         die={
-          // My die leaves the corner while it is on the board after a throw.
-          isTurn && !(p?.playerId === user?.id && !dieInCorner) ? (
-            <Die value={dieValue} rolling={pending && view.phase === 'roll'} active={canRoll} onRoll={() => void act({ type: 'roll' })} onThrow={throwDie} />
+          isTurn ? (
+            <Die value={dieValue} rolling={pending && view.phase === 'roll'} active={canRoll} onRoll={() => void act({ type: 'roll' })} />
           ) : null
         }
       />
@@ -493,34 +351,6 @@ export function LudoTable({ state, view, act, pending, serverNow }: TableProps<L
 
   return (
     <div className="ludo-bg fixed inset-0 z-[35] flex flex-col overflow-hidden text-white">
-      {thrown && (
-        // The thrown die tumbling to where it was thrown; it shows the number once the server answers.
-        <div
-          key={thrown.key}
-          className="pointer-events-none fixed left-0 top-0 z-[38] grid h-14 w-14 place-items-center drop-shadow-[0_10px_8px_rgba(0,0,0,.4)]"
-          style={
-            {
-              animation: 'ludo-throw 1.15s cubic-bezier(.2,.7,.3,1) both',
-              '--x0': `${thrown.x0}px`,
-              '--y0': `${thrown.y0}px`,
-              '--x1': `${thrown.x1}px`,
-              '--y1': `${thrown.y1}px`,
-              '--spin': `${thrown.spin}deg`,
-              '--bx': `${thrown.bx}px`,
-              '--by': `${thrown.by}px`,
-            } as React.CSSProperties
-          }
-        >
-          {/* 3D only while it flies; once it lands it lies flat on one face, so the number is plain to read. */}
-          {settled && dieValue ? (
-            <div className="h-12 w-12 drop-shadow-[0_4px_4px_rgba(0,0,0,.35)]">
-              <DieFace value={dieValue} />
-            </div>
-          ) : (
-            <Dice3D value={null} spinning size={46} />
-          )}
-        </div>
-      )}
       <Link href="/games/ludo" aria-label="Back to the lobby" className="absolute left-2 top-2 z-[36] grid h-8 w-8 place-items-center rounded-full bg-black/30 text-sm font-bold">
         ←
       </Link>
@@ -631,8 +461,17 @@ export function LudoTable({ state, view, act, pending, serverNow }: TableProps<L
               >
                 {/* Pawns a quarter bigger; one you can move stands in a gently breathing ring. */}
                 <g transform="scale(1.25)">
-                  {t.movable && <ellipse cy="0.29" rx="0.36" ry="0.17" fill="rgba(255,255,255,.28)" stroke="#fff" strokeWidth="0.045" className="ludo-ring" />}
-                  <Pawn color={t.color} />
+                  {t.movable && (
+                    <>
+                      {/* A ripple spreading out from the base, then a bold gold ring with a dark edge so it reads on any square. */}
+                      <ellipse cy="0.29" rx="0.36" ry="0.17" fill="none" stroke="#ffd21f" strokeWidth="0.07" className="ludo-ripple" />
+                      <ellipse cy="0.29" rx="0.4" ry="0.2" fill="rgba(255,210,31,.35)" stroke="#5a3d00" strokeWidth="0.11" />
+                      <ellipse cy="0.29" rx="0.4" ry="0.2" fill="none" stroke="#ffd21f" strokeWidth="0.065" className="ludo-ring" />
+                    </>
+                  )}
+                  <g className={t.movable ? 'ludo-hop' : undefined}>
+                    <Pawn color={t.color} />
+                  </g>
                 </g>
               </g>
             ))}

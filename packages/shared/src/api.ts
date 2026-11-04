@@ -1,6 +1,6 @@
 import type { GameSlug } from './catalog';
 import type { LudoView } from './games/ludo';
-import type { PokerView } from './games/poker';
+import type { PokerReactionEvent, PokerView } from './games/poker';
 import type { BlackjackView } from './games/blackjack';
 import type { ConquerView } from './games/conquer';
 import type { CrazyView } from './games/crazy';
@@ -146,6 +146,7 @@ export interface ServerToClientEvents {
   'match:state': (state: MatchStatePayload) => void;
   'match:ended': (summary: MatchSummary) => void;
   'balance:update': (payload: { balance: number }) => void;
+  'match:reaction': (payload: PokerReactionEvent) => void;
   'error': (payload: { message: string }) => void;
 }
 
@@ -157,4 +158,5 @@ export interface ClientToServerEvents {
     payload: { matchId: string; clientActionId: string; action: Record<string, unknown> },
     ack: (res: ActionAck) => void,
   ) => void;
+  'match:reaction': (payload: { matchId: string; to: string | null; emoji: string }, ack: (res: ActionAck) => void) => void;
 }

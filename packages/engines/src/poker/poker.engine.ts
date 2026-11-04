@@ -60,6 +60,8 @@ export interface PokerSeatState {
   exitOrder: number | null;
   /** Sat down at a running cash table: posts a big blind with the next hand (unless in the blinds). */
   postBlind?: boolean;
+  /** Hole cards (by index) the player chose to show after the hand. Cleared when the next hand starts. */
+  shown?: number[];
 }
 
 export interface PokerState {
@@ -203,12 +205,30 @@ export function freeSeats(state: PokerState): number[] {
 
 const seatedWithChips = (state: PokerState) => state.players.filter((p) => p.status === 'active' && p.stack > 0).length;
 
+/** A table going to 'waiting': take the last hand off it so nobody arriving sees old cards. */
+export function clearTable(state: PokerState) {
+  state.community = [];
+  state.lastHand = null;
+  state.currentBet = 0;
+  for (const p of state.players) {
+    p.hole = [];
+    p.inHand = false;
+    p.committed = 0;
+    p.totalCommitted = 0;
+    p.folded = false;
+    p.allIn = false;
+    p.lastAction = null;
+    p.shown = [];
+  }
+}
+
 /** Permanent table between hands: drop players who stood up or went broke, and wait if fewer than two remain. */
 function tidyPermanent(state: PokerState, ctx: EngineContext) {
   for (let i = state.players.length - 1; i >= 0; i--) if (state.players[i].status !== 'active') removeSeatAt(state, i);
   if (seatedWithChips(state) < 2) {
     state.phase = 'waiting';
     state.nextHandAt = null;
+    clearTable(state);
   } else if (state.phase === 'waiting') {
     state.phase = 'handComplete';
     state.nextHandAt = ctx.now + Math.min(state.config.handPauseMs, 3000);
@@ -469,6 +489,7 @@ function startHand(state: PokerState, ctx: EngineContext, out: Out) {
   if (state.players.filter(eligible).length < 2) {
     if (isPermanent(state) || isMttTable(state)) {
       state.phase = 'waiting';
+      clearTable(state);
       state.current = null;
       state.turnDeadline = null;
       state.nextHandAt = null;
@@ -490,6 +511,7 @@ function startHand(state: PokerState, ctx: EngineContext, out: Out) {
   for (const p of state.players) {
     p.inHand = eligible(p);
     p.hole = [];
+    p.shown = [];
     p.committed = 0;
     p.totalCommitted = 0;
     p.folded = false;
@@ -792,6 +814,18 @@ export const pokerEngine: GameEngine<PokerState, PokerConfig, PokerView> = {
       return ok(state, out.events, out.ledger);
     }
 
+    if (actionType(action) === 'show') {
+      // After the hand: turn one or both hole cards face up for the table.
+      if (state.phase !== 'handComplete' && state.phase !== 'finished') return fail('WRONG_PHASE', 'You can show your cards once the hand is over');
+      if (p.hole.length === 0) return fail('ILLEGAL_ACTION', 'You have no cards to show');
+      const raw = asRecord(action).cards;
+      const picks = Array.isArray(raw) ? raw : [];
+      if (!picks.length || picks.some((i) => !Number.isInteger(i) || i < 0 || i >= p.hole.length)) return fail('ILLEGAL_ACTION', 'Pick which cards to show');
+      p.shown = [...new Set([...(p.shown ?? []), ...(picks as number[])])].sort((a, b) => a - b);
+      out.events.push({ type: 'show', playerId, data: { cards: p.shown.map((i) => p.hole[i]) } });
+      return ok(state, out.events, out.ledger);
+    }
+
     if (!isBettingPhase(state.phase)) return fail('WRONG_PHASE', 'Wait for the next hand');
     if (state.current !== index) return fail('NOT_YOUR_TURN', 'It is not your turn');
     const street = state.phase;
@@ -860,6 +894,8 @@ export const pokerEngine: GameEngine<PokerState, PokerConfig, PokerView> = {
     if ((s.phase === 'handComplete' || s.phase === 'finished' || s.phase === 'showdown') && s.lastHand?.handNumber === s.handNumber) {
       for (const h of s.lastHand.showdown) revealed.set(h.playerId, h.hole);
     }
+    // Cards a player chose to show after the hand (one or both).
+    const shownOf = (p: PokerSeatState) => (s.phase === 'handComplete' || s.phase === 'finished' ? (p.shown ?? []).filter((i) => i < p.hole.length) : []);
     const viewerIndex = s.players.findIndex((p) => p.playerId === viewerId);
     // Tournament: blind level, prize pool and finishing places.
     let tournament: PokerView['tournament'] = null;
@@ -907,7 +943,8 @@ export const pokerEngine: GameEngine<PokerState, PokerConfig, PokerView> = {
         hole:
           p.playerId === viewerId
             ? [...p.hole]
-            : revealed.get(p.playerId) ?? p.hole.map(() => HIDDEN_CARD),
+            : revealed.get(p.playerId) ?? p.hole.map((c, ci) => (shownOf(p).includes(ci) ? c : HIDDEN_CARD)),
+        shown: shownOf(p),
         lastAction: p.lastAction,
         isButton: i === s.button,
         isSmallBlind: i === s.smallBlindIndex,
@@ -918,7 +955,9 @@ export const pokerEngine: GameEngine<PokerState, PokerConfig, PokerView> = {
             ? describeHand([...p.hole, ...s.community])
             : revealed.has(p.playerId)
               ? describeHand([...revealed.get(p.playerId)!, ...s.community])
-              : null,
+              : shownOf(p).length === 2 && p.hole.length === 2
+                ? describeHand([...p.hole, ...s.community])
+                : null,
       })),
       currentPlayerId: s.current !== null ? s.players[s.current].playerId : null,
       turnDeadline: s.turnDeadline,

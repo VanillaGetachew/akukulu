@@ -165,8 +165,8 @@ function ResultSheet({ summary, stake }: { summary: MatchSummary; stake: number 
         </div>
         {error && <p className="mt-3 text-sm text-danger">{error}</p>}
         <div className="mt-4 grid grid-cols-2 gap-2">
-          <Link href="/" className="btn-ghost">
-            Lobby
+          <Link href={`/games/${summary.gameSlug}`} className="btn-ghost">
+            Game lobby
           </Link>
           <button className="btn-primary" disabled={busy} onClick={playAgain}>
             {busy ? 'Finding a table…' : 'Play again'}
@@ -253,8 +253,16 @@ export default function RoomPage() {
     }
   })();
 
+  // Full-screen tables (Ludo, Poker, Conquer, Crazy) have their own back button; the rest get this one.
+  const backLink = room && (room.status === 'waiting' || room.gameSlug === 'blackjack') && (
+    <Link href={`/games/${room.gameSlug}`} className="mb-3 inline-flex items-center gap-1.5 text-sm font-bold text-muted hover:text-fg">
+      <span aria-hidden>←</span> <span className="capitalize">{room.gameSlug}</span> lobby
+    </Link>
+  );
+
   return (
     <Page nav={!room?.matchId}>
+      {backLink}
       {error && !room ? (
         <ErrorState message={error} onRetry={load} />
       ) : !room ? (

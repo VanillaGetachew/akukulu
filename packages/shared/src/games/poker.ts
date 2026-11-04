@@ -148,7 +148,26 @@ export type PokerAction =
   /** amount = total chips committed this street after the raise ("raise to"). */
   | { type: 'raise'; amount: number }
   | { type: 'allIn' }
+  /** After the hand: show one or both hole cards (indices 0/1). */
+  | { type: 'show'; cards: number[] }
   | { type: 'leave' };
+
+/** Emoji reactions a player pops above their own seat. */
+export const POKER_EMOJIS = ['👍', '😂', '😮', '😎', '🤔', '😭', '😡', '🔥', '👏', '🙏', '💪', '🤡'] as const;
+/** Things a player can throw at another seat. */
+export const POKER_THROWABLES = ['🍅', '🍺', '🌹', '💋', '🥚', '💩', '💸', '❄️'] as const;
+export type PokerReactionEmoji = (typeof POKER_EMOJIS)[number] | (typeof POKER_THROWABLES)[number];
+export const isPokerReaction = (e: unknown): e is PokerReactionEmoji =>
+  typeof e === 'string' && ((POKER_EMOJIS as readonly string[]).includes(e) || (POKER_THROWABLES as readonly string[]).includes(e));
+
+/** A reaction at a table: `to` is null for an emoji above the sender's own seat. */
+export interface PokerReactionEvent {
+  matchId: string;
+  from: string;
+  to: string | null;
+  emoji: PokerReactionEmoji;
+  id: string;
+}
 
 export type PokerStreet = 'preflop' | 'flop' | 'turn' | 'river' | 'showdown';
 /** 'waiting': a permanent cash table (or a tournament table) with fewer than two players. */
@@ -187,6 +206,8 @@ export interface PokerPlayerView {
   place: number | null;
   /** Best hand so far ("Two Pair, Aces & Kings"): the viewer's own, or a hand shown down. */
   handLabel?: string | null;
+  /** Hole cards (by index) the player chose to show after the hand. */
+  shown?: number[];
 }
 
 export interface PokerLegalActions {

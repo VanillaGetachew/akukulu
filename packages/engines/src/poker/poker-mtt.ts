@@ -21,7 +21,7 @@ import {
   type LedgerIntent,
   type Placement,
 } from '../core';
-import { freeSeats, insertSeat, newSeat, pokerEngine, removeSeatAt, type PokerSeatState, type PokerState } from './poker.engine';
+import { clearTable, freeSeats, insertSeat, newSeat, pokerEngine, removeSeatAt, type PokerSeatState, type PokerState } from './poker.engine';
 
 /**
  * A scheduled multi-table tournament: one match holding every table. Each table is an
@@ -172,6 +172,7 @@ function settle(s: PokerMttState, ctx: EngineContext, out: Out) {
     if (!betweenHands(t)) continue;
     const ready = t.players.filter((p) => p.status === 'active' && p.stack > 0).length >= 2;
     if (!ready) {
+      if (t.phase !== 'waiting') clearTable(t);
       t.phase = 'waiting';
       t.nextHandAt = null;
     } else if (t.nextHandAt === null) {
