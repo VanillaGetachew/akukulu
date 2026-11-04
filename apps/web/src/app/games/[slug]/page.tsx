@@ -1,11 +1,12 @@
 'use client';
 
+import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import { isGameSlug, type GameSlug, type GameSummary, type RoomSummary } from '@akukulu/shared';
 import { api } from '@/lib/api';
 import { useSession } from '@/lib/session';
-import { GameThumb } from '@/components/art';
+import { ART_BG, GameThumb } from '@/components/art';
 import { ConquerRulesList } from '@/components/games/conquer-rules';
 import { CrazyRulesList } from '@/components/games/crazy-rules';
 import { PokerLobby } from '@/components/games/poker-lobby';
@@ -81,6 +82,8 @@ export default function GameLobby() {
   const [dobe, setDobe] = useState(false);
   // Poker: cash games or Sit & Go tournaments.
   const [pokerMode, setPokerMode] = useState<'cash' | 'tournament'>('cash');
+  // Games of this kind I am still in (left the table without finishing), to jump back into.
+  const [active, setActive] = useState<{ rooms: RoomSummary[] } | null>(null);
 
   const load = useCallback(async () => {
     if (!isGameSlug(slug)) return;
@@ -91,6 +94,7 @@ export default function GameLobby() {
       setGame(g);
       if (g?.playable && !g.solo) setRooms(await api<RoomSummary[]>(`/games/${slug}/rooms`));
       else setRooms([]);
+      setActive(await api<{ rooms: RoomSummary[] }>('/me/active').catch(() => null));
       setError(null);
     } catch (err) {
       setError((err as Error).message);
@@ -162,27 +166,61 @@ export default function GameLobby() {
         <LoadingState />
       ) : (
         <>
-          <section className="card mb-4 flex gap-4 p-4">
-            <div className="h-24 w-24 shrink-0 overflow-hidden rounded-xl">
+          {(() => {
+            const mine = active?.rooms.filter((r) => r.gameSlug === slug && (r.status === 'in_progress' || r.status === 'waiting')) ?? [];
+            // (Poker cash tables and tournaments show "Back to table" in their own list below.)
+            if (!mine.length) return null;
+            return (
+              <section className="mb-4 grid gap-2">
+                {mine.map((r) => (
+                  <Link key={r.id} href={`/room/${r.code}`} className="flex items-center justify-between gap-3 rounded-2xl border border-lime/35 bg-lime/[0.06] px-4 py-3 transition hover:border-lime/60">
+                    <div>
+                      <div className="text-sm font-bold">{r.status === 'in_progress' ? 'Your match is still on' : 'You are in a waiting room'}</div>
+                      <div className="text-[13px] text-muted">
+                        Room {r.code}, {r.players.length} of {r.maxPlayers} players
+                      </div>
+                    </div>
+                    <span className="btn-primary btn-sm">{r.status === 'in_progress' ? 'Resume' : 'Open'}</span>
+                  </Link>
+                ))}
+              </section>
+            );
+          })()}
+          {/* The game's world as a banner, with its name and what it is. */}
+          <section className="relative -mx-4 mb-5 h-40 overflow-hidden sm:mx-0 sm:h-44 sm:rounded-2xl sm:border sm:border-line lg:h-52" style={{ background: ART_BG[slug] }}>
+            <div className="absolute inset-y-0 right-0 aspect-[4/3]">
               <GameThumb slug={slug} />
             </div>
-            <div className="min-w-0">
-              <h1 className="font-display text-2xl font-extrabold">{game.name}</h1>
-              <p className="text-sm text-muted">{game.description}</p>
-              <div className="mt-2 flex flex-wrap gap-1.5">
-                <span className="chip">{game.solo ? 'You vs dealer' : `${game.minPlayers}–${game.maxPlayers} players`}</span>
-                <span className="chip">{game.activePlayers} playing now</span>
+            <div
+              className="absolute inset-0"
+              style={{ background: `linear-gradient(90deg, ${ART_BG[slug]} 30%, transparent 75%), linear-gradient(180deg, transparent 45%, rgba(6,10,20,.55) 100%)` }}
+              aria-hidden
+            />
+            <Link href="/" className="absolute left-3 top-3 flex h-9 items-center gap-1.5 rounded-full bg-ink/70 px-3 text-[13px] font-semibold text-fg backdrop-blur transition hover:bg-ink/90">
+              <span aria-hidden>←</span> All games
+            </Link>
+            <div className="absolute inset-x-0 bottom-0 px-4 pb-4 sm:px-5">
+              <h1 className="font-display text-[30px] font-bold leading-none tracking-[-0.025em]">{game.name}</h1>
+              <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] font-semibold text-fg/80">
+                <span>{game.solo ? 'You against the dealer' : `${game.minPlayers}–${game.maxPlayers} players`}</span>
+                <span className="flex items-center gap-1.5">
+                  <span className={`h-1.5 w-1.5 rounded-full ${game.activePlayers > 0 ? 'bg-lime' : 'bg-muted/60'}`} aria-hidden />
+                  {game.activePlayers} playing now
+                </span>
               </div>
             </div>
           </section>
+          <p className="mb-5 max-w-2xl text-[15px] leading-relaxed text-muted">{game.description}</p>
 
+          <div className="lg:grid lg:grid-cols-[minmax(0,1.15fr)_minmax(0,.85fr)] lg:items-start lg:gap-6">
+          <div>
           {!game.playable ? (
             <MaintenanceState message={game.maintenanceMessage ?? `${game.name} is temporarily unavailable.`} />
           ) : (
             <>
               {slug === 'poker' && (
                 <>
-                  <div className="mb-3 grid grid-cols-2 gap-1 rounded-xl bg-black/25 p-1" role="tablist" aria-label="Poker game type">
+                  <div className="mb-4 grid grid-cols-2 gap-1 rounded-xl border border-line bg-night p-1" role="tablist" aria-label="Poker game type">
                     {(['cash', 'tournament'] as const).map((m) => (
                       <button
                         key={m}
@@ -194,7 +232,7 @@ export default function GameLobby() {
                           setStake(next.default);
                           setCustom('');
                         }}
-                        className={`rounded-lg py-2 text-sm font-extrabold transition ${pokerMode === m ? 'bg-lime text-[#07071a] shadow' : 'text-muted'}`}
+                        className={`min-h-[40px] rounded-lg text-sm font-bold transition ${pokerMode === m ? 'bg-panel2 text-fg shadow-[inset_0_0_0_1px_rgba(34,212,138,.45)]' : 'text-muted hover:text-fg'}`}
                       >
                         {m === 'cash' ? 'Cash games' : 'Tournaments'}
                       </button>
@@ -206,7 +244,7 @@ export default function GameLobby() {
               {!pokerCash && (
               <section className="card mb-4 grid gap-4 p-4">
                 {slug === 'poker' && (
-                  <h2 className="font-display text-base font-extrabold">{tournament ? 'Sit & Go · starts when the table is ready' : 'Private cash table'}</h2>
+                  <h2 className="section-title">{tournament ? 'Sit & Go: starts when the table is ready' : 'Private cash table'}</h2>
                 )}
                 {tournament && (
                   <div className="rounded-xl border border-gold/40 bg-gold/10 p-3 text-xs">
@@ -221,7 +259,7 @@ export default function GameLobby() {
                   </div>
                 )}
                 <div>
-                  <div className="mb-2 text-xs font-bold uppercase tracking-wide text-muted">{stakes.label}</div>
+                  <div className="label mb-2">{stakes.label}</div>
                   <div className="grid grid-cols-4 gap-2">
                     {stakes.options.map((s) => (
                       <button
@@ -231,14 +269,14 @@ export default function GameLobby() {
                           setCustom('');
                         }}
                         disabled={need(s) > balance}
-                        className={`flex items-center justify-center gap-1 rounded-xl border py-2 text-sm font-bold disabled:opacity-35 ${stake === s && custom === '' ? 'border-lime bg-lime/10 text-lime' : 'border-line bg-black/20 text-fg'}`}
+                        className={`flex min-h-[44px] items-center justify-center gap-1 rounded-xl border text-sm font-bold tabular-nums transition disabled:opacity-35 ${stake === s && custom === '' ? 'border-lime bg-lime/10 text-lime' : 'border-line bg-night text-fg hover:border-lineStrong'}`}
                       >
                         {s === 0 ? 'Free' : (<><Coin className="h-3.5 w-3.5" />{compact(s)}</>)}
                       </button>
                     ))}
                   </div>
                   <label className="mt-2 flex items-center gap-2">
-                    <span className="shrink-0 text-xs font-bold text-muted">Custom</span>
+                    <span className="label shrink-0">Custom</span>
                     <input
                       className={`input py-2 ${custom !== '' && !customError ? 'border-lime/60' : ''}`}
                       inputMode="numeric"
@@ -263,7 +301,7 @@ export default function GameLobby() {
                 {slug === 'conquer' && (
                   <div className="grid gap-2">
                     <div>
-                      <div className="mb-2 text-xs font-bold uppercase tracking-wide text-muted">Players</div>
+                      <div className="label mb-2">Players</div>
                       <div className="grid grid-cols-2 gap-2">
                         {([2, 4] as const).map((n) => (
                           <button
@@ -272,7 +310,7 @@ export default function GameLobby() {
                               setConquerPlayers(n);
                               if (n === 2) setDobe(false);
                             }}
-                            className={`rounded-xl border py-2 text-sm font-bold ${conquerPlayers === n ? 'border-lime bg-lime/10 text-lime' : 'border-line bg-black/20 text-fg'}`}
+                            className={`min-h-[44px] rounded-xl border text-sm font-bold transition ${conquerPlayers === n ? 'border-lime bg-lime/10 text-lime' : 'border-line bg-night text-fg hover:border-lineStrong'}`}
                           >
                             {n === 2 ? '1 v 1' : '2–4 players · 2 decks'}
                           </button>
@@ -305,10 +343,10 @@ export default function GameLobby() {
 
                 {slug !== 'blackjack' && slug !== 'conquer' && (
                   <div>
-                    <div className="mb-2 text-xs font-bold uppercase tracking-wide text-muted">Seats (private rooms)</div>
+                    <div className="label mb-2">Seats in a private room</div>
                     <div className="flex gap-2">
                       {(slug === 'ludo' ? [2, 3, 4] : slug === 'crazy' ? [2, 3, 4, 5] : [2, 4, 6, 9]).map((n) => (
-                        <button key={n} onClick={() => setMaxPlayers(n)} className={`rounded-xl border px-3 py-1.5 text-sm font-bold ${maxPlayers === n ? 'border-lime text-lime' : 'border-line text-muted'}`}>
+                        <button key={n} onClick={() => setMaxPlayers(n)} className={`grid h-11 w-11 place-items-center rounded-xl border text-sm font-bold transition ${maxPlayers === n ? 'border-lime bg-lime/10 text-lime' : 'border-line bg-night text-muted hover:text-fg'}`}>
                           {n}
                         </button>
                       ))}
@@ -339,7 +377,7 @@ export default function GameLobby() {
                       if (code.trim()) void run(() => api(`/rooms/${code.trim().toUpperCase()}/join`, { body: {} }));
                     }}
                   >
-                    <input className="input uppercase" placeholder="Room code" value={code} maxLength={8} onChange={(e) => setCode(e.target.value)} />
+                    <input className="input uppercase placeholder:normal-case" placeholder="Room code" value={code} maxLength={8} onChange={(e) => setCode(e.target.value)} />
                     <button className="btn-ghost shrink-0" disabled={busy || code.trim().length < 4}>
                       Join
                     </button>
@@ -350,7 +388,7 @@ export default function GameLobby() {
 
               {!game.solo && !pokerCash && (
                 <section className="mb-4">
-                  <h2 className="mb-2 font-display text-base font-extrabold">Open tables</h2>
+                  <h2 className="section-title mb-3">Open tables</h2>
                   {rooms === null ? (
                     <LoadingState />
                   ) : rooms.length === 0 ? (
@@ -358,7 +396,7 @@ export default function GameLobby() {
                   ) : (
                     <div className="grid gap-2">
                       {rooms.map((r) => (
-                        <div key={r.id} className="card flex items-center justify-between px-4 py-3">
+                        <div key={r.id} className="card flex items-center justify-between gap-3 px-4 py-3">
                           <div className="flex items-center gap-3">
                             <div className="flex -space-x-2">
                               {r.players.slice(0, 4).map((p) => (
@@ -366,7 +404,7 @@ export default function GameLobby() {
                               ))}
                             </div>
                             <div>
-                              <div className="text-sm font-bold">{r.players.length}/{r.maxPlayers} players</div>
+                              <div className="text-sm font-bold">{r.players.length} of {r.maxPlayers} seats taken</div>
                               <div className="flex items-center gap-1 text-xs text-muted">
                                 {r.stake === 0 ? 'Free' : (<><Coin className="h-3 w-3" /> {r.stake}</>)} · {r.code}
                                 {r.config.jokerToGround === true && <span className="ml-1 rounded-full bg-gold/20 px-1.5 font-ethiopic font-bold text-gold">ጆከር ለመሬት</span>}
@@ -378,7 +416,7 @@ export default function GameLobby() {
                             </div>
                           </div>
                           <button
-                            className="btn-primary px-3 py-1.5 text-xs"
+                            className="btn-primary btn-sm"
                             disabled={busy || balance < need(r.stake, r.config.jokerToGround === true || r.config.dobe === true)}
                             onClick={() => run(() => api(`/rooms/${r.code}/join`, { body: {} }))}
                           >
@@ -393,23 +431,33 @@ export default function GameLobby() {
             </>
           )}
 
-          <section className="card p-4">
-            <h2 className="mb-2 font-display text-base font-extrabold">How to play</h2>
+          </div>
+          {/* Long rule sets start folded on phones so the table controls stay in reach. */}
+          <details className="card group p-5 lg:sticky lg:top-8" open={slug !== 'conquer' && slug !== 'crazy'}>
+            <summary className="section-title flex cursor-pointer list-none items-center justify-between [&::-webkit-details-marker]:hidden">
+              How to play
+              <span className="text-base text-muted transition group-open:rotate-180" aria-hidden>
+                ⌄
+              </span>
+            </summary>
+            <div className="mt-3">
             {slug === 'conquer' ? (
               <ConquerRulesList />
             ) : slug === 'crazy' ? (
               <CrazyRulesList />
             ) : (
-              <ul className="grid gap-1.5 text-sm text-muted">
+              <ul className="grid gap-2.5 text-sm leading-relaxed text-muted">
                 {RULES[slug].map((r) => (
                   <li key={r} className="flex gap-2">
-                    <span className="text-lime">•</span>
+                    <span className="mt-[7px] h-1.5 w-1.5 shrink-0 rotate-45 bg-gold" aria-hidden />
                     {r}
                   </li>
                 ))}
               </ul>
             )}
-          </section>
+            </div>
+          </details>
+          </div>
         </>
       )}
       <Toast message={toast} onClose={() => setToast(null)} />

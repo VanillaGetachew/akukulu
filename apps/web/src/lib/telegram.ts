@@ -32,8 +32,8 @@ export function initTelegram() {
   if (!app) return;
   app.ready();
   app.expand();
-  app.setHeaderColor?.('#07071a');
-  app.setBackgroundColor?.('#07071a');
+  app.setHeaderColor?.('#060a14');
+  app.setBackgroundColor?.('#060a14');
 }
 
 export function startParam(): string | null {

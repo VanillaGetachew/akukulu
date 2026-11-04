@@ -8,7 +8,7 @@ import {
   WebSocketGateway,
 } from '@nestjs/websockets';
 import type { Server, Socket } from 'socket.io';
-import type { ActionAck } from '@akukulu/shared';
+import { isPokerReaction, type ActionAck } from '@akukulu/shared';
 import { AuthService } from '../auth/auth.service';
 import { MatchRuntimeService } from '../matches/match-runtime.service';
 import { RoomsService } from '../rooms/rooms.service';
@@ -21,6 +21,8 @@ interface SocketData {
 }
 
 const actionsPerSecond = () => Number(process.env.ACTION_RATE_LIMIT_PER_SEC ?? 10);
+/** One table reaction (emoji / throwable) per user per this many ms. */
+const REACTION_COOLDOWN_MS = 1500;
 
 /**
  * Socket.IO entry point. Clients authenticate with their session JWT in the
@@ -29,6 +31,7 @@ const actionsPerSecond = () => Number(process.env.ACTION_RATE_LIMIT_PER_SEC ?? 1
 @WebSocketGateway({ cors: { origin: true, credentials: true } })
 export class GameGateway implements OnGatewayInit, OnGatewayConnection {
   private readonly logger = new Logger(GameGateway.name);
+  private readonly lastReaction = new Map<string, number>();
 
   constructor(
     private readonly auth: AuthService,
@@ -133,6 +136,34 @@ export class GameGateway implements OnGatewayInit, OnGatewayConnection {
       }
       if (typeof body?.matchId !== 'string') throw new GameError('BAD_REQUEST', 'matchId required');
       await this.runtime.act(body.matchId, userId, String(body.clientActionId ?? ''), body.action as Record<string, unknown>);
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, ...this.err(err) };
+    }
+  }
+
+  /** Emoji reactions and throwables at a poker table: relayed to everyone at the table, never stored. */
+  @SubscribeMessage('match:reaction')
+  async matchReaction(@ConnectedSocket() socket: Socket, @MessageBody() body: { matchId?: unknown; to?: unknown; emoji?: unknown }): Promise<ActionAck> {
+    try {
+      const userId = this.userId(socket);
+      if (typeof body?.matchId !== 'string') throw new GameError('BAD_REQUEST', 'matchId required');
+      if (!isPokerReaction(body.emoji)) throw new GameError('BAD_REQUEST', 'Unknown reaction');
+      const now = Date.now();
+      if (now - (this.lastReaction.get(userId) ?? 0) < REACTION_COOLDOWN_MS) return { ok: false, code: 'RATE_LIMITED', error: 'Easy — one at a time' };
+      const match = await this.runtime.getMatch(body.matchId);
+      if (!match || match.status !== 'active') throw new GameError('NOT_FOUND', 'Match not found');
+      const players = await this.runtime.playerIds(match.id);
+      if (!players.includes(userId)) throw new GameError('NOT_IN_MATCH', 'Only players at the table can react');
+      const to = typeof body.to === 'string' && body.to !== userId ? body.to : null;
+      if (to && !players.includes(to)) throw new GameError('BAD_REQUEST', 'That player is not at this table');
+      this.lastReaction.set(userId, now);
+      if (this.lastReaction.size > 5000) {
+        for (const [id, at] of this.lastReaction) if (now - at > REACTION_COOLDOWN_MS) this.lastReaction.delete(id);
+      }
+      const event = { matchId: match.id, from: userId, to, emoji: body.emoji, id: `${userId}:${now}` };
+      for (const id of players) this.broadcaster.toUser(id, 'match:reaction', event);
+      this.broadcaster.emit(spectatorChannel(match.id), 'match:reaction', event);
       return { ok: true };
     } catch (err) {
       return { ok: false, ...this.err(err) };

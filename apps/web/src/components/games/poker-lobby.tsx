@@ -107,7 +107,7 @@ const STATUS_STYLE: Record<PokerTournamentSummary['status'], { strip: string; la
 };
 
 function Badge({ children, tone = 'plain' }: { children: ReactNode; tone?: 'plain' | 'gold' }) {
-  return <span className={`rounded px-1.5 py-0.5 text-[10px] font-black uppercase tracking-wide ${tone === 'gold' ? 'bg-gold/20 text-gold' : 'bg-white/10 text-white/80'}`}>{children}</span>;
+  return <span className={`rounded px-1.5 py-0.5 text-[11px] font-bold ${tone === 'gold' ? 'bg-gold/20 text-gold' : 'bg-white/10 text-white/80'}`}>{children}</span>;
 }
 
 /** Tournament details: prizes, structure and the blind schedule. */

@@ -27,8 +27,10 @@ function WaitingRoom({ room, onAction, busy }: { room: RoomSummary; onAction: (p
       <section className="card p-4">
         <div className="flex items-center justify-between">
           <div>
-            <div className="text-xs font-bold uppercase tracking-wide text-muted">{room.gameSlug} · {room.visibility} room</div>
-            <div className="font-display text-3xl font-extrabold tracking-[0.2em]">{room.code}</div>
+            <div className="label">
+              {room.visibility === 'public' ? 'Public' : 'Private'} {room.gameSlug} room
+            </div>
+            <div className="mt-1 font-display text-[32px] font-bold tracking-[0.18em] tabular-nums">{room.code}</div>
           </div>
           <div className="text-right text-xs text-muted">
             <div className="flex items-center justify-end gap-1 text-sm font-bold text-fg">
@@ -165,8 +167,8 @@ function ResultSheet({ summary, stake }: { summary: MatchSummary; stake: number 
         </div>
         {error && <p className="mt-3 text-sm text-danger">{error}</p>}
         <div className="mt-4 grid grid-cols-2 gap-2">
-          <Link href="/" className="btn-ghost">
-            Lobby
+          <Link href={`/games/${summary.gameSlug}`} className="btn-ghost">
+            Game lobby
           </Link>
           <button className="btn-primary" disabled={busy} onClick={playAgain}>
             {busy ? 'Finding a table…' : 'Play again'}
@@ -253,8 +255,16 @@ export default function RoomPage() {
     }
   })();
 
+  // Every table is full-screen with its own back button; the waiting room gets this one.
+  const backLink = room && room.status === 'waiting' && (
+    <Link href={`/games/${room.gameSlug}`} className="mb-3 inline-flex items-center gap-1.5 text-sm font-bold text-muted hover:text-fg">
+      <span aria-hidden>←</span> <span className="capitalize">{room.gameSlug}</span> lobby
+    </Link>
+  );
+
   return (
     <Page nav={!room?.matchId}>
+      {backLink}
       {error && !room ? (
         <ErrorState message={error} onRetry={load} />
       ) : !room ? (

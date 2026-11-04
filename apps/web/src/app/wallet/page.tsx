@@ -27,34 +27,38 @@ export default function WalletPage() {
 
   return (
     <Page onRefresh={load}>
-      <section className="card mb-4 grid place-items-center gap-1 bg-[linear-gradient(135deg,#2a1f63,#191536)] p-6 text-center">
-        <div className="text-xs font-bold uppercase tracking-widest text-muted">Balance</div>
-        <div className="flex items-center gap-2 font-display text-4xl font-extrabold">
-          <Coin className="h-8 w-8" />
+      <section className="relative mb-6 overflow-hidden rounded-2xl border border-gold/25 bg-[radial-gradient(110%_90%_at_0%_0%,rgba(230,199,127,.14),transparent_60%),rgb(var(--panel))] p-6">
+        <div className="text-[15px] font-semibold text-muted">Your balance</div>
+        <div className="mt-2 flex items-center gap-3 font-display text-[44px] font-bold leading-none tracking-[-0.03em] text-gold">
+          <Coin className="h-10 w-10" />
           <Points value={user?.balance ?? 0} />
         </div>
-        <p className="max-w-xs text-xs text-muted">Virtual points are free in-game credits. They cannot be purchased, transferred or redeemed for money.</p>
+        <p className="mt-3 max-w-sm text-[13px] text-muted">Points are free in-game credits. They can&apos;t be bought, transferred or redeemed for money.</p>
+        <div className="tibeb absolute inset-x-0 bottom-0 opacity-60" aria-hidden />
       </section>
-      <h2 className="mb-2 font-display text-base font-extrabold">Transactions</h2>
+      <h2 className="section-title mb-3">Point history</h2>
       {error ? (
         <ErrorState message={error} onRetry={load} />
       ) : rows === null ? (
         <LoadingState />
       ) : rows.length === 0 ? (
-        <EmptyState title="No transactions yet" />
+        <EmptyState title="Nothing here yet" body="Rewards, stakes and winnings will show up here." />
       ) : (
-        <div className="card divide-y divide-line">
+        <div className="card divide-y divide-line overflow-hidden">
           {rows.map((r) => (
-            <div key={r.id} className="flex items-center justify-between px-4 py-3">
-              <div className="min-w-0">
+            <div key={r.id} className="flex items-center gap-3 px-4 py-3">
+              <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-full text-sm font-bold ${r.amount > 0 ? 'bg-lime/10 text-lime' : 'bg-white/[0.05] text-muted'}`} aria-hidden>
+                {r.amount > 0 ? '+' : '−'}
+              </span>
+              <div className="min-w-0 flex-1">
                 <div className="truncate text-sm font-semibold">{r.description}</div>
-                <div className="text-xs text-muted">{new Date(r.createdAt).toLocaleString()}</div>
+                <div className="text-[13px] text-muted">{new Date(r.createdAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</div>
               </div>
               <div className="text-right">
-                <div className={`text-sm font-bold ${r.amount > 0 ? 'text-lime' : 'text-danger'}`}>
+                <div className={`text-sm font-bold ${r.amount > 0 ? 'text-lime' : 'text-fg'}`}>
                   <Points value={r.amount} signed />
                 </div>
-                <div className="text-[11px] text-muted">bal {r.balanceAfter.toLocaleString()}</div>
+                <div className="text-[12px] tabular-nums text-muted">{r.balanceAfter.toLocaleString()}</div>
               </div>
             </div>
           ))}

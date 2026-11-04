@@ -62,56 +62,77 @@ export default function RewardsPage() {
 
   const referralLink = botUsername && user ? `https://t.me/${botUsername}?start=ref_${user.referralCode}` : null;
 
+  const nextAt = data ? new Date(data.nextDailyAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+
   return (
     <Page onRefresh={load}>
-      <h1 className="mb-3 font-display text-2xl font-extrabold">Rewards</h1>
+      <h1 className="mb-1 font-display text-[28px] font-bold tracking-[-0.025em]">Rewards</h1>
+      <p className="mb-5 text-[15px] text-muted">Free points every day, and more for every friend you bring.</p>
       {error ? (
         <ErrorState message={error} onRetry={load} />
       ) : !data ? (
         <LoadingState />
       ) : (
-        <div className="grid gap-3">
-          <section className="card grid gap-3 border-lime/30 p-5">
-            <div className="flex items-center gap-3">
-              <div className="grid h-12 w-12 place-items-center rounded-2xl bg-lime/15">
-                <Coin className="h-7 w-7" />
-              </div>
+        <div className="grid gap-4 lg:grid-cols-2 lg:items-start">
+          {/* Daily reward: the amount is the hero. */}
+          <section className="relative min-w-0 overflow-hidden rounded-2xl border border-gold/25 bg-[radial-gradient(120%_90%_at_100%_0%,rgba(230,199,127,.16),transparent_60%),rgb(var(--panel))] p-5">
+            <div className="flex items-start justify-between gap-3">
               <div>
-                <div className="font-display text-lg font-extrabold">Daily free reward</div>
-                <div className="text-sm text-muted">{data.dailyAmount} points every day{data.requiresApproval ? ' · approved by an admin' : ''}</div>
-                {data.pendingRewards > 0 && <div className="mt-0.5 text-xs font-bold text-gold">{data.pendingRewards} reward{data.pendingRewards === 1 ? '' : 's'} waiting for approval</div>}
+                <h2 className="text-[15px] font-semibold text-fg">Daily reward</h2>
+                <div className="mt-2 flex items-baseline gap-2">
+                  <span className="font-display text-[44px] font-bold leading-none tracking-[-0.03em] text-gold tabular-nums">{data.dailyAmount}</span>
+                  <span className="text-[15px] font-semibold text-muted">points</span>
+                </div>
               </div>
+              <Coin className="h-14 w-14 drop-shadow-[0_8px_18px_rgba(230,199,127,.35)]" />
             </div>
-            <button className="btn-primary py-3" disabled={busy || !data.dailyAvailable} onClick={claim}>
+            <p className="mt-3 text-sm text-muted">
               {data.dailyAvailable
                 ? data.requiresApproval
-                  ? `Request ${data.dailyAmount} points`
-                  : `Claim ${data.dailyAmount} points`
+                  ? 'Ready to request. An admin approves it.'
+                  : 'Ready to claim now.'
                 : data.dailyPending
-                  ? 'Waiting for admin approval'
-                  : `Next reward ${new Date(data.nextDailyAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`}
+                  ? 'Requested. Waiting for an admin to approve it.'
+                  : `Claimed today. The next one opens at ${nextAt}.`}
+            </p>
+            {data.pendingRewards > 0 && (
+              <p className="mt-1 text-[13px] font-semibold text-gold">
+                {data.pendingRewards} reward{data.pendingRewards === 1 ? '' : 's'} waiting for approval
+              </p>
+            )}
+            <button className="btn-gold mt-4 w-full py-3" disabled={busy || !data.dailyAvailable} onClick={claim}>
+              {data.dailyAvailable ? (data.requiresApproval ? `Request ${data.dailyAmount} points` : `Claim ${data.dailyAmount} points`) : data.dailyPending ? 'Waiting for approval' : `Next reward at ${nextAt}`}
             </button>
           </section>
 
-          <section className="card grid gap-3 p-5">
-            <div>
-              <div className="font-display text-lg font-extrabold">Refer &amp; earn</div>
-              <div className="text-sm text-muted">
-                Get {data.referralReward} points when a friend joins with your link. {data.referralsCount} friend{data.referralsCount === 1 ? '' : 's'} joined so far.
+          {/* Referrals */}
+          <section className="card min-w-0 p-5">
+            <h2 className="text-[15px] font-semibold text-fg">Invite friends</h2>
+            <p className="mt-1 text-sm text-muted">
+              You get <span className="font-semibold text-gold">{data.referralReward} points</span> when a friend joins with your link.
+            </p>
+            <div className="mt-4 flex items-center gap-3 rounded-xl bg-night px-4 py-3">
+              <div className="font-display text-[28px] font-bold leading-none tabular-nums">{data.referralsCount}</div>
+              <div className="text-[13px] leading-tight text-muted">
+                friend{data.referralsCount === 1 ? '' : 's'} joined
+                <br />
+                {(data.referralsCount * data.referralReward).toLocaleString()} points earned
               </div>
             </div>
             {referralLink ? (
               <>
-                <code className="truncate rounded-lg bg-black/30 px-3 py-2 text-xs text-muted">{referralLink}</code>
-                <button className="btn-ghost" onClick={() => openShare(referralLink, 'Play Ludo, Poker, Blackjack, Conquer and Crazy with me on Akukulu!')}>
-                  Share invite
+                <div className="mt-3 truncate rounded-xl border border-line bg-night px-3 py-2.5 font-mono text-xs text-muted" title={referralLink}>
+                  {referralLink}
+                </div>
+                <button className="btn-primary mt-3 w-full" onClick={() => openShare(referralLink, 'Play Ludo, Poker, Blackjack, Conquer and Crazy with me on Akukulu!')}>
+                  Share your invite link
                 </button>
               </>
             ) : (
-              <p className="text-xs text-muted">Referral links are available once the bot username is configured.</p>
+              <p className="mt-3 text-[13px] text-muted">Invite links appear once the bot is set up.</p>
             )}
           </section>
-          <p className="text-center text-[11px] text-muted">Points are free virtual credits with no cash value.</p>
+          <p className="text-center text-xs text-muted/80 lg:col-span-2">Points are free virtual credits with no cash value.</p>
         </div>
       )}
       <Toast message={toast?.text ?? null} tone={toast?.tone} onClose={() => setToast(null)} />

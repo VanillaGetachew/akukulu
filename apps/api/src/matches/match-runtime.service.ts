@@ -551,6 +551,10 @@ export class MatchRuntimeService implements OnApplicationBootstrap, OnModuleDest
     return this.dataSource.getRepository(MatchEntity).findOneBy({ id: matchId });
   }
 
+  async playerIds(matchId: string): Promise<string[]> {
+    return (await this.dataSource.getRepository(MatchPlayerEntity).findBy({ matchId })).map((p) => p.userId);
+  }
+
   async isPlayer(matchId: string, userId: string): Promise<boolean> {
     return (await this.dataSource.getRepository(MatchPlayerEntity).countBy({ matchId, userId })) > 0;
   }

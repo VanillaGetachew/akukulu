@@ -92,11 +92,22 @@ export function DiscardPile({ cards, count, active }: { cards: Card[]; count: nu
 }
 
 export function ActionButton({ am, en, onClick, disabled, tone = 'teal' }: { am: string; en: string; onClick: () => void; disabled?: boolean; tone?: 'teal' | 'gold' | 'red' }) {
-  const tones = { teal: 'bg-[#1d6b5c]/90 border-[#3fb79c]/50', gold: 'bg-[#6b5a1d]/90 border-[#d8b84a]/50', red: 'bg-[#6b2a1d]/90 border-[#e0705a]/50' };
+  // Emerald for the main moves, gold for joker moves, red for giving up; all on dark glass over the felt.
+  const tones = {
+    teal: 'bg-[#06241a]/85 border-lime/35 hover:border-lime/60 enabled:shadow-[inset_0_1px_0_rgba(255,255,255,.06)]',
+    gold: 'bg-[#2a210c]/85 border-gold/40 hover:border-gold/70',
+    red: 'bg-[#2c0f15]/85 border-danger/45 hover:border-danger/70',
+  };
+  const ink = { teal: 'text-[#d9fbe9]', gold: 'text-[#f6e6bd]', red: 'text-[#ffd3db]' };
   return (
-    <button type="button" onClick={onClick} disabled={disabled} className={`flex min-w-0 flex-col items-center rounded-lg border px-1 py-1 text-white shadow transition active:scale-95 disabled:opacity-35 ${tones[tone]}`}>
-      <span className="max-w-full truncate font-ethiopic text-[13px] font-bold leading-tight">{am}</span>
-      <span className="max-w-full truncate text-[8px] font-semibold uppercase tracking-wide text-white/70">{en}</span>
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={`flex min-h-[48px] min-w-0 flex-col items-center justify-center rounded-xl border px-1 py-1 backdrop-blur-sm transition duration-150 active:scale-95 disabled:opacity-30 disabled:active:scale-100 ${tones[tone]} ${ink[tone]}`}
+    >
+      <span className="max-w-full truncate font-ethiopic text-[14px] font-bold leading-tight">{am}</span>
+      <span className="max-w-full truncate text-[10px] font-semibold text-white/60">{en}</span>
     </button>
   );
 }

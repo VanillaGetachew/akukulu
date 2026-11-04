@@ -108,6 +108,38 @@ describe('Poker permanent cash tables', () => {
     const cashed = res.ledger.find((l) => l.playerId === 'a')!.amount;
     expect(cashed + s.players[0].stack).toBe(10_000);
     expect(pokerEngine.deadline(s)).toBeNull();
+    // Nobody arriving sees the last hand's cards.
+    expect(s.community).toEqual([]);
+    expect(s.players[0].hole).toEqual([]);
+    const v = pokerEngine.view(s, null);
+    expect(v.community).toEqual([]);
+    expect(v.lastHand).toBeNull();
+  });
+
+  it('lets a player show one or both cards after the hand, to everyone, until the next deal', () => {
+    let s = expectOk(sit(open(), 'a', 5000)).state;
+    s = expectOk(sit(s, 'b', 5000)).state;
+    s = expectOk(sit(s, 'c', 5000)).state;
+    s = expectOk(pokerEngine.tick(s, ctx(s.nextHandAt!))).state;
+    const holeOf = (id: string) => s.players.find((p) => p.playerId === id)!.hole;
+    // Not during the hand.
+    expect(pokerEngine.act(s, 'a', { type: 'show', cards: [0] }, ctx()).ok).toBe(false);
+    while (s.phase !== 'handComplete') s = expectOk(pokerEngine.act(s, s.players[s.current!].playerId, { type: 'fold' }, ctx())).state;
+    expect(pokerEngine.act(s, 'a', { type: 'show', cards: [2] }, ctx()).ok).toBe(false);
+    s = expectOk(pokerEngine.act(s, 'a', { type: 'show', cards: [1] }, ctx())).state;
+    let seen = pokerEngine.view(s, 'b').players.find((p) => p.playerId === 'a')!;
+    expect(seen.hole).toEqual(['??', holeOf('a')[1]]);
+    expect(seen.shown).toEqual([1]);
+    expect(seen.handLabel).toBeNull();
+    s = expectOk(pokerEngine.act(s, 'a', { type: 'show', cards: [0, 1] }, ctx())).state;
+    seen = pokerEngine.view(s, null).players.find((p) => p.playerId === 'a')!;
+    expect(seen.hole).toEqual(holeOf('a'));
+    expect(seen.handLabel).toBeTruthy();
+    // The next deal hides them again.
+    s = expectOk(pokerEngine.tick(s, ctx(s.nextHandAt!))).state;
+    seen = pokerEngine.view(s, 'b').players.find((p) => p.playerId === 'a')!;
+    expect(seen.shown).toEqual([]);
+    expect(seen.hole.every((c) => c === '??')).toBe(true);
   });
 
   it('keeps every chip accounted for over a long session with players coming and going', () => {
