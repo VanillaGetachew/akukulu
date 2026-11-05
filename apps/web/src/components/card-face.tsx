@@ -26,6 +26,8 @@ export interface CardFaceProps {
   /** Joker star under the corner index. */
   star?: boolean;
   tint?: CardTint;
+  /** The simple style for Crazy and Conquer: flat white, big rank, one big suit, no pips or court art. */
+  plain?: boolean;
 }
 
 /** Suit shapes on a 100 × 100 box. */
@@ -92,10 +94,22 @@ function JokerFace({ width, compact }: { width: number; compact?: boolean }) {
   );
 }
 
+function PlainJoker({ width, tint }: { width: number; tint?: CardTint }) {
+  return (
+    <svg viewBox="0 0 100 140" width={width} height={width * 1.4} aria-hidden="true" className="block">
+      <rect x="1" y="1" width="98" height="138" rx="9" fill={tint === 'gold' ? '#fff6dc' : '#ffffff'} stroke={tint === 'gold' ? '#d4a72c' : '#d6ccb6'} strokeWidth={tint ? 3 : 1.4} />
+      <text x="9" y="42" fontFamily={FONT} fontWeight="700" fontSize="36" letterSpacing="-3" fill={RED}>
+        JK
+      </text>
+      <path d="M50 52 L57 69 L76 69 L61 80 L67 98 L50 87 L33 98 L39 80 L24 69 L43 69 Z" fill="#e0a92a" transform="translate(12 22)" />
+    </svg>
+  );
+}
+
 /** A card face. Compact: big index and one big suit, readable at 30–40px. Full: pips and court art. */
-export function CardFace({ card, width, compact, star, tint }: CardFaceProps) {
+export function CardFace({ card, width, compact, star, tint, plain }: CardFaceProps) {
   const id = useId();
-  if (isPrintedJoker(card)) return <JokerFace width={width} compact={compact} />;
+  if (isPrintedJoker(card)) return plain ? <PlainJoker width={width} tint={tint} /> : <JokerFace width={width} compact={compact} />;
   const rank = card[0] as Rank;
   const suit = card[1] as Suit;
   const color = suit === 'h' || suit === 'd' ? RED : BLACK;
@@ -105,6 +119,20 @@ export function CardFace({ card, width, compact, star, tint }: CardFaceProps) {
   const paperTop = tint === 'gold' ? '#fff6dc' : tint === 'violet' ? '#eef1ff' : '#fffdf8';
   const paperBottom = tint === 'gold' ? '#f8e7b5' : tint === 'violet' ? '#dfe5fb' : '#f4eee2';
   const border = tint === 'gold' ? '#d4a72c' : tint === 'violet' ? '#6888f5' : '#d6ccb6';
+
+  if (plain) {
+    return (
+      <svg viewBox="0 0 100 140" width={width} height={width * 1.4} aria-hidden="true" className="block">
+        <rect x="1" y="1" width="98" height="138" rx="9" fill={tint === 'gold' ? '#fff6dc' : tint === 'violet' ? '#eef1ff' : '#ffffff'} stroke={border} strokeWidth={tint ? 3 : 1.4} />
+        <text x="9" y="42" fontFamily={FONT} fontWeight="700" fontSize={wide ? 36 : 42} letterSpacing={wide ? -3 : 0} fill={color}>
+          {label}
+        </text>
+        <SuitMark suit={suit} x={23} y={62} size={26} />
+        {star && <StarMark x={23} y={88} />}
+        <SuitMark suit={suit} x={66} y={104} size={50} />
+      </svg>
+    );
+  }
 
   const paper = (
     <>

@@ -67,7 +67,6 @@ export default function Lobby() {
   const { user } = useSession();
   const [games, setGames] = useState<GameSummary[] | null>(null);
   const [active, setActive] = useState<Active | null>(null);
-  const [dailyAvailable, setDailyAvailable] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -75,14 +74,12 @@ export default function Lobby() {
     setRefreshing(true);
     setError(null);
     try {
-      const [g, a, r] = await Promise.all([
+      const [g, a] = await Promise.all([
         api<GameSummary[]>('/games'),
         api<Active>('/me/active'),
-        api<{ dailyAvailable: boolean }>('/rewards'),
       ]);
       setGames(g);
       setActive(a);
-      setDailyAvailable(r.dailyAvailable);
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -109,25 +106,11 @@ export default function Lobby() {
           <h1 className="font-display text-[28px] font-bold leading-[1.1] tracking-[-0.025em] sm:text-[34px] lg:text-[40px]">
             Selam{firstName ? `, ${firstName}` : ''}
           </h1>
-          <p className="mt-1.5 max-w-md text-[15px] text-muted">Pick a table. Every seat is a real player, and every point is free.</p>
+          <p className="mt-1.5 max-w-md text-[15px] text-muted">Pick a table and play for birr. Every seat is a real player.</p>
           <div className="tibeb mt-4 w-40 lg:w-56" aria-hidden />
         </div>
         <Emblem size={150} className="hidden h-36 w-36 shrink-0 drop-shadow-[0_10px_30px_rgba(230,199,127,.18)] lg:block" />
       </section>
-
-      {dailyAvailable && (
-        <Link
-          href="/rewards"
-          className="mb-5 flex items-center gap-3 rounded-2xl border border-gold/25 bg-[linear-gradient(100deg,rgba(230,199,127,.12),rgba(230,199,127,.03))] px-4 py-3 transition hover:border-gold/45"
-        >
-          <Coin className="h-8 w-8" />
-          <div className="min-w-0 flex-1">
-            <div className="text-sm font-bold text-fg">Your daily reward is ready</div>
-            <div className="text-[13px] text-muted">Free points to play with today</div>
-          </div>
-          <span className="btn-gold btn-sm">Claim</span>
-        </Link>
-      )}
 
       {resumable.length > 0 && (
         <section className="mb-6 grid gap-2" aria-label="Your games in progress">
@@ -176,7 +159,7 @@ export default function Lobby() {
       )}
 
       <p className="mx-auto mt-8 max-w-sm text-center text-xs leading-relaxed text-muted/80">
-        Points are free virtual credits. They can&apos;t be bought, transferred or exchanged for money.
+        You play with real money, and you can lose it. Only play with what you can afford to lose. 18+.
       </p>
     </Page>
   );

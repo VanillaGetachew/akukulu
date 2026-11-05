@@ -1,4 +1,6 @@
 export * from './catalog';
+export * from './house';
+export * from './payments';
 export * from './cards';
 export * from './api';
 export * from './games/ludo';

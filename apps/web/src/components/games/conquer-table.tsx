@@ -46,7 +46,7 @@ function FanCard({ card, selected, joker, marked, width = 54 }: { card: Card; se
       className={`rounded-[9px] shadow-[0_1px_4px_rgba(0,0,0,.3)] ${selected ? 'outline outline-[3px] outline-lime' : marked ? 'outline outline-[3px] outline-gold' : ''}`}
       style={{ width, height: Math.round(width * 1.4) }}
     >
-      <CardFace card={card} width={width} star={joker} />
+      <CardFace card={card} width={width} star={joker} plain />
     </div>
   );
 }
@@ -151,7 +151,7 @@ function MiniCard({ placed, highlight, width = 34 }: { placed: Pick<ConquerPlace
       style={{ width, height: Math.round(width * 1.4) }}
       title={placed.wild ? `Joker (${label(placed.card)}) playing as ${label(placed.as)}` : copy ? `False joker copying ${label(placed.as)}` : label(placed.card)}
     >
-      <CardFace card={placed.card} width={width} compact star={placed.wild} tint={placed.wild ? 'gold' : undefined} />
+      <CardFace card={placed.card} width={width} plain star={placed.wild} tint={placed.wild ? 'gold' : undefined} />
       {stands && (
         <span
           className={`absolute -top-3 left-1/2 z-20 -translate-x-1/2 whitespace-nowrap rounded-full border px-1 text-[10px] font-black leading-[14px] shadow ${copy ? 'border-violet bg-[#f1ebff]' : 'border-gold bg-[#fff4d1]'} ${red ? 'text-[#c8102e]' : 'text-[#17171c]'}`}
@@ -787,7 +787,7 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
               return (
                 <div className={`flex items-center justify-center gap-2 rounded-xl py-2.5 text-lg font-black ${mine > 0 ? 'bg-lime/15 text-lime' : mine < 0 ? 'bg-danger/15 text-danger' : 'bg-white/5 text-muted'}`}>
                   <Coin className="h-5 w-5" />
-                  {stake === 0 ? 'Free round — no points at stake' : mine > 0 ? `You won ${amount.toLocaleString()} points` : mine < 0 ? `You lost ${amount.toLocaleString()} points` : 'Draw — stakes returned'}
+                  {stake === 0 ? 'Free round — nothing at stake' : mine > 0 ? `You won ${amount.toLocaleString()} ETB before the house fee` : mine < 0 ? `You lost ${amount.toLocaleString()} ETB` : 'Draw — stakes returned'}
                 </div>
               );
             })()}

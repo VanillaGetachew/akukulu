@@ -15,6 +15,8 @@ export interface AppConfig {
   internalApiKey: string | null;
   /** Daily and referral rewards wait for an administrator's approval. */
   rewardsRequireApproval: boolean;
+  /** Real-money mode: manual Telebirr deposits and withdrawals, and no free welcome, daily or referral rewards. */
+  paymentsEnabled: boolean;
   corsOrigins: string[];
 }
 
@@ -49,6 +51,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     adminTelegramIds: (env.ADMIN_TELEGRAM_IDS ?? '').split(',').map((s) => s.trim()).filter(Boolean),
     internalApiKey: env.INTERNAL_API_KEY || null,
     rewardsRequireApproval: bool(env.REWARDS_REQUIRE_APPROVAL, true),
+    paymentsEnabled: bool(env.PAYMENTS_ENABLED, false),
     corsOrigins: (env.CORS_ORIGINS ?? 'http://localhost:3000').split(',').map((s) => s.trim()).filter(Boolean),
   };
 }

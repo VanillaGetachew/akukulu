@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnApplicationBootstrap, OnModuleDestroy } from '@nestjs/common';
+import { Inject, Injectable, Logger, OnApplicationBootstrap, OnModuleDestroy } from '@nestjs/common';
 import { DataSource, In } from 'typeorm';
 import { describeHand, mttPrizePool, type PokerMttState, type PokerState } from '@akukulu/engines';
 import {
@@ -8,8 +8,13 @@ import {
   type PokerCashTableSummary,
   type PokerHandHistory,
   type PokerTournamentSummary,
+  houseCutPercent,
+  prizePoolAfterHouse,
+  POKER_AUTO_TOURNAMENTS,
+  nextAutoTournamentStart,
 } from '@akukulu/shared';
 import { MatchEntity, MatchEventEntity, TournamentEntity, TournamentEntryEntity, UserEntity } from '../database/entities';
+import { APP_CONFIG, type AppConfig } from '../config';
 import { MatchRuntimeService } from '../matches/match-runtime.service';
 import { LedgerService } from '../wallet/ledger.service';
 import { GameError, displayName } from '../common/util';
@@ -68,10 +73,12 @@ export class PokerService implements OnApplicationBootstrap, OnModuleDestroy {
     private readonly dataSource: DataSource,
     private readonly runtime: MatchRuntimeService,
     private readonly ledger: LedgerService,
+    @Inject(APP_CONFIG) private readonly config: AppConfig,
   ) {}
 
   async onApplicationBootstrap() {
     try {
+      await this.ensureAutoTournaments();
       await this.ensureCashTables();
     } catch (err) {
       this.logger.warn(`Could not open the cash tables: ${(err as Error).message}`);
@@ -85,8 +92,43 @@ export class PokerService implements OnApplicationBootstrap, OnModuleDestroy {
     if (this.handle) clearInterval(this.handle);
   }
 
+  /** Keeps the next start of each automatic tournament on the schedule. Real-money mode only. */
+  async ensureAutoTournaments() {
+    if (!this.config.paymentsEnabled) return;
+    const repo = this.dataSource.getRepository(TournamentEntity);
+    for (const a of POKER_AUTO_TOURNAMENTS) {
+      const startsAt = new Date(nextAutoTournamentStart(a, this.now()));
+      const autoKey = `${a.key}:${startsAt.toISOString()}`;
+      if (await repo.existsBy({ autoKey })) continue;
+      try {
+        await repo.save(
+          repo.create({
+            name: a.name,
+            variant: a.variant,
+            status: 'scheduled',
+            startsAt,
+            buyIn: a.buyIn,
+            minPlayers: a.minPlayers,
+            autoKey,
+            // What the minimum field pays. The start is cancelled below that, so the house never adds money.
+            guarantee: prizePoolAfterHouse(a.buyIn * a.minPlayers, houseCutPercent(a.buyIn)),
+            startingStack: 3000,
+            levelMinutes: 6,
+            lateRegLevels: 2,
+            maxEntrants: 200,
+            tableSize: a.variant === 'omaha' ? 6 : 9,
+          }),
+        );
+      } catch (err) {
+        // Another sweep got there first.
+        if ((err as { driverError?: { code?: string } }).driverError?.code !== '23505') throw err;
+      }
+    }
+  }
+
   async sweep() {
     try {
+      await this.ensureAutoTournaments();
       await this.startDueTournaments();
       await this.closeFinishedTournaments();
     } catch (err) {
@@ -237,11 +279,14 @@ export class PokerService implements OnApplicationBootstrap, OnModuleDestroy {
       const match = matches.find((m) => m.id === t.matchId) ?? null;
       const s = match?.state as PokerMttState | undefined;
       const entrants = s?.entrants ?? registered;
-      const prizePool = s ? mttPrizePool(s) : Math.max(t.guarantee, t.buyIn * registered);
+      const gross = t.buyIn * registered;
+      const prizePool = s ? mttPrizePool(s) : Math.max(t.guarantee, this.config.paymentsEnabled ? prizePoolAfterHouse(gross, houseCutPercent(t.buyIn)) : gross);
       const playersLeft = s ? s.tables.reduce((n, table) => n + table.players.filter((p) => p.status === 'active').length, 0) : null;
       return {
         id: t.id,
         name: t.name,
+        variant: t.variant,
+        minPlayers: t.minPlayers,
         status: t.status,
         startsAt: t.startsAt.toISOString(),
         buyIn: t.buyIn,
@@ -285,6 +330,7 @@ export class PokerService implements OnApplicationBootstrap, OnModuleDestroy {
         await this.refundEntry(entry.t, entry.e, 'late registration failed');
         throw err;
       }
+      if (entry.t.buyIn > 0) await this.dataSource.transaction((manager) => this.ledger.recordWager(manager, userId, entry.t.buyIn));
     }
     return this.tournament(id, userId);
   }
@@ -319,7 +365,7 @@ export class PokerService implements OnApplicationBootstrap, OnModuleDestroy {
       const claimed = await this.dataSource.getRepository(TournamentEntity).update({ id: t.id, status: 'scheduled' }, { status: 'running' });
       if (!claimed.affected) continue;
       const entries = await this.dataSource.getRepository(TournamentEntryEntity).find({ where: { tournamentId: t.id }, order: { createdAt: 'ASC' } });
-      if (entries.length < 2) {
+      if (entries.length < Math.max(2, t.minPlayers)) {
         await this.cancel(t.id, 'not enough players');
         continue;
       }
@@ -328,6 +374,7 @@ export class PokerService implements OnApplicationBootstrap, OnModuleDestroy {
           'poker',
           {
             mode: 'mtt',
+            variant: t.variant,
             tournamentId: t.id,
             name: t.name,
             guarantee: t.guarantee,
@@ -340,6 +387,11 @@ export class PokerService implements OnApplicationBootstrap, OnModuleDestroy {
           entries.map((e) => e.userId),
         );
         await this.dataSource.getRepository(TournamentEntity).update(t.id, { matchId: match.id });
+        if (t.buyIn > 0) {
+          await this.dataSource.transaction(async (manager) => {
+            for (const e of entries) await this.ledger.recordWager(manager, e.userId, t.buyIn);
+          });
+        }
       } catch (err) {
         this.logger.error(`Could not start tournament ${t.id}: ${(err as Error).message}`);
         await this.cancel(t.id, 'could not start');

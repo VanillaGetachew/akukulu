@@ -5,6 +5,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { SessionProvider, useSession } from '@/lib/session';
 import { Emblem, LogoMark } from '@/components/art';
 import { LoadingState } from '@/components/ui';
+import { PaymentAlerts } from '@/components/payment-alerts';
 
 function Gate({ children }: { children: ReactNode }) {
   const { status, error, launchParam, devLogin } = useSession();
@@ -82,7 +83,12 @@ function Gate({ children }: { children: ReactNode }) {
     );
   }
 
-  return <>{children}</>;
+  return (
+    <>
+      {children}
+      <PaymentAlerts />
+    </>
+  );
 }
 
 export function Providers({ children }: { children: ReactNode }) {

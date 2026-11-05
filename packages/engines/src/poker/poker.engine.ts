@@ -16,6 +16,8 @@ import {
   type PokerPotResult,
   type PokerShowdownHand,
   type PokerView,
+  prizePoolAfterHouse,
+  takeRake,
 } from '@akukulu/shared';
 import {
   ConfigError,
@@ -33,7 +35,7 @@ import {
   type LedgerIntent,
   type Placement,
 } from '../core';
-import { describeHand, evaluateBest } from './hand-evaluator';
+import { describeHand, evaluateBest, evaluateOmaha, type EvaluatedHand } from './hand-evaluator';
 
 export interface PokerSeatState {
   playerId: string;
@@ -239,11 +241,26 @@ function log(state: PokerState, p: PokerSeatState, action: string) {
   (state.handLog ??= []).push({ playerId: p.playerId, street: state.phase, action });
 }
 
+const isOmaha = (state: { config: PokerConfig }) => state.config.variant === 'omaha';
+const holeCount = (state: { config: PokerConfig }) => (isOmaha(state) ? 4 : 2);
+
+function bestHand(state: PokerState, hole: Card[]): EvaluatedHand {
+  return isOmaha(state) ? evaluateOmaha(hole, state.community) : evaluateBest([...hole, ...state.community]);
+}
+
+/** What a hand currently makes, in words. Omaha needs a flop before two-and-three can be applied. */
+function handLabel(state: PokerState, hole: Card[]): string | null {
+  if (!isOmaha(state)) return describeHand([...hole, ...state.community]);
+  return state.community.length >= 3 ? describeHand(evaluateOmaha(hole, state.community).best) : null;
+}
+
 export function legalPokerActions(state: PokerState, index: number): PokerLegalActions | null {
   if (!isBettingPhase(state.phase) || state.current !== index) return null;
   const p = state.players[index];
   const toCall = Math.max(0, state.currentBet - p.committed);
-  const maxAmount = p.committed + p.stack;
+  // Pot-limit Omaha: at most the pot after calling. No-limit Hold'em: everything.
+  const pot = state.players.reduce((sum, x) => sum + x.totalCommitted, 0);
+  const maxAmount = isOmaha(state) ? Math.min(p.committed + p.stack, state.currentBet + pot + toCall) : p.committed + p.stack;
   const canBet = state.currentBet === 0 && p.stack > 0;
   const canRaise = state.currentBet > 0 && !p.hasActed && maxAmount > state.currentBet;
   const minFull = state.currentBet === 0 ? state.config.bigBlind : state.currentBet + state.minRaise;
@@ -310,7 +327,10 @@ function finishMatch(state: PokerState, out: Out) {
     // Pay the prize pool by finishing place.
     const ranking = tournamentRanking(state);
     const entrants = state.entrants ?? state.players.length;
-    const prizes = pokerPayouts(state.config.buyIn * entrants, entrants);
+    const buyIns = state.config.buyIn * entrants;
+    const pool = prizePoolAfterHouse(buyIns, state.config.housePercent);
+    if (buyIns > pool) out.events.push({ type: 'house_cut', data: { amount: buyIns - pool, key: 'prize-pool' } });
+    const prizes = pokerPayouts(pool, entrants);
     ranking.forEach((p, i) => {
       const prize = prizes[i] ?? 0;
       if (prize > 0) out.ledger.push({ playerId: p.playerId, amount: prize, key: `prize:${p.playerId}`, type: 'payout', description: `Poker Sit & Go — ${i + 1}${['st', 'nd', 'rd'][i] ?? 'th'} place` });
@@ -328,6 +348,12 @@ function finishMatch(state: PokerState, out: Out) {
 }
 
 function endHand(state: PokerState, ctx: EngineContext, out: Out, result: PokerHandResult) {
+  if (state.config.rake) {
+    const committed = state.players.map((p) => p.totalCommitted).sort((a, b) => b - a);
+    const matched = committed[1] ?? 0;
+    const amounts = Object.fromEntries(state.players.filter((p) => p.totalCommitted > 0).map((p) => [p.playerId, Math.min(p.totalCommitted, matched)]));
+    out.events.push({ type: 'wagers', data: { amounts } });
+  }
   state.lastHand = result;
   state.current = null;
   state.turnDeadline = null;
@@ -380,7 +406,7 @@ function handSummary(state: PokerState, result: PokerHandResult) {
     seats: state.players
       .filter((p) => p.inHand)
       .map((p) => ({ playerId: p.playerId, seat: p.seat, startStack: p.handStartStack, net: result.net[p.playerId] ?? 0, hole: [...p.hole] })),
-    shown: result.showdown.map((h) => ({ playerId: h.playerId, label: describeHand([...h.hole, ...state.community]) })),
+    shown: result.showdown.map((h) => ({ playerId: h.playerId, label: describeHand(h.best) })),
     actions: state.handLog ?? [],
     pots: result.pots.map(({ amount, winners }) => ({ amount, winners })),
   };
@@ -392,9 +418,22 @@ function netByPlayer(state: PokerState): Record<string, number> {
   return net;
 }
 
+/** Takes the house share out of the pots and reports it, so the runtime can record it. */
+function collectRake(state: PokerState, pots: { amount: number; eligible: string[] }[], out: Out): number {
+  if (!state.config.rake) return 0;
+  const rake = takeRake(pots, state.config.rake);
+  if (rake > 0) out.events.push({ type: 'house_cut', data: { amount: rake, key: `hand:${state.handNumber}` } });
+  return rake;
+}
+
 function awardUncontested(state: PokerState, ctx: EngineContext, out: Out) {
   const winner = state.players.find(contending)!;
-  const amount = state.players.reduce((sum, p) => sum + p.totalCommitted, 0);
+  const total = state.players.reduce((sum, p) => sum + p.totalCommitted, 0);
+  // No flop, no rake. An uncalled part of the winner's bet is theirs anyway, so it is never raked.
+  const called = Math.max(0, ...state.players.filter((p) => p !== winner).map((p) => p.totalCommitted));
+  const uncalled = Math.max(0, winner.totalCommitted - called);
+  const rake = state.community.length > 0 ? collectRake(state, [{ amount: total - uncalled, eligible: ['winner', 'field'] }], out) : 0;
+  const amount = total - rake;
   winner.stack += amount;
   endHand(state, ctx, out, {
     handNumber: state.handNumber,
@@ -408,7 +447,7 @@ function awardUncontested(state: PokerState, ctx: EngineContext, out: Out) {
 function showdown(state: PokerState, ctx: EngineContext, out: Out) {
   state.phase = 'showdown';
   const evaluated = new Map(
-    state.players.filter(contending).map((p) => [p.playerId, evaluateBest([...p.hole, ...state.community])]),
+    state.players.filter(contending).map((p) => [p.playerId, bestHand(state, p.hole)]),
   );
   // Odd chips go to winners closest to the left of the button.
   const n = state.players.length;
@@ -417,7 +456,9 @@ function showdown(state: PokerState, ctx: EngineContext, out: Out) {
     return (idx - state.button - 1 + n) % n;
   };
   const pots: PokerPotResult[] = [];
-  for (const pot of buildPots(state.players)) {
+  const built = buildPots(state.players);
+  collectRake(state, built, out);
+  for (const pot of built) {
     const top = Math.max(...pot.eligible.map((id) => evaluated.get(id)!.score));
     const winners = pot.eligible.filter((id) => evaluated.get(id)!.score === top).sort((a, b) => distance(a) - distance(b));
     const share = Math.floor(pot.amount / winners.length);
@@ -562,7 +603,7 @@ function startHand(state: PokerState, ctx: EngineContext, out: Out) {
   state.currentBet = state.config.bigBlind;
   state.minRaise = state.config.bigBlind;
 
-  for (let round = 0; round < 2; round++) {
+  for (let round = 0; round < holeCount(state); round++) {
     let idx = sb;
     do {
       if (state.players[idx].inHand) state.players[idx].hole.push(state.deck.pop()!);
@@ -915,8 +956,8 @@ export const pokerEngine: GameEngine<PokerState, PokerConfig, PokerView> = {
         nextSmallBlind: nextBb === null ? null : nextBb / 2,
         nextBigBlind: nextBb,
         handsToNextLevel: nextBb === null ? 0 : (level + 1) * per - Math.max(1, s.handNumber) + 1,
-        prizePool: s.config.buyIn * entrants,
-        payouts: pokerPayouts(s.config.buyIn * entrants, entrants),
+        prizePool: prizePoolAfterHouse(s.config.buyIn * entrants, s.config.housePercent),
+        payouts: pokerPayouts(prizePoolAfterHouse(s.config.buyIn * entrants, s.config.housePercent), entrants),
         entrants,
         playersLeft: s.players.filter((p) => p.status === 'active').length,
       };
@@ -951,12 +992,12 @@ export const pokerEngine: GameEngine<PokerState, PokerConfig, PokerView> = {
         isBigBlind: i === s.bigBlindIndex,
         place: places.get(p.playerId) ?? null,
         handLabel:
-          p.playerId === viewerId && p.hole.length === 2 && p.inHand
-            ? describeHand([...p.hole, ...s.community])
+          p.playerId === viewerId && p.hole.length === holeCount(s) && p.inHand
+            ? handLabel(s, p.hole)
             : revealed.has(p.playerId)
-              ? describeHand([...revealed.get(p.playerId)!, ...s.community])
-              : shownOf(p).length === 2 && p.hole.length === 2
-                ? describeHand([...p.hole, ...s.community])
+              ? handLabel(s, revealed.get(p.playerId)!)
+              : shownOf(p).length === holeCount(s) && p.hole.length === holeCount(s)
+                ? handLabel(s, p.hole)
                 : null,
       })),
       currentPlayerId: s.current !== null ? s.players[s.current].playerId : null,

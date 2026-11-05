@@ -119,7 +119,7 @@ export default function ProfilePage() {
           <div className="mb-3 flex items-baseline justify-between">
             <h2 className="section-title">Recent matches</h2>
             <Link href="/wallet" className="text-[13px] font-semibold text-muted transition hover:text-lime">
-              Point history
+              History
             </Link>
           </div>
           {matches === null ? (

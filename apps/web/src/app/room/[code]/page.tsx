@@ -62,12 +62,12 @@ function WaitingRoom({ room, onAction, busy }: { room: RoomSummary; onAction: (p
         )}
       </section>
 
+      <RoomCountdown startsAt={room.startsAt} enough={room.players.length >= room.minPlayers} />
+
       <section className="card p-4">
         <div className="mb-3 flex items-center justify-between">
           <h2 className="font-display text-base font-extrabold">Players</h2>
-          <span className="text-xs text-muted">
-            Starts when {room.minPlayers}+ players are ready
-          </span>
+          <span className="text-xs text-muted">Needs {room.minPlayers}+ players</span>
         </div>
         <div className="grid gap-2">
           {seats.map((p, i) => (
@@ -83,7 +83,6 @@ function WaitingRoom({ room, onAction, busy }: { room: RoomSummary; onAction: (p
                       {p.userId === room.hostId && <div className="text-[11px] text-gold">Host</div>}
                     </div>
                   </div>
-                  <span className={`chip ${p.ready ? 'border-lime/40 text-lime' : ''}`}>{p.ready ? 'Ready' : 'Not ready'}</span>
                 </>
               ) : (
                 <span className="text-sm text-muted">Waiting for a player…</span>
@@ -95,14 +94,9 @@ function WaitingRoom({ room, onAction, busy }: { room: RoomSummary; onAction: (p
 
       <div className="grid grid-cols-2 gap-2">
         {me ? (
-          <>
-            <button className={me.ready ? 'btn-ghost' : 'btn-primary'} disabled={busy} onClick={() => onAction('ready', { ready: !me.ready })}>
-              {me.ready ? 'Not ready' : "I'm ready"}
-            </button>
-            <button className="btn-ghost" disabled={busy} onClick={() => onAction('leave')}>
-              Leave
-            </button>
-          </>
+          <button className="btn-ghost col-span-2" disabled={busy} onClick={() => onAction('leave')}>
+            Leave
+          </button>
         ) : (
           <button className="btn-primary col-span-2" disabled={busy || room.players.length >= room.maxPlayers} onClick={() => onAction('join')}>
             {room.players.length >= room.maxPlayers ? 'Room is full' : 'Join this room'}
@@ -110,6 +104,28 @@ function WaitingRoom({ room, onAction, busy }: { room: RoomSummary; onAction: (p
         )}
       </div>
     </div>
+  );
+}
+
+/** The room starts when this reaches zero, if enough players have joined. */
+function RoomCountdown({ startsAt, enough }: { startsAt: string | null; enough: boolean }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 500);
+    return () => clearInterval(id);
+  }, []);
+  if (!startsAt) return null;
+  const left = Math.max(0, Math.ceil((new Date(startsAt).getTime() - now) / 1000));
+  return (
+    <section className="card flex items-center justify-between gap-3 p-4" role="timer" aria-live="off">
+      <div className="min-w-0">
+        <div className="text-sm font-bold">{left > 0 ? (enough ? 'Starting soon' : 'Waiting for players') : enough ? 'Starting…' : 'Closing…'}</div>
+        <div className="text-[13px] text-muted">{enough ? 'The game starts when the timer ends, or as soon as the table is full.' : 'The room closes if not enough players join in time. You pay nothing unless it starts.'}</div>
+      </div>
+      <div className={`font-display text-3xl font-bold tabular-nums ${left <= 10 ? 'text-danger' : 'text-gold'}`}>
+        {Math.floor(left / 60)}:{String(left % 60).padStart(2, '0')}
+      </div>
+    </section>
   );
 }
 
@@ -136,9 +152,9 @@ function ResultSheet({ summary, stake }: { summary: MatchSummary; stake: number 
     summary.status === 'cancelled'
       ? 'Match voided'
       : delta > 0
-        ? `You won ${delta.toLocaleString()} points!`
+        ? `You won ${delta.toLocaleString()} ETB!`
         : delta < 0
-          ? `You lost ${Math.abs(delta).toLocaleString()} points`
+          ? `You lost ${Math.abs(delta).toLocaleString()} ETB`
           : mine?.outcome === 'win'
             ? 'You won!'
             : mine?.outcome === 'draw'
@@ -272,7 +288,13 @@ export default function RoomPage() {
       ) : room.status === 'waiting' ? (
         <WaitingRoom room={room} onAction={roomAction} busy={busy} />
       ) : room.status === 'cancelled' && !room.matchId ? (
-        <ErrorState message="This room was closed." onRetry={() => router.push(`/games/${room.gameSlug}`)} />
+        <section className="card grid justify-items-center gap-3 p-8 text-center">
+          <h2 className="font-display text-lg font-extrabold">This table has closed</h2>
+          <p className="max-w-xs text-sm text-muted">Not enough players joined in time, so the game didn't start and nothing was charged.</p>
+          <button className="btn-primary" onClick={() => router.push(`/games/${room.gameSlug}`)}>
+            Back to lobby
+          </button>
+        </section>
       ) : !table ? (
         <LoadingState label="Joining the table…" />
       ) : (

@@ -1,8 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnApplicationBootstrap, OnModuleDestroy } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { DataSource, EntityManager, In } from 'typeorm';
 import { ConfigError, getEngine } from '@akukulu/engines';
-import { conquerRequiredBalance, isGameSlug, type GameSlug, type RoomSummary, type RoomVisibility } from '@akukulu/shared';
+import { ROOM_COUNTDOWN_SECONDS, conquerRequiredBalance, isGameSlug, type GameSlug, type RoomSummary, type RoomVisibility } from '@akukulu/shared';
 import { RoomEntity, RoomPlayerEntity, UserEntity } from '../database/entities';
 import { GamesService } from '../games/games.service';
 import { MatchRuntimeService } from '../matches/match-runtime.service';
@@ -34,9 +34,12 @@ function requiredBalance(slug: GameSlug, config: Record<string, unknown>): numbe
   return 0;
 }
 
+const ROOM_SWEEP_MS = 30_000;
+
 @Injectable()
-export class RoomsService {
+export class RoomsService implements OnApplicationBootstrap, OnModuleDestroy {
   private readonly logger = new Logger(RoomsService.name);
+  private sweepHandle: NodeJS.Timeout | null = null;
 
   constructor(
     private readonly dataSource: DataSource,
@@ -102,6 +105,64 @@ export class RoomsService {
     await manager.getRepository(RoomEntity).save(room);
   }
 
+  onApplicationBootstrap() {
+    if (process.env.DISABLE_MATCH_SWEEP === 'true') return;
+    // Each room also has its own timer; this catches rooms left over from a restart.
+    this.sweepHandle = setInterval(() => void this.settleDue(), ROOM_SWEEP_MS);
+    void this.settleDue();
+  }
+
+  onModuleDestroy() {
+    if (this.sweepHandle) clearInterval(this.sweepHandle);
+  }
+
+  private scheduleSettle(code: string) {
+    if (process.env.DISABLE_MATCH_SWEEP === 'true') return;
+    setTimeout(() => void this.settle(code).catch((err) => this.logger.warn(`Room ${code}: ${(err as Error).message}`)), ROOM_COUNTDOWN_SECONDS * 1000 + 100).unref();
+  }
+
+  private async settleDue() {
+    try {
+      const due: { code: string }[] = await this.dataSource.query(`SELECT code FROM rooms WHERE status = 'waiting' AND ("startsAt" IS NULL OR "startsAt" <= now())`);
+      for (const { code } of due) await this.settle(code).catch((err) => this.logger.warn(`Room ${code}: ${(err as Error).message}`));
+    } catch (err) {
+      this.logger.warn(`Room sweep failed: ${(err as Error).message}`);
+    }
+  }
+
+  /**
+   * The countdown is over: starts the room with everyone who can still pay, or closes
+   * it if too few are left. Nobody has paid until a room starts, so closing costs nothing.
+   */
+  async settle(code: string): Promise<RoomSummary> {
+    const pending: { start?: StartResult } = {};
+    const room = await this.dataSource.transaction(async (manager) => {
+      const room = await this.lockRoom(manager, code);
+      if (room.status !== 'waiting') return room;
+      const repo = manager.getRepository(RoomPlayerEntity);
+      let seats = await repo.find({ where: { roomId: room.id }, order: { seat: 'ASC' } });
+      const { parsed } = this.parse(room.gameSlug, room.stake, room.config);
+      const need = requiredBalance(room.gameSlug, parsed as Record<string, unknown>);
+      const users = await manager.getRepository(UserEntity).findBy({ id: In(seats.map((s) => s.userId)) });
+      const broke = new Set(users.filter((u) => u.balance < need).map((u) => u.id));
+      if (broke.size) {
+        await repo.delete({ roomId: room.id, userId: In([...broke]) });
+        seats = seats.filter((s) => !broke.has(s.userId));
+      }
+      const playable = await this.games.requirePlayable(room.gameSlug).then(() => true, () => false);
+      if (seats.length < room.minPlayers || !playable) {
+        room.status = 'cancelled';
+        await manager.getRepository(RoomEntity).save(room);
+        return room;
+      }
+      pending.start = await this.runtime.startFromRoom(manager, room, seats);
+      return room;
+    });
+    if (pending.start) await this.runtime.afterStart(pending.start);
+    else await this.publishRooms([room]);
+    return this.presenter.summary(room);
+  }
+
   async create(user: UserEntity, input: CreateRoomInput): Promise<RoomSummary> {
     if (!isGameSlug(input.gameSlug)) throw new GameError('UNKNOWN_GAME', 'Unknown game', 404);
     const slug = input.gameSlug;
@@ -129,15 +190,17 @@ export class RoomsService {
           maxPlayers,
           stake,
           config: input.config ?? {},
+          startsAt: game.solo ? null : new Date(Date.now() + ROOM_COUNTDOWN_SECONDS * 1000),
         }),
       );
       const seat = await manager.getRepository(RoomPlayerEntity).save(
-        manager.getRepository(RoomPlayerEntity).create({ id: randomUUID(), roomId: room.id, userId: user.id, seat: 0, ready: game.solo }),
+        manager.getRepository(RoomPlayerEntity).create({ id: randomUUID(), roomId: room.id, userId: user.id, seat: 0 }),
       );
       if (game.solo) pending.start = await this.runtime.startFromRoom(manager, room, [seat]);
       return room;
     });
     if (pending.start) await this.runtime.afterStart(pending.start);
+    else if (room.startsAt) this.scheduleSettle(room.code);
     await this.publishRooms(affected);
     return this.presenter.summary(room);
   }
@@ -159,6 +222,7 @@ export class RoomsService {
 
   async join(user: UserEntity, code: string): Promise<RoomSummary> {
     const affected: RoomEntity[] = [];
+    const pending: { start?: StartResult } = {};
     const room = await this.dataSource.transaction(async (manager) => {
       const room = await this.lockRoom(manager, code);
       const seats = await manager.getRepository(RoomPlayerEntity).find({ where: { roomId: room.id } });
@@ -172,12 +236,19 @@ export class RoomsService {
       const taken = new Set(seats.map((s) => s.seat));
       let seat = 0;
       while (taken.has(seat)) seat++;
-      await manager.getRepository(RoomPlayerEntity).insert({ id: randomUUID(), roomId: room.id, userId: user.id, seat, ready: false });
+      await manager.getRepository(RoomPlayerEntity).insert({ id: randomUUID(), roomId: room.id, userId: user.id, seat });
+      // A full room has no one left to wait for.
+      if (seats.length + 1 >= room.maxPlayers) {
+        const all = await manager.getRepository(RoomPlayerEntity).find({ where: { roomId: room.id }, order: { seat: 'ASC' } });
+        pending.start = await this.runtime.startFromRoom(manager, room, all);
+        return room;
+      }
       room.updatedAt = new Date();
       await manager.getRepository(RoomEntity).save(room);
       return room;
     });
-    await this.publishRooms([...affected, room]);
+    if (pending.start) await this.runtime.afterStart(pending.start);
+    await this.publishRooms(pending.start ? affected : [...affected, room]);
     return this.presenter.summary(room);
   }
 
@@ -195,30 +266,6 @@ export class RoomsService {
     });
     await this.publishRooms([updated]);
     return this.presenter.summary(updated);
-  }
-
-  async setReady(user: UserEntity, code: string, ready: boolean): Promise<RoomSummary> {
-    const pending: { start?: StartResult } = {};
-    const room = await this.dataSource.transaction(async (manager) => {
-      const room = await this.lockRoom(manager, code);
-      if (room.status !== 'waiting') throw new GameError('ROOM_CLOSED', 'This room has already started');
-      const seat = await manager.getRepository(RoomPlayerEntity).findOneBy({ roomId: room.id, userId: user.id });
-      if (!seat) throw new GameError('NOT_IN_ROOM', 'Join the room first', 403);
-      seat.ready = ready;
-      await manager.getRepository(RoomPlayerEntity).save(seat);
-      const seats = await manager.getRepository(RoomPlayerEntity).find({ where: { roomId: room.id }, order: { seat: 'ASC' } });
-      if (seats.length >= room.minPlayers && seats.every((s) => s.ready)) {
-        await this.games.requirePlayable(room.gameSlug);
-        pending.start = await this.runtime.startFromRoom(manager, room, seats);
-      } else {
-        room.updatedAt = new Date();
-        await manager.getRepository(RoomEntity).save(room);
-      }
-      return room;
-    });
-    if (pending.start) await this.runtime.afterStart(pending.start);
-    else await this.publishRooms([room]);
-    return this.presenter.summary(room);
   }
 
   /**

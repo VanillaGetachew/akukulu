@@ -6,10 +6,12 @@ import { api } from '@/lib/api';
 import { useSession } from '@/lib/session';
 import { ErrorState, LoadingState, Page, Toast } from '@/components/ui';
 import { AdminTournaments } from '@/components/admin-tournaments';
+import { AdminPayments } from '@/components/admin-payments';
 
 interface Overview {
   users: number;
   pointsInCirculation: number;
+  houseEarnings: number;
   activeMatches: number;
   waitingRooms: number;
   online: number;
@@ -27,7 +29,7 @@ interface RewardRequest {
   createdAt: string;
 }
 
-/** Inline form to deposit coins into one account. */
+/** Inline form to add money to one account by hand. */
 function DepositForm({ onDeposit }: { onDeposit: (amount: number, reason: string) => Promise<void> }) {
   const [amount, setAmount] = useState('');
   const [reason, setReason] = useState('');
@@ -47,7 +49,7 @@ function DepositForm({ onDeposit }: { onDeposit: (amount: number, reason: string
         setReason('');
       }}
     >
-      <input className="input w-24 py-1.5" inputMode="numeric" placeholder="Coins" value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^0-9]/g, '').slice(0, 8))} />
+      <input className="input w-24 py-1.5" inputMode="numeric" placeholder="ETB" value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^0-9]/g, '').slice(0, 8))} />
       <input className="input min-w-0 flex-1 py-1.5" placeholder="Reason (required)" maxLength={200} value={reason} onChange={(e) => setReason(e.target.value)} />
       <button className="btn-primary px-3 py-1.5 text-xs" disabled={!valid || busy}>
         Deposit
@@ -126,8 +128,8 @@ export default function AdminPage() {
               ['Online', overview.online],
               ['Active matches', overview.activeMatches],
               ['Waiting rooms', overview.waitingRooms],
-              ['Points in circulation', overview.pointsInCirculation],
-              ['Rewards to approve', overview.pendingRewards],
+              ['Player balances (ETB)', overview.pointsInCirculation],
+              ['House earnings (ETB)', overview.houseEarnings],
             ].map(([label, value]) => (
               <div key={label} className="card p-3">
                 <div className="text-[11px] font-bold text-muted">{label}</div>
@@ -136,7 +138,9 @@ export default function AdminPage() {
             ))}
           </section>
 
-          <section className="card border-gold/30 p-4">
+          <AdminPayments onToast={setToast} />
+
+          <section className={`card border-gold/30 p-4 ${rewards.length ? '' : 'hidden'}`}>
             <h2 className="mb-1 font-display text-base font-extrabold">Rewards waiting for approval</h2>
             <p className="mb-2 text-xs text-muted">Daily and referral rewards are paid only after an administrator approves them.</p>
             {rewards.length === 0 ? (
@@ -239,11 +243,11 @@ export default function AdminPage() {
                     <div className="font-bold">
                       {u.firstName} {u.username && <span className="text-muted">@{u.username}</span>}
                     </div>
-                    <div className="text-xs text-muted">{u.balance.toLocaleString()} pts · tg {u.telegramId}{u.isBanned && ' · banned'}</div>
+                    <div className="text-xs text-muted">{u.balance.toLocaleString()} ETB · tg {u.telegramId}{u.isBanned && ' · banned'}</div>
                   </div>
                   <div className="flex gap-2">
                     <button className={`px-3 py-1.5 text-xs ${depositFor === u.id ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setDepositFor(depositFor === u.id ? null : u.id)}>
-                      Deposit coins
+                      Add balance by hand
                     </button>
                     <button className="btn-ghost px-3 py-1.5 text-xs" onClick={() => run(() => api(`/admin/users/${u.id}`, { method: 'PATCH', body: { isBanned: !u.isBanned } }), u.isBanned ? 'User unbanned' : 'User banned')}>
                       {u.isBanned ? 'Unban' : 'Ban'}

@@ -1,6 +1,8 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { DataSource, EntityManager } from 'typeorm';
+import { PROMOTIONS } from '@akukulu/shared';
+import { APP_CONFIG, type AppConfig } from '../config';
 import { GameError } from '../common/util';
 
 export interface LedgerOperation {
@@ -32,7 +34,10 @@ function rowsOf(result: unknown): Record<string, unknown>[] {
  */
 @Injectable()
 export class LedgerService {
-  constructor(private readonly dataSource: DataSource) {}
+  constructor(
+    private readonly dataSource: DataSource,
+    @Inject(APP_CONFIG) private readonly config: AppConfig,
+  ) {}
 
   async apply(manager: EntityManager, op: LedgerOperation): Promise<LedgerResult> {
     if (!Number.isInteger(op.amount)) throw new GameError('BAD_AMOUNT', 'Ledger amounts must be whole points');
@@ -61,6 +66,34 @@ export class LedgerService {
     const balance = Number(updated[0].balance);
     await manager.query(`UPDATE ledger_entries SET "balanceAfter" = $2 WHERE id = $1`, [inserted[0].id, balance]);
     return { applied: true, balance };
+  }
+
+  /**
+   * Counts real-money wagering (negative when a stake came back). It works off a bonus
+   * lock and, the first time a player reaches the referral wager, pays whoever invited them.
+   */
+  async recordWager(manager: EntityManager, userId: string, amount: number): Promise<void> {
+    if (!this.config.paymentsEnabled || amount === 0) return;
+    const [row] = rowsOf(
+      await manager.query(
+        `UPDATE users SET
+           wagered = GREATEST(0, wagered + $2),
+           "bonusLocked" = CASE WHEN "bonusWagerLeft" - GREATEST($2, 0) <= 0 THEN 0 ELSE "bonusLocked" END,
+           "bonusWagerLeft" = GREATEST(0, "bonusWagerLeft" - GREATEST($2, 0))
+         WHERE id = $1 RETURNING wagered, "referredById"`,
+        [userId, amount],
+      ),
+    );
+    if (!row?.referredById || Number(row.wagered) < PROMOTIONS.referralWager) return;
+    const [referrer] = rowsOf(await manager.query(`SELECT "isBanned" FROM users WHERE id = $1`, [row.referredById]));
+    if (!referrer || referrer.isBanned) return;
+    await this.apply(manager, {
+      userId: String(row.referredById),
+      amount: PROMOTIONS.referralReward,
+      type: 'referral',
+      description: 'Referral reward: your friend played',
+      key: `referral:${userId}`,
+    });
   }
 
   /** Applies a single operation in its own transaction. */

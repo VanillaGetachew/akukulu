@@ -114,12 +114,6 @@ export class RoomsController {
   leave(@CurrentUser() user: UserEntity, @Param('code') code: string) {
     return this.rooms.leave(user, code);
   }
-
-  @Post(':code/ready')
-  @HttpCode(200)
-  ready(@CurrentUser() user: UserEntity, @Param('code') code: string, @Body() input: unknown) {
-    return this.rooms.setReady(user, code, body(input).ready !== false);
-  }
 }
 
 @Controller('me')

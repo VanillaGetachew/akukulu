@@ -11,6 +11,7 @@ import { UsersService } from '../users/users.service';
 import { LedgerService } from '../wallet/ledger.service';
 import { WalletService } from '../wallet/wallet.service';
 import { RewardsService } from '../wallet/rewards.service';
+import { PaymentsService } from '../wallet/payments.service';
 import { GameError, body, optInt, reqString, toProfile } from '../common/util';
 
 @Controller('admin')
@@ -23,6 +24,7 @@ export class AdminController {
     private readonly ledger: LedgerService,
     private readonly presence: PresenceService,
     private readonly rewards: RewardsService,
+    private readonly payments: PaymentsService,
   ) {}
 
   @Get('overview')
@@ -38,7 +40,8 @@ export class AdminController {
       `SELECT "gameSlug", status, COUNT(*)::int AS count FROM matches GROUP BY "gameSlug", status ORDER BY "gameSlug"`,
     );
     const [{ count: pendingRewards }] = await this.dataSource.query(`SELECT COUNT(*)::int AS count FROM reward_requests WHERE status = 'pending'`);
-    return { users: users.count, pointsInCirculation: Number(points.total), activeMatches, waitingRooms: rooms.count, online, pendingRewards, perGame };
+    const [{ total: houseEarnings }] = await this.dataSource.query(`SELECT COALESCE(SUM(amount),0)::bigint AS total FROM house_earnings`);
+    return { users: users.count, pointsInCirculation: Number(points.total), houseEarnings: Number(houseEarnings), activeMatches, waitingRooms: rooms.count, online, pendingRewards, perGame };
   }
 
   @Get('games')
@@ -120,6 +123,33 @@ export class AdminController {
     return this.rewards.deposit(id, amount, reason, admin.id, typeof b.idempotencyKey === 'string' ? b.idempotencyKey : undefined);
   }
 
+  /* ---- Manual Telebirr payments, from the web app ---- */
+
+  @Get('payments')
+  paymentRequests(@CurrentUser() admin: UserEntity, @Query('mine') mine?: string) {
+    return this.payments.listPending(String(admin.telegramId), mine === '1');
+  }
+
+  @Get('payments/account')
+  async paymentAccount() {
+    return { account: await this.payments.currentAccount() };
+  }
+
+  @Post('payments/account')
+  @HttpCode(200)
+  setPaymentAccount(@CurrentUser() admin: UserEntity, @Body() input: unknown) {
+    const b = body(input);
+    return this.payments.setAccount(String(admin.telegramId), { phone: reqString(b.phone, 'phone', 32), name: reqString(b.name, 'name', 80) });
+  }
+
+  @Post('payments/:id/:decision')
+  @HttpCode(200)
+  decidePayment(@CurrentUser() admin: UserEntity, @Param('id') id: string, @Param('decision') decision: string) {
+    if (decision !== 'approve' && decision !== 'reject') throw new GameError('BAD_DECISION', 'Unknown decision');
+    if (!/^[0-9a-f-]{36}$/.test(id)) throw new GameError('NOT_FOUND', 'Payment request not found', 404);
+    return this.payments.decide(id, String(admin.telegramId), decision === 'approve');
+  }
+
   @Get('matches')
   async matches(@Query('status') status?: string) {
     const where = status === 'active' || status === 'finished' || status === 'cancelled' ? { status: status as MatchStatus } : {};
@@ -147,6 +177,7 @@ export class InternalController {
   constructor(
     private readonly users: UsersService,
     private readonly wallet: WalletService,
+    private readonly payments: PaymentsService,
   ) {}
 
   @Post('users')
@@ -184,8 +215,59 @@ export class InternalController {
     return this.wallet.claimDaily(user.id);
   }
 
+  /* ---- Manual Telebirr payments, driven from the bot ---- */
+
+  @Post('users/:telegramId/payments/deposit/start')
+  @HttpCode(200)
+  startDeposit(@Param('telegramId') telegramId: string, @Body() input: unknown) {
+    return this.payments.startDeposit(telegramId, Number(body(input).amount));
+  }
+
+  @Post('users/:telegramId/payments/deposit')
+  @HttpCode(200)
+  deposit(@Param('telegramId') telegramId: string, @Body() input: unknown) {
+    const b = body(input);
+    return this.payments.requestDeposit(telegramId, Number(b.amount), reqString(b.reference, 'reference', 64), reqString(b.accountId, 'accountId', 36));
+  }
+
+  @Post('users/:telegramId/payments/withdraw')
+  @HttpCode(200)
+  withdraw(@Param('telegramId') telegramId: string, @Body() input: unknown) {
+    const b = body(input);
+    return this.payments.requestWithdrawal(telegramId, Number(b.amount), reqString(b.phone, 'phone', 32));
+  }
+
+  @Get('payments/pending/:adminTelegramId')
+  pendingPayments(@Param('adminTelegramId') adminTelegramId: string) {
+    return this.payments.listPending(adminTelegramId);
+  }
+
+  @Get('payments/account')
+  async paymentAccount() {
+    return { account: await this.payments.currentAccount() };
+  }
+
+  @Post('payments/account')
+  @HttpCode(200)
+  setPaymentAccount(@Body() input: unknown) {
+    const b = body(input);
+    return this.payments.setAccount(reqString(b.adminTelegramId, 'adminTelegramId', 20), { phone: reqString(b.phone, 'phone', 32), name: reqString(b.name, 'name', 80) });
+  }
+
+  @Post('payments/:id/:decision')
+  @HttpCode(200)
+  decidePayment(@Param('id') id: string, @Param('decision') decision: string, @Body() input: unknown) {
+    if (decision !== 'approve' && decision !== 'reject') throw new GameError('BAD_DECISION', 'Unknown decision');
+    if (!/^[0-9a-f-]{36}$/.test(id)) throw new GameError('NOT_FOUND', 'Payment request not found', 404);
+    return this.payments.decide(id, reqString(body(input).adminTelegramId, 'adminTelegramId', 20), decision === 'approve');
+  }
+
   private async summary(user: UserEntity) {
-    const [rewards, transactions] = await Promise.all([this.wallet.rewardsStatus(user.id), this.wallet.transactions(user.id, 5)]);
-    return { profile: toProfile(user), rewards, transactions };
+    const [rewards, transactions, firstDepositBonus] = await Promise.all([
+      this.wallet.rewardsStatus(user.id),
+      this.wallet.transactions(user.id, 5),
+      this.payments.firstDepositBonusAvailable(user.id),
+    ]);
+    return { profile: toProfile(user), rewards, transactions, firstDepositBonus };
   }
 }

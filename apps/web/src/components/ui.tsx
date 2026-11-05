@@ -13,11 +13,12 @@ import { CardBack, CardFace } from './card-face';
 /** The Akukulu point coin: champagne gold with an embossed diamond. */
 export function Coin({ className = 'h-4 w-4' }: { className?: string }) {
   return (
-    <svg viewBox="0 0 20 20" className={`shrink-0 ${className}`} aria-hidden="true">
+    <svg viewBox="0 0 20 20" className={`shrink-0 ${className}`} role="img" aria-label="Birr">
       <circle cx="10" cy="10" r="9.2" fill="#b08d48" />
       <circle cx="10" cy="9.4" r="8.4" fill="#e6c77f" />
-      <circle cx="10" cy="9.4" r="5.9" fill="none" stroke="#b08d48" strokeWidth="1.3" />
-      <path d="M10 5.9 12.6 9.4 10 12.9 7.4 9.4Z" fill="#b08d48" />
+      <text x="10" y="13.4" textAnchor="middle" fontSize="11" fontWeight="700" fill="#6f5522">
+        ብ
+      </text>
     </svg>
   );
 }
@@ -90,7 +91,7 @@ export function TopBar({ onRefresh, refreshing }: { onRefresh?: () => void; refr
 
 const NAV = [
   { href: '/', label: 'Play', icon: 'M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM16.5 13v7M13 16.5h7' },
-  { href: '/rewards', label: 'Rewards', icon: 'M4 11h16v9H4zM12 11v9M3 7h18v4H3zM12 7c-1.5-3.5-5.5-3.5-5 0M12 7c1.5-3.5 5.5-3.5 5 0' },
+  { href: '/wallet', label: 'Wallet', icon: 'M3 7h18v13H3zM3 7l13-4v4M16 13.5h2' },
   { href: '/leaderboard', label: 'Leaders', icon: 'M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0zM7 6H4v1a3 3 0 0 0 3 3M17 6h3v1a3 3 0 0 1-3 3' },
   { href: '/profile', label: 'Profile', icon: 'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21c1-4 4-6 8-6s7 2 8 6' },
 ];
