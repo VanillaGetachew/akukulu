@@ -60,3 +60,9 @@ In @BotFather: `/mybots` → your bot → Bot Settings → Configure Mini App / 
 - Neon Free gives 100 compute-hours a month per project; a database that is queried around the clock can run past it. Watch Usage in the Neon console.
 - Vercel Hobby is for non-commercial projects.
 - When you outgrow this, move the API to Render Starter (or any paid host) and set `DB_SYNCHRONIZE=false` once you add migrations.
+
+## Memory (Render Free: 512 MB)
+The container runs only two Node processes, the API and the bot, straight from compiled JavaScript (no `npm`, no TypeScript, no Next.js at runtime; the web app is on Vercel).
+Expect roughly 120–200 MB for the API and 50–80 MB for the bot when idle, growing a few tens of KB per connected player.
+`render-start.sh` caps the heaps (API 256 MB, bot 96 MB) so a leak restarts the service instead of the host killing it; change them with `API_HEAP_MB` / `BOT_HEAP_MB`.
+Watch Render → Metrics → Memory after launch. If it sits above ~400 MB, move the bot to its own service or upgrade the plan.
