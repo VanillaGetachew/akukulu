@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { PokerTournamentSummary } from '@akukulu/shared';
 import { api } from '@/lib/api';
+import { useDialog } from '@/lib/dialog';
 
 interface Form {
   name: string;
@@ -93,8 +94,9 @@ export function AdminTournaments({ onDone }: { onDone: (message: string) => void
     });
   };
 
+  const dialog = useDialog();
   const cancel = async (t: PokerTournamentSummary) => {
-    if (!confirm(`Cancel ${t.name}? Every buy-in is returned.`)) return;
+    if (!(await dialog.confirm({ message: `Cancel ${t.name}? Every buy-in is returned.`, confirmLabel: 'Cancel tournament', danger: true }))) return;
     try {
       await api(`/admin/tournaments/${t.id}/cancel`, { body: {} });
       onDone('Tournament cancelled and buy-ins returned');

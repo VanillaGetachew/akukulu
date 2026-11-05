@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { PROMOTIONS, type LedgerEntrySummary } from '@akukulu/shared';
 import { api } from '@/lib/api';
+import { openShare, openTelegramLink } from '@/lib/telegram';
 import { useSession } from '@/lib/session';
 import { Coin, EmptyState, ErrorState, LoadingState, Page, Points } from '@/components/ui';
 
@@ -38,12 +39,12 @@ export default function WalletPage() {
           <Points value={user?.balance ?? 0} />
         </div>
         <div className="mt-4 flex flex-wrap gap-2">
-          <a className="btn-gold btn-sm" href={botLink}>
+          <button className="btn-gold btn-sm" onClick={() => openTelegramLink(`${botLink}?start=deposit`)}>
             ➕ Deposit
-          </a>
-          <a className="btn-ghost btn-sm" href={botLink}>
+          </button>
+          <button className="btn-ghost btn-sm" onClick={() => openTelegramLink(`${botLink}?start=withdraw`)}>
             ➖ Withdraw
-          </a>
+          </button>
         </div>
         <p className="mt-3 max-w-sm text-[13px] text-muted">Deposits and withdrawals are made with Telebirr in the Akukulu bot.</p>
         {!!user?.bonusLocked && (
@@ -58,9 +59,9 @@ export default function WalletPage() {
         <p>First deposit: {PROMOTIONS.firstDepositBonusPercent}% extra, up to {PROMOTIONS.firstDepositBonusMax.toLocaleString()} ETB. Play with it right away; it can be withdrawn after wagering {PROMOTIONS.bonusWagerMultiple} times the bonus.</p>
         <p className="mt-1">Invite a friend: you get {PROMOTIONS.referralReward} ETB when they have played {PROMOTIONS.referralWager} ETB.</p>
         {user?.referralCode && (
-          <a className="btn-ghost btn-sm mt-3 inline-flex" href={`https://t.me/share/url?url=${encodeURIComponent(`${botLink}?start=ref_${user.referralCode}`)}&text=${encodeURIComponent('Play Ludo, Poker, Conquer and Crazy with me on Akukulu!')}`}>
+          <button className="btn-ghost btn-sm mt-3 inline-flex" onClick={() => openShare(`${botLink}?start=ref_${user.referralCode}`, 'Play Ludo, Poker, Conquer and Crazy with me on Akukulu!')}>
             🤝 Invite friends
-          </a>
+          </button>
         )}
       </section>
       <section className="card mb-6 p-4 text-[13px] text-muted">

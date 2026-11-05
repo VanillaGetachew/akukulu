@@ -95,7 +95,7 @@ export class RoomsController {
   @HttpCode(200)
   quickPlay(@CurrentUser() user: UserEntity, @Body() input: unknown) {
     const b = body(input);
-    return this.rooms.quickPlay(user, reqString(b.gameSlug, 'gameSlug'), b.stake === undefined ? undefined : optInt(b.stake, 'stake', 0, 1_000_000, 0), body(b.config));
+    return this.rooms.quickPlay(user, reqString(b.gameSlug, 'gameSlug'), b.stake === undefined ? undefined : optInt(b.stake, 'stake', 0, 1_000_000, 0), body(b.config), b.maxPlayers === undefined ? undefined : optInt(b.maxPlayers, 'maxPlayers', 2, 9, 2));
   }
 
   @Get(':code')
