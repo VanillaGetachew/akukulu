@@ -50,6 +50,13 @@ export function haptic(kind: 'tap' | 'success' | 'error' = 'tap') {
   else h.notificationOccurred(kind);
 }
 
+/** Opens a t.me link the way Telegram allows: a plain link does nothing inside a Mini App on phones. */
+export function openTelegramLink(url: string) {
+  const app = webApp();
+  if (app?.openTelegramLink) app.openTelegramLink(url);
+  else window.open(url, '_blank', 'noopener');
+}
+
 export function openShare(url: string, text: string) {
   const share = `https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(text)}`;
   const app = webApp();

@@ -234,6 +234,15 @@ suite('real-money mode', () => {
     expect(await balance(b)).toBe(584);
     expect(await balance(a)).toBe(400);
     expect((await earnings()) - before).toBe(16);
+    const revenue = (await api('GET', '/admin/revenue', adminToken)).body;
+    expect(revenue.total).toBe(await earnings());
+    expect(revenue.today).toBe(revenue.total);
+    expect(revenue.byGame.find((g: { gameSlug: string }) => g.gameSlug === 'ludo').total).toBeGreaterThanOrEqual(16);
+    expect(revenue.bySource[0]).toMatchObject({ source: 'Ludo, Conquer and Crazy prizes' });
+    expect(revenue.daily[0].total).toBe(revenue.total);
+    expect(revenue.net).toBe(revenue.total - revenue.bonusesPaid - revenue.referralsPaid);
+    expect(revenue.deposits).toBeGreaterThan(0);
+    expect((await api('GET', '/admin/revenue', a.token)).status).toBe(403);
     const tx = (await api('GET', '/me/transactions', b.token)).body as { type: string; description: string }[];
     expect(tx.find((r) => r.type === 'payout')!.description).toContain('after 8% house cut');
   });

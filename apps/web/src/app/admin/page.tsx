@@ -7,6 +7,8 @@ import { useSession } from '@/lib/session';
 import { ErrorState, LoadingState, Page, Toast } from '@/components/ui';
 import { AdminTournaments } from '@/components/admin-tournaments';
 import { AdminPayments } from '@/components/admin-payments';
+import { AdminRevenue } from '@/components/admin-revenue';
+import { useDialog } from '@/lib/dialog';
 
 interface Overview {
   users: number;
@@ -96,6 +98,8 @@ export default function AdminPage() {
     if (user?.isAdmin) void load();
   }, [load, user?.isAdmin]);
 
+  const dialog = useDialog();
+
   async function run(fn: () => Promise<unknown>, done: string) {
     try {
       await fn();
@@ -138,6 +142,8 @@ export default function AdminPage() {
             ))}
           </section>
 
+          <AdminRevenue />
+
           <AdminPayments onToast={setToast} />
 
           <section className={`card border-gold/30 p-4 ${rewards.length ? '' : 'hidden'}`}>
@@ -164,8 +170,9 @@ export default function AdminPage() {
                       <button
                         className="btn-ghost px-3 py-1.5 text-xs"
                         onClick={() => {
-                          const note = prompt('Reason for rejecting (optional)') ?? '';
-                          void run(() => api(`/admin/rewards/${r.id}/reject`, { body: { note } }), 'Rejected');
+                          void dialog.prompt({ message: 'Reason for rejecting (optional)', confirmLabel: 'Reject', danger: true }).then((note) => {
+                            if (note !== null) void run(() => api(`/admin/rewards/${r.id}/reject`, { body: { note } }), 'Rejected');
+                          });
                         }}
                       >
                         Reject
@@ -216,8 +223,9 @@ export default function AdminPage() {
                     <button
                       className="btn-danger px-3 py-1.5 text-xs"
                       onClick={() => {
-                        const reason = prompt('Reason for voiding this match (stakes are refunded)');
-                        if (reason) void run(() => api(`/admin/matches/${m.id}/void`, { body: { reason } }), 'Match voided');
+                        void dialog.prompt({ message: 'Reason for voiding this match (stakes are refunded)', confirmLabel: 'Void match', danger: true, required: true }).then((reason) => {
+                          if (reason) void run(() => api(`/admin/matches/${m.id}/void`, { body: { reason } }), 'Match voided');
+                        });
                       }}
                     >
                       Void

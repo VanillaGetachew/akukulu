@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
-import { isGameSlug, type GameSlug, type GameSummary, type RoomSummary } from '@akukulu/shared';
+import { isGameSlug, type GameSlug, type GameSummary, type RoomSummary, WAGER_OPTIONS } from '@akukulu/shared';
 import { api } from '@/lib/api';
 import { useSession } from '@/lib/session';
 import { ART_BG, GameThumb } from '@/components/art';
@@ -14,14 +14,14 @@ import { Avatar, Coin, EmptyState, ErrorState, LoadingState, MaintenanceState, P
 
 /** Preset wagers per game; min is the smallest custom wager the server accepts. */
 const STAKES: Record<GameSlug, { label: string; options: number[]; default: number; min: number }> = {
-  ludo: { label: 'Entry stake', options: [0, 50, 100, 250, 500, 1000, 2500, 5000], default: 0, min: 0 },
+  ludo: { label: 'Entry stake', options: [...WAGER_OPTIONS], default: 10, min: 10 },
   poker: { label: 'Buy-in', options: [200, 500, 1000, 2500, 5000, 10000, 25000, 50000], default: 500, min: 100 },
-  blackjack: { label: 'Minimum bet', options: [10, 25, 50, 100, 250, 500, 1000, 5000], default: 10, min: 1 },
-  conquer: { label: 'Stake per round', options: [0, 50, 100, 250, 500, 1000, 2500, 5000], default: 0, min: 0 },
-  crazy: { label: 'Entry stake', options: [0, 50, 100, 250, 500, 1000, 2500, 5000], default: 0, min: 0 },
+  blackjack: { label: 'Minimum bet', options: [...WAGER_OPTIONS], default: 10, min: 10 },
+  conquer: { label: 'Stake per round', options: [...WAGER_OPTIONS], default: 10, min: 10 },
+  crazy: { label: 'Entry stake', options: [...WAGER_OPTIONS], default: 10, min: 10 },
 };
 /** Poker Sit & Go buy-ins (the buy-in goes to the prize pool; free tournaments are allowed). */
-const SNG_STAKES = { label: 'Tournament buy-in', options: [0, 100, 250, 500, 1000, 2500, 5000, 10000], default: 100, min: 0 };
+const SNG_STAKES = { label: 'Tournament buy-in', options: [...WAGER_OPTIONS], default: 10, min: 10 };
 
 const RULES: Record<GameSlug, string[]> = {
   ludo: ['Roll a 6 to bring a token out.', 'Land on an opponent to send it home — except on star and start squares.', 'A 6, a capture or reaching home earns another roll. Three 6s in a row ends your turn.', 'Exact roll needed to finish. First to bring all four tokens home wins the pot.'],
@@ -73,15 +73,15 @@ export default function GameLobby() {
   const [refreshing, setRefreshing] = useState(false);
   const [stake, setStake] = useState(isGameSlug(slug) ? STAKES[slug].default : 0);
   const [custom, setCustom] = useState('');
-  const [maxPlayers, setMaxPlayers] = useState(4);
+  const [maxPlayers, setMaxPlayers] = useState(2);
   const [code, setCode] = useState('');
   // Conquer's ጆከር ለመሬት option: players need twice the stake; a joker finish wins double.
   const [jokerToGround, setJokerToGround] = useState(false);
   // Conquer table size (4 players play with two decks) and the 4-player ዶቤ option.
   const [conquerPlayers, setConquerPlayers] = useState<2 | 4>(2);
   const [dobe, setDobe] = useState(false);
-  // Poker: cash games or Sit & Go tournaments.
-  const [pokerMode, setPokerMode] = useState<'cash' | 'tournament'>('cash');
+  // Poker: always-open cash tables, Sit & Go tables players start themselves, or scheduled tournaments.
+  const [pokerMode, setPokerMode] = useState<'cash' | 'sitgo' | 'tournament'>('cash');
   // Games of this kind I am still in (left the table without finishing), to jump back into.
   const [active, setActive] = useState<{ rooms: RoomSummary[] } | null>(null);
 
@@ -128,9 +128,9 @@ export default function GameLobby() {
       </Page>
     );
   }
-  const tournament = slug === 'poker' && pokerMode === 'tournament';
-  // Poker cash games are the always-open tables; no private-table form or room list.
-  const pokerCash = slug === 'poker' && pokerMode === 'cash';
+  const tournament = slug === 'poker' && pokerMode === 'sitgo';
+  // Cash games and scheduled tournaments are lists of their own; only Sit & Go has a table form and room list.
+  const pokerCash = slug === 'poker' && pokerMode !== 'sitgo';
   const stakes = tournament ? SNG_STAKES : STAKES[slug];
   const balance = user?.balance ?? 0;
   const joker = slug === 'conquer' && (jokerToGround || (dobe && conquerPlayers === 4));
@@ -141,7 +141,7 @@ export default function GameLobby() {
     slug === 'conquer'
       ? { jokerToGround, ...(conquerPlayers === 4 ? { players: 4, dobe } : {}) }
       : slug === 'poker'
-        ? { mode: pokerMode }
+        ? { mode: 'tournament' }
         : undefined;
   // A private poker table seats the chosen number of players.
   const privateConfig = slug === 'poker' ? { ...roomConfig, maxSeats: maxPlayers } : roomConfig;
@@ -220,31 +220,30 @@ export default function GameLobby() {
             <>
               {slug === 'poker' && (
                 <>
-                  <div className="mb-4 grid grid-cols-2 gap-1 rounded-xl border border-line bg-night p-1" role="tablist" aria-label="Poker game type">
-                    {(['cash', 'tournament'] as const).map((m) => (
+                  <div className="mb-4 grid grid-cols-3 gap-1 rounded-xl border border-line bg-night p-1" role="tablist" aria-label="Poker game type">
+                    {(['cash', 'sitgo', 'tournament'] as const).map((m) => (
                       <button
                         key={m}
                         role="tab"
                         aria-selected={pokerMode === m}
                         onClick={() => {
                           setPokerMode(m);
-                          const next = m === 'tournament' ? SNG_STAKES : STAKES.poker;
-                          setStake(next.default);
+                          setStake(SNG_STAKES.default);
                           setCustom('');
                         }}
                         className={`min-h-[40px] rounded-lg text-sm font-bold transition ${pokerMode === m ? 'bg-panel2 text-fg shadow-[inset_0_0_0_1px_rgba(34,212,138,.45)]' : 'text-muted hover:text-fg'}`}
                       >
-                        {m === 'cash' ? 'Cash games' : 'Tournaments'}
+                        {m === 'cash' ? 'Cash games' : m === 'sitgo' ? 'Sit & Go' : 'Tournaments'}
                       </button>
                     ))}
                   </div>
-                  <PokerLobby mode={pokerMode} />
+                  {pokerMode !== 'sitgo' && <PokerLobby mode={pokerMode} />}
                 </>
               )}
               {!pokerCash && (
               <section className="card mb-4 grid gap-4 p-4">
                 {slug === 'poker' && (
-                  <h2 className="section-title">{tournament ? 'Sit & Go: starts when the table is ready' : 'Private cash table'}</h2>
+                  <h2 className="section-title">Sit &amp; Go: starts when the table fills or the timer ends</h2>
                 )}
                 {tournament && (
                   <div className="rounded-xl border border-gold/40 bg-gold/10 p-3 text-xs">
@@ -254,7 +253,7 @@ export default function GameLobby() {
                       <li>• Blinds start at 10/20 and go up every 6 hands.</li>
                       <li>• Bust out and you are out. The last player with chips wins.</li>
                       <li>• Prizes: winner takes all (2–3 players), 65% / 35% (4–6), 50% / 30% / 20% (7–9).</li>
-                      <li>• Starts as soon as everyone seated is ready.</li>
+                      <li>• Starts when the table is full, or when the 1-minute timer ends with at least 2 players.</li>
                     </ul>
                   </div>
                 )}
@@ -343,7 +342,7 @@ export default function GameLobby() {
 
                 {slug !== 'blackjack' && slug !== 'conquer' && (
                   <div>
-                    <div className="label mb-2">Seats in a private room</div>
+                    <div className="label mb-2">Players at the table</div>
                     <div className="flex gap-2">
                       {(slug === 'ludo' ? [2, 3, 4] : slug === 'crazy' ? [2, 3, 4, 5] : [2, 4, 6, 9]).map((n) => (
                         <button key={n} onClick={() => setMaxPlayers(n)} className={`grid h-11 w-11 place-items-center rounded-xl border text-sm font-bold transition ${maxPlayers === n ? 'border-lime bg-lime/10 text-lime' : 'border-line bg-night text-muted hover:text-fg'}`}>
@@ -355,7 +354,7 @@ export default function GameLobby() {
                 )}
 
                 <div className="grid grid-cols-2 gap-2">
-                  <button className="btn-primary" disabled={busy || !affordable || !!customError} onClick={() => run(() => api('/rooms/quick-play', { body: { gameSlug: slug, stake, config: roomConfig } }))}>
+                  <button className="btn-primary" disabled={busy || !affordable || !!customError} onClick={() => run(() => api('/rooms/quick-play', { body: { gameSlug: slug, stake, config: roomConfig, ...(slug === 'conquer' || game.solo ? {} : { maxPlayers }) } }))}>
                     {game.solo ? 'Sit at a table' : 'Quick play'}
                   </button>
                   {!game.solo && (
@@ -395,7 +394,7 @@ export default function GameLobby() {
                     <EmptyState title="No open tables" body="Start a quick game and others will join you." />
                   ) : (
                     <div className="grid gap-2">
-                      {rooms.map((r) => (
+                      {rooms.filter((r) => slug !== 'poker' || r.config.mode === 'tournament').map((r) => (
                         <div key={r.id} className="card flex items-center justify-between gap-3 px-4 py-3">
                           <div className="flex items-center gap-3">
                             <div className="flex -space-x-2">

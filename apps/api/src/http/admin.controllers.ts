@@ -1,7 +1,7 @@
 import { Body, Controller, Get, HttpCode, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { DataSource, ILike } from 'typeorm';
-import { isGameSlug, type MatchStatus } from '@akukulu/shared';
+import { isGameSlug, type AdminRevenue, type MatchStatus } from '@akukulu/shared';
 import { AdminGuard, CurrentUser, InternalKeyGuard, JwtAuthGuard } from '../auth/guards';
 import { MatchEntity, UserEntity } from '../database/entities';
 import { GamesService } from '../games/games.service';
@@ -121,6 +121,58 @@ export class AdminController {
     const amount = optInt(b.amount, 'amount', 1, 10_000_000, 0);
     const reason = reqString(b.reason, 'reason', 200);
     return this.rewards.deposit(id, amount, reason, admin.id, typeof b.idempotencyKey === 'string' ? b.idempotencyKey : undefined);
+  }
+
+  /** Everything the house earned from cuts, what promotions cost, and the money moved. Days are Ethiopian days. */
+  @Get('revenue')
+  async revenue(): Promise<AdminRevenue> {
+    const day = `("createdAt" AT TIME ZONE 'Africa/Addis_Ababa')::date`;
+    const today = `(now() AT TIME ZONE 'Africa/Addis_Ababa')::date`;
+    const num = (rows: { total: string | null }[]) => Number(rows[0]?.total ?? 0);
+    const [totals] = await this.dataSource.query(
+      `SELECT COALESCE(SUM(amount), 0)::bigint AS total,
+              COALESCE(SUM(amount) FILTER (WHERE ${day} = ${today}), 0)::bigint AS today,
+              COALESCE(SUM(amount) FILTER (WHERE ${day} > ${today} - 7), 0)::bigint AS week,
+              COALESCE(SUM(amount) FILTER (WHERE ${day} > ${today} - 30), 0)::bigint AS month
+       FROM house_earnings`,
+    );
+    const byGame: { gameSlug: string; total: string }[] = await this.dataSource.query(`SELECT "gameSlug", SUM(amount)::bigint AS total FROM house_earnings GROUP BY "gameSlug" ORDER BY total DESC`);
+    const bySource: { source: string; total: string }[] = await this.dataSource.query(
+      `SELECT CASE WHEN key LIKE '%:hand:%' THEN 'Poker cash game pots'
+                   WHEN key LIKE '%:prize-pool' THEN 'Poker tournament prize pools'
+                   ELSE 'Ludo, Conquer and Crazy prizes' END AS source,
+              SUM(amount)::bigint AS total
+       FROM house_earnings GROUP BY 1 ORDER BY total DESC`,
+    );
+    const daily: { day: string; total: string }[] = await this.dataSource.query(
+      `SELECT to_char(${day}, 'YYYY-MM-DD') AS day, SUM(amount)::bigint AS total
+       FROM house_earnings WHERE ${day} > ${today} - 14 GROUP BY 1 ORDER BY 1 DESC`,
+    );
+    const paid = (type: string) => this.dataSource.query(`SELECT SUM(amount)::bigint AS total FROM ledger_entries WHERE type = $1`, [type]);
+    const moved = (kind: string) => this.dataSource.query(`SELECT SUM(amount)::bigint AS total FROM payment_requests WHERE kind = $1 AND status = 'approved'`, [kind]);
+    const [bonuses, referrals, deposits, withdrawals, balances] = await Promise.all([
+      paid('deposit_bonus'),
+      paid('referral'),
+      moved('deposit'),
+      moved('withdrawal'),
+      this.dataSource.query(`SELECT SUM(balance)::bigint AS total FROM users`),
+    ]);
+    const total = Number(totals.total);
+    return {
+      today: Number(totals.today),
+      last7Days: Number(totals.week),
+      last30Days: Number(totals.month),
+      total,
+      byGame: byGame.map((g) => ({ gameSlug: g.gameSlug, total: Number(g.total) })),
+      bySource: bySource.map((s) => ({ source: s.source, total: Number(s.total) })),
+      daily: daily.map((d) => ({ day: d.day, total: Number(d.total) })),
+      bonusesPaid: num(bonuses),
+      referralsPaid: num(referrals),
+      net: total - num(bonuses) - num(referrals),
+      deposits: num(deposits),
+      withdrawals: num(withdrawals),
+      playerBalances: num(balances),
+    };
   }
 
   /* ---- Manual Telebirr payments, from the web app ---- */

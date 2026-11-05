@@ -272,7 +272,7 @@ export class RoomsService implements OnApplicationBootstrap, OnModuleDestroy {
    * Joins the fullest open public room with the same stake (and, for Conquer, the same
    * table size and ጆከር ለመሬት / ዶቤ settings), or opens a new one.
    */
-  async quickPlay(user: UserEntity, slug: string, stake?: number, config: Record<string, unknown> = {}): Promise<RoomSummary> {
+  async quickPlay(user: UserEntity, slug: string, stake?: number, config: Record<string, unknown> = {}, seats?: number): Promise<RoomSummary> {
     if (!isGameSlug(slug)) throw new GameError('UNKNOWN_GAME', 'Unknown game', 404);
     const game = await this.games.requirePlayable(slug);
     if (game.solo) return this.create(user, { gameSlug: slug, stake });
@@ -291,11 +291,13 @@ export class RoomsService implements OnApplicationBootstrap, OnModuleDestroy {
          AND COALESCE((r.config->>'dobe')::boolean, false) = $5
          AND ($1 <> 'conquer' OR COALESCE((r.config->>'players')::int, 2) = $6)
          AND ($1 <> 'poker' OR COALESCE(r.config->>'mode', 'cash') = $7)
+         AND ($8::int IS NULL OR r."maxPlayers" = $8)
        GROUP BY r.id
        HAVING COUNT(rp.id) < r."maxPlayers" AND BOOL_AND(rp."userId" IS DISTINCT FROM $3)
        ORDER BY COUNT(rp.id) DESC, r."createdAt" ASC
        LIMIT 5`,
-      [slug, wanted, user.id, jokerToGround, dobe, players, pokerMode],
+      // Conquer's table size comes from its own players option.
+      [slug, wanted, user.id, jokerToGround, dobe, players, pokerMode, conquer ? null : seats ?? null],
     );
     for (const c of candidates) {
       try {
@@ -310,7 +312,7 @@ export class RoomsService implements OnApplicationBootstrap, OnModuleDestroy {
       ...(dobe ? { dobe } : {}),
       ...(pokerMode === 'tournament' ? { mode: pokerMode } : {}),
     };
-    return this.create(user, { gameSlug: slug, stake: wanted, ...(Object.keys(options).length ? { config: options } : {}) });
+    return this.create(user, { gameSlug: slug, stake: wanted, ...(conquer || seats === undefined ? {} : { maxPlayers: seats }), ...(Object.keys(options).length ? { config: options } : {}) });
   }
 
   async roomsForUser(userId: string): Promise<RoomSummary[]> {

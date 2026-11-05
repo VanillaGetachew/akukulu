@@ -106,6 +106,9 @@ export const PAYMENTS = {
   maxPendingDeposits: 3,
 } as const;
 
+/** The stakes offered when creating a table, in birr. */
+export const WAGER_OPTIONS = [10, 20, 30, 50, 100, 200, 300, 500, 1000] as const;
+
 /** How long a room waits for players before it starts, or closes if too few joined. */
 export const ROOM_COUNTDOWN_SECONDS = 60;
 

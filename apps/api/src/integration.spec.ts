@@ -676,6 +676,21 @@ suite('API integration', () => {
     await api('POST', `/rooms/${full.body.code}/leave`, c.token);
   });
 
+  it('quick play respects the chosen table size', async () => {
+    const [a, b, c] = [await login('SeatsA'), await login('SeatsB'), await login('SeatsC')];
+    const two = await api('POST', '/rooms/quick-play', a.token, { gameSlug: 'crazy', stake: 37, maxPlayers: 2 });
+    expect(two.body).toMatchObject({ maxPlayers: 2, status: 'waiting' });
+    // Someone who wants a table of four does not land at the table for two.
+    const four = await api('POST', '/rooms/quick-play', b.token, { gameSlug: 'crazy', stake: 37, maxPlayers: 4 });
+    expect(four.body.maxPlayers).toBe(4);
+    expect(four.body.code).not.toBe(two.body.code);
+    // The second player for two fills it, so it starts straight away.
+    const filled = await api('POST', '/rooms/quick-play', c.token, { gameSlug: 'crazy', stake: 37, maxPlayers: 2 });
+    expect(filled.body).toMatchObject({ code: two.body.code, status: 'in_progress' });
+    await api('POST', `/rooms/${four.body.code}/leave`, b.token);
+    for (const p of [a, c]) await api('POST', `/rooms/${two.body.code}/leave`, p.token);
+  });
+
   it('a 4-seat Conquer table starts with 3 players when the countdown ends', async () => {
     const three = [await login('Ermias'), await login('Fikir'), await login('Genet')];
     const created = await api('POST', '/rooms', three[0].token, { gameSlug: 'conquer', stake: 0, visibility: 'private', config: { players: 4 } });

@@ -8,6 +8,7 @@ import { api } from '@/lib/api';
 import { useSession } from '@/lib/session';
 import { useMatch } from '@/lib/use-match';
 import { openShare } from '@/lib/telegram';
+import { useDialog } from '@/lib/dialog';
 import { Avatar, Coin, ErrorState, LoadingState, Page, Points, Toast } from '@/components/ui';
 import { LudoTable } from '@/components/games/ludo-table';
 import { PokerTable } from '@/components/games/poker-table';
@@ -233,6 +234,7 @@ export default function RoomPage() {
     };
   }, [socket, connected, code]);
 
+  const dialog = useDialog();
   const status = match.state?.status;
   useEffect(() => {
     if (status === 'finished' || status === 'cancelled') {
@@ -305,7 +307,9 @@ export default function RoomPage() {
               <button
                 className="text-xs font-bold text-muted underline-offset-4 hover:text-danger hover:underline"
                 onClick={() => {
-                  if (confirm('Leave this match? You forfeit your seat.')) void match.act({ type: 'leave' });
+                  void dialog.confirm({ message: 'Leave this match? You forfeit your seat.', confirmLabel: 'Leave', danger: true }).then((ok) => {
+                    if (ok) void match.act({ type: 'leave' });
+                  });
                 }}
               >
                 Leave match

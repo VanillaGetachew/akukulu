@@ -38,8 +38,8 @@ export function BalancePill() {
     <Link
       href="/wallet"
       className="flex h-10 items-center gap-2 rounded-full border border-gold/25 bg-gold/[0.06] pl-2.5 pr-3.5 text-sm font-bold text-fg transition hover:border-gold/45"
-      title="Your points — free virtual credits"
-      aria-label={user ? `Balance ${user.balance.toLocaleString()} points` : 'Balance'}
+      title="Your balance in birr"
+      aria-label={user ? `Balance ${user.balance.toLocaleString()} ETB` : 'Balance'}
     >
       <Coin className="h-[18px] w-[18px]" />
       {user ? <Points value={user.balance} /> : <span className="skeleton h-4 w-12" />}

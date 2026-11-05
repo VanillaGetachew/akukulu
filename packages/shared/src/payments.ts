@@ -70,3 +70,21 @@ export function paymentDecisionText(r: PaymentRequestSummary): string {
     ? `✅ Your withdrawal of ${birr(r.amount)} was sent to ${r.phone ? localPhone(r.phone) : 'your number'}.`
     : `❌ Your withdrawal of ${birr(r.amount)} was rejected and returned to your balance. Balance: ${birr(r.balance)}`;
 }
+
+/** The admin dashboard's view of the money. All amounts are whole birr. */
+export interface AdminRevenue {
+  today: number;
+  last7Days: number;
+  last30Days: number;
+  total: number;
+  byGame: { gameSlug: string; total: number }[];
+  bySource: { source: string; total: number }[];
+  daily: { day: string; total: number }[];
+  bonusesPaid: number;
+  referralsPaid: number;
+  /** House cuts less promotions. */
+  net: number;
+  deposits: number;
+  withdrawals: number;
+  playerBalances: number;
+}

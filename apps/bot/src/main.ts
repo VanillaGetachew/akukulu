@@ -117,6 +117,16 @@ bot.start(async (ctx) => {
   paymentSteps.delete(ctx.from.id);
   const payload = ctx.payload?.trim() || null;
   const summary = await register(ctx, payload);
+  // The web app's Deposit and Withdraw buttons link here.
+  if (env.paymentsEnabled && payload === 'deposit') {
+    const { text, keyboard } = await depositScreen(ctx);
+    await ctx.reply(text, keyboard);
+    return;
+  }
+  if (env.paymentsEnabled && payload === 'withdraw') {
+    await ctx.reply(await withdrawScreen(ctx), cancel);
+    return;
+  }
   const room = payload && /^room_([A-Z0-9]{4,8})$/i.exec(payload);
   if (room) {
     await ctx.reply(`You're invited to table ${room[1].toUpperCase()}!`, Markup.inlineKeyboard([[Markup.button.webApp('🎲 Open table', `${env.webAppUrl}/room/${room[1].toUpperCase()}`)]]));
@@ -224,21 +234,27 @@ function refusal(err: unknown): ApiError {
   throw err;
 }
 
-bot.action('deposit', async (ctx) => {
-  await ctx.answerCbQuery();
-  paymentSteps.set(ctx.from.id, { step: 'deposit_amount' });
+async function depositScreen(ctx: Context) {
+  const from = ctx.from!;
   const { firstDepositBonus } = await register(ctx, null);
+  paymentSteps.set(from.id, { step: 'deposit_amount' });
   const lines = [`➕ Deposit with Telebirr\n\nHow much do you want to deposit? Type any whole amount from ${birr(PAYMENTS.minDeposit)} to ${birr(PAYMENTS.maxDeposit)}.`];
   if (firstDepositBonus) {
     lines.push(`🎁 First deposit bonus: ${PROMOTIONS.firstDepositBonusPercent}% extra, up to ${birr(PROMOTIONS.firstDepositBonusMax)}. Play with it right away; it can be withdrawn after wagering ${PROMOTIONS.bonusWagerMultiple} times the bonus.`);
   }
   const buttons = [[Markup.button.callback('✖️ Cancel', 'pay_cancel')]];
-  if (isAdmin(ctx.from.id)) {
+  if (isAdmin(from.id)) {
     const { account } = await internal<{ account: PaymentAccountSummary | null }>('/payments/account');
     lines.push(account ? `Admin: players are sending to ${localPhone(account.phone)} (${account.name}).` : 'Admin: no number is set, so players cannot deposit yet.');
     buttons.unshift([Markup.button.callback('✏️ Change number', 'pay_set_account')]);
   }
-  await ctx.editMessageText(lines.join('\n\n'), Markup.inlineKeyboard(buttons));
+  return { text: lines.join('\n\n'), keyboard: Markup.inlineKeyboard(buttons) };
+}
+
+bot.action('deposit', async (ctx) => {
+  await ctx.answerCbQuery();
+  const { text, keyboard } = await depositScreen(ctx);
+  await ctx.editMessageText(text, keyboard);
 });
 
 bot.action('pay_set_account', async (ctx) => {
@@ -251,14 +267,15 @@ bot.action('pay_set_account', async (ctx) => {
   await ctx.editMessageText('✏️ Reply with the new number and the name on the Telebirr account, like this:\n\n0912345678 Abebe Kebede\n\nYou will get the requests from then on.', cancel);
 });
 
+async function withdrawScreen(ctx: Context) {
+  const { profile } = await register(ctx, null);
+  paymentSteps.set(ctx.from!.id, { step: 'withdraw_amount' });
+  return `➖ Withdraw with Telebirr\n\nBalance: ${birr(profile.balance)}${profile.bonusLocked ? `\nYou can withdraw: ${birr(Math.max(0, profile.balance - profile.bonusLocked))} (bonus unlocks after wagering ${birr(profile.bonusWagerLeft)} more)` : ''}\nHow much do you want to withdraw? Type any whole amount from ${birr(PAYMENTS.minWithdrawal)} to ${birr(PAYMENTS.maxWithdrawal)}.`;
+}
+
 bot.action('withdraw', async (ctx) => {
   await ctx.answerCbQuery();
-  const { profile } = await register(ctx, null);
-  paymentSteps.set(ctx.from.id, { step: 'withdraw_amount' });
-  await ctx.editMessageText(
-    `➖ Withdraw with Telebirr\n\nBalance: ${birr(profile.balance)}${profile.bonusLocked ? `\nYou can withdraw: ${birr(Math.max(0, profile.balance - profile.bonusLocked))} (bonus unlocks after wagering ${birr(profile.bonusWagerLeft)} more)` : ''}\nHow much do you want to withdraw? Type any whole amount from ${birr(PAYMENTS.minWithdrawal)} to ${birr(PAYMENTS.maxWithdrawal)}.`,
-    cancel,
-  );
+  await ctx.editMessageText(await withdrawScreen(ctx), cancel);
 });
 
 bot.action('pay_cancel', async (ctx) => {

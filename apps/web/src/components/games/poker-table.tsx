@@ -13,6 +13,7 @@ import {
   type PokerReactionEvent,
   type PokerView,
 } from '@akukulu/shared';
+import { useDialog } from '@/lib/dialog';
 import { api } from '@/lib/api';
 import { useSession } from '@/lib/session';
 import { CardBack, CardFace } from '@/components/card-face';
@@ -936,6 +937,13 @@ function TabCard({ card }: { card: Card }) {
 
 /* ------------------------------------------------------------------ table */
 
+type PreAction = 'fold' | 'checkFold' | 'callAny';
+const PRE_ACTIONS: [PreAction, string][] = [
+  ['fold', 'Fold'],
+  ['checkFold', 'Check / Fold'],
+  ['callAny', 'Call any'],
+];
+
 export function PokerTable({ state, view, act, pending, serverNow }: TableProps<PokerView>) {
   const { user, socket } = useSession();
   // Live reactions (emoji pops and throwables) at this table.
@@ -978,14 +986,16 @@ export function PokerTable({ state, view, act, pending, serverNow }: TableProps<
   const cash = view.cash ?? null;
   const [sheet, setSheet] = useState<null | 'menu' | 'history' | 'info' | 'settings' | { sit: number }>(null);
 
-  // Auto check / fold: acts for me as soon as it is my turn.
-  const [autoCheckFold, setAutoCheckFold] = useState(false);
+  // Pre-select my next move. It belongs to one hand and fires once, so it can never act on a hand I haven't seen.
+  const [preAction, setPreAction] = useState<{ kind: PreAction; hand: number } | null>(null);
+  const preSelected = preAction && preAction.hand === view.handNumber ? preAction.kind : null;
   useEffect(() => {
-    if (!autoCheckFold || !myTurn || pending || !view.legal) return;
-    void act({ type: view.legal.canCheck ? 'check' : 'fold' });
-    if (!view.legal.canCheck) setAutoCheckFold(false);
-  }, [autoCheckFold, myTurn, pending, view.legal, act]);
-  useEffect(() => setAutoCheckFold(false), [view.handNumber]);
+    if (!preSelected || !myTurn || pending || !view.legal) return;
+    setPreAction(null);
+    if (preSelected === 'fold') void act({ type: 'fold' });
+    else if (preSelected === 'checkFold') void act({ type: view.legal.canCheck ? 'check' : 'fold' });
+    else void act({ type: view.legal.canCheck ? 'check' : 'call' });
+  }, [preSelected, myTurn, pending, view.legal, act]);
 
   // The table fills the space between the top bar and the action strip.
   const [boxRef, box] = useSize<HTMLDivElement>();
@@ -1131,10 +1141,13 @@ export function PokerTable({ state, view, act, pending, serverNow }: TableProps<
             ? 'Next hand starting…'
             : `${PHASE_LABEL[view.phase]}${view.currentPlayerId ? ` · ${view.currentPlayerId === user?.id ? 'Your turn' : `${nameOf(state, view.currentPlayerId)} to act`}` : ''}`;
 
+  const dialog = useDialog();
   const leave = () => {
     const msg = cash ? 'Stand up and cash out your chips?' : t ? 'Leave the tournament? You forfeit your chips.' : 'Leave the table? You cash out your chips.';
-    if (confirm(msg)) void act({ type: 'leave' });
     setSheet(null);
+    void dialog.confirm({ message: msg, confirmLabel: cash ? 'Stand up' : 'Leave', danger: true }).then((ok) => {
+      if (ok) void act({ type: 'leave' });
+    });
   };
 
   const mySeat = me ? seatAt(0) : null;
@@ -1397,15 +1410,20 @@ export function PokerTable({ state, view, act, pending, serverNow }: TableProps<
           ) : myTurn && view.legal ? (
             <ActionBar view={view} act={act} pending={pending} />
           ) : me && me.inHand && !me.folded && !done ? (
-            <button
-              className="flex h-10 items-center gap-2 rounded-[6px] px-3 text-[12px] font-bold"
-              style={{ background: autoCheckFold ? '#1475e1' : 'rgba(26,44,56,.92)', color: '#fff', border: `1px solid ${UI.line}` }}
-              onClick={() => setAutoCheckFold((v) => !v)}
-              aria-pressed={autoCheckFold}
-            >
-              <span className="grid h-4 w-4 place-items-center rounded-[3px] border border-white/60 text-[10px]">{autoCheckFold ? '✓' : ''}</span>
-              Check / Fold
-            </button>
+            <div className="flex min-w-0 gap-1" role="group" aria-label="Choose your next move">
+              {PRE_ACTIONS.map(([kind, text]) => (
+                <button
+                  key={kind}
+                  className="flex h-10 min-w-0 items-center gap-1.5 rounded-[6px] px-2 text-[12px] font-bold"
+                  style={{ background: preSelected === kind ? '#1475e1' : 'rgba(26,44,56,.92)', color: '#fff', border: `1px solid ${UI.line}` }}
+                  onClick={() => setPreAction(preSelected === kind ? null : { kind, hand: view.handNumber })}
+                  aria-pressed={preSelected === kind}
+                >
+                  <span className="grid h-4 w-4 shrink-0 place-items-center rounded-[3px] border border-white/60 text-[10px]">{preSelected === kind ? '✓' : ''}</span>
+                  <span className="whitespace-nowrap">{text}</span>
+                </button>
+              ))}
+            </div>
           ) : me && !done && view.phase !== 'finished' ? (
             <span className="truncate text-[12px] font-semibold text-white/60">{status}</span>
           ) : null}
@@ -1457,7 +1475,7 @@ export function PokerTable({ state, view, act, pending, serverNow }: TableProps<
           <div className="grid gap-2 text-sm font-bold">
             <label className="flex items-center justify-between rounded-lg px-4 py-3" style={{ background: UI.bg2 }}>
               Auto check / fold this hand
-              <input type="checkbox" checked={autoCheckFold} onChange={(e) => setAutoCheckFold(e.target.checked)} className="h-5 w-5 accent-[#00e701]" disabled={!me?.inHand || me.folded} />
+              <input type="checkbox" checked={preSelected === 'checkFold'} onChange={(e) => setPreAction(e.target.checked ? { kind: 'checkFold', hand: view.handNumber } : null)} className="h-5 w-5 accent-[#00e701]" disabled={!me?.inHand || me.folded} />
             </label>
             {me && view.phase !== 'finished' && (
               <button className="rounded-lg bg-danger/20 px-4 py-3 text-left text-danger" onClick={leave}>
