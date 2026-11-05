@@ -5,6 +5,7 @@ import {
   pokerMttPayouts,
   type PokerConfig,
   type PokerView,
+  prizePoolAfterHouse,
 } from '@akukulu/shared';
 import {
   asRecord,
@@ -52,7 +53,7 @@ const RESUME_MS = 2000;
 
 const levelMs = (c: PokerConfig) => (c.levelMinutes ?? 8) * 60_000;
 const levelAt = (s: PokerMttState, now: number) => Math.floor(Math.max(0, now - s.startedAt) / levelMs(s.config));
-export const mttPrizePool = (s: PokerMttState) => Math.max(s.config.guarantee ?? 0, s.config.buyIn * s.entrants);
+export const mttPrizePool = (s: PokerMttState) => Math.max(s.config.guarantee ?? 0, prizePoolAfterHouse(s.config.buyIn * s.entrants, s.config.housePercent));
 const lateRegEndsAt = (s: PokerMttState) => (s.config.lateRegLevels ? s.startedAt + s.config.lateRegLevels * levelMs(s.config) : null);
 const alive = (t: PokerState) => t.players.filter((p) => p.status === 'active');
 const aliveCount = (s: PokerMttState) => s.tables.reduce((n, t) => n + alive(t).length, 0);
@@ -184,6 +185,8 @@ function settle(s: PokerMttState, ctx: EngineContext, out: Out) {
 
 function finish(s: PokerMttState, out: Out) {
   for (const t of s.tables) for (const p of alive(t)) s.places[p.playerId] = 1;
+  const kept = s.config.buyIn * s.entrants - mttPrizePool(s);
+  if (kept > 0) out.events.push({ type: 'house_cut', data: { amount: kept, key: 'prize-pool' } });
   const prizes = pokerMttPayouts(mttPrizePool(s), s.entrants);
   for (const [playerId, place] of Object.entries(s.places)) {
     const prize = prizes[place - 1] ?? 0;
@@ -232,6 +235,7 @@ export function parseMttConfig(input: unknown, stake: number): PokerConfig {
   c.guarantee = raw.guarantee !== undefined ? intInRange(raw.guarantee, 0, 100_000_000, 'guarantee') : 0;
   c.name = typeof raw.name === 'string' && raw.name.trim() ? raw.name.trim().slice(0, 60) : 'Tournament';
   if (typeof raw.tournamentId === 'string') c.tournamentId = raw.tournamentId.slice(0, 64);
+  if (raw.variant === 'omaha') c.variant = 'omaha';
   if (raw.turnSeconds !== undefined) c.turnSeconds = intInRange(raw.turnSeconds, 10, 120, 'turnSeconds');
   Object.assign(c, pokerMttLevel(0));
   return c;

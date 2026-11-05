@@ -55,6 +55,20 @@ One service awake all month uses about 744 of the 750 free hours, so keep only t
 In @BotFather: `/mybots` → your bot → Bot Settings → Configure Mini App / Menu Button → URL = the Vercel URL.
 `/newapp` (or Edit App) → Web App URL = the Vercel URL; use that `t.me/<bot>/<app>` link as `TELEGRAM_WEBAPP_LINK`.
 
+## Manual Telebirr payments (off by default)
+With `PAYMENTS_ENABLED=true` the bot gets Deposit and Withdraw buttons, balances show as ETB, and new welcome, daily and referral rewards stop.
+
+**One number at a time.** On the bot's Deposit screen an admin sees `✏️ Change number` (the web admin page has the same form). Whoever changes it gets the requests from then on, as a pop-up in the web app and a Telegram message. Other admins can see everything with `/pending`, and nobody can decide their own request. Admins are the people in `ADMIN_TELEGRAM_IDS`, and they must press Start in the bot.
+
+- **Deposit:** the player types the amount and is shown the current number and name, with a copy button. They send the money, then enter the Telebirr transaction ID. Nothing is credited until an admin checks Telebirr and approves.
+- **Withdraw:** the player enters the amount and their number. The amount leaves their balance straight away. Approve after sending the money; Reject returns it.
+
+**Rooms** have a one-minute countdown instead of a ready button. They start when it ends if enough players joined, or at once when full; otherwise they close. Nobody pays until a room starts.
+
+**Promotions** are set in `PROMOTIONS` in `packages/shared/src/catalog.ts`. **Automatic tournaments** are set in `POKER_AUTO_TOURNAMENTS` in `packages/shared/src/games/poker.ts`.
+
+**House fees** are set in `packages/shared/src/house.ts` and recorded in `house_earnings`; the admin page shows the total.
+
 ## Limits to know
 - Render Free can restart the service at any time; active matches are recovered from the database on boot.
 - Neon Free gives 100 compute-hours a month per project; a database that is queried around the clock can run past it. Watch Usage in the Neon console.

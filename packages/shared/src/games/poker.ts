@@ -1,5 +1,7 @@
 import type { Card } from '../cards';
 
+export type PokerVariant = 'holdem' | 'omaha';
+
 export interface PokerConfig {
   maxSeats: number;
   /** Buy-in in virtual points; converted 1:1 into table chips. */
@@ -41,6 +43,12 @@ export interface PokerConfig {
   levelMinutes?: number;
   /** Late registration stays open for this many levels after the start. */
   lateRegLevels?: number;
+  /** 'omaha': four hole cards, a hand must use exactly two of them, and bets are pot-limit. Missing means Hold'em. */
+  variant?: PokerVariant;
+  /** Real-money cash games: what the house takes from each pot. Set by the server, never by players. */
+  rake?: { percent: number; cap: number };
+  /** Real-money tournaments: the house share of the buy-ins, in percent. Set by the server, never by players. */
+  housePercent?: number;
 }
 
 /** Sit & Go blind levels (big blinds; the small blind is half). */
@@ -84,6 +92,26 @@ export function pokerMttPayouts(pool: number, entrants: number): number[] {
 export function pokerMttLevel(level: number): { smallBlind: number; bigBlind: number; ante: number } {
   const bb = POKER_TOURNAMENT_BIG_BLINDS[Math.min(Math.max(0, level), POKER_TOURNAMENT_BIG_BLINDS.length - 1)];
   return { smallBlind: bb / 2, bigBlind: bb, ante: level >= 3 ? Math.max(1, Math.floor(bb / 10)) : 0 };
+}
+
+/**
+ * Tournaments that schedule themselves, every `everyHours` hours Ethiopian time. `hourOffset`
+ * staggers them: with 2 hours, offset 0 starts at 2am, 4am… and offset 1 at 3am, 5am…
+ * One that has fewer than `minPlayers` at its start is cancelled and refunded, so the house
+ * never adds money; more players than that make the prize pool bigger.
+ */
+export const POKER_AUTO_TOURNAMENTS = [
+  { key: 'holdem-50', name: "Hold'em 50", variant: 'holdem', buyIn: 50, minPlayers: 5, everyHours: 2, hourOffset: 0 },
+  { key: 'omaha-100', name: 'Omaha 100', variant: 'omaha', buyIn: 100, minPlayers: 5, everyHours: 2, hourOffset: 1 },
+] as const;
+
+const EAT_OFFSET_MS = 3 * 3_600_000;
+
+/** The next start of an automatic tournament after `now`. */
+export function nextAutoTournamentStart(t: { everyHours: number; hourOffset: number }, now: number): number {
+  let hour = Math.floor((now + EAT_OFFSET_MS) / 3_600_000) + 1;
+  while (hour % t.everyHours !== t.hourOffset) hour++;
+  return hour * 3_600_000 - EAT_OFFSET_MS;
 }
 
 /** Permanent cash tables: blinds per stake level. Buy-in is 40–100 big blinds. */
@@ -293,6 +321,9 @@ export interface PokerHandHistory {
 export interface PokerTournamentSummary {
   id: string;
   name: string;
+  variant: PokerVariant;
+  /** Cancelled and refunded if fewer than this have registered at the start. */
+  minPlayers: number;
   status: 'scheduled' | 'running' | 'finished' | 'cancelled';
   startsAt: string;
   buyIn: number;

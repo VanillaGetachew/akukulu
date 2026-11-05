@@ -11,6 +11,7 @@ import { UsersService } from './users/users.service';
 import { LedgerService } from './wallet/ledger.service';
 import { WalletService } from './wallet/wallet.service';
 import { RewardsService } from './wallet/rewards.service';
+import { PaymentsService } from './wallet/payments.service';
 import { GamesService } from './games/games.service';
 import { RoomsService } from './rooms/rooms.service';
 import { RoomPresenter } from './rooms/room-presenter';
@@ -81,6 +82,7 @@ export class AppModule {
         LedgerService,
         WalletService,
         RewardsService,
+        PaymentsService,
         GamesService,
         RoomPresenter,
         RoomsService,

@@ -31,6 +31,11 @@ export class UserEntity {
   @Column({ type: 'varchar', nullable: true }) languageCode: string | null;
   /** Non-redeemable virtual points. Only LedgerService may change this column. */
   @Column({ type: 'integer', default: 0 }) balance: number;
+  /** Part of the balance that is bonus and cannot be withdrawn yet. */
+  @Column({ type: 'integer', default: 0 }) bonusLocked: number;
+  @Column({ type: 'integer', default: 0 }) bonusWagerLeft: number;
+  /** Total real-money wagering, for bonuses and referrals. */
+  @Column({ type: 'integer', default: 0 }) wagered: number;
   @Column({ default: false }) isAdmin: boolean;
   @Column({ default: false }) isBanned: boolean;
   @Column({ type: 'uuid', nullable: true }) referredById: string | null;
@@ -91,6 +96,8 @@ export class RoomEntity {
   @Column({ type: 'integer', default: 0 }) stake: number;
   @Column({ type: 'jsonb', default: {} }) config: Record<string, unknown>;
   @Column({ type: 'uuid', nullable: true }) matchId: string | null;
+  /** When the countdown ends: the room starts, or closes if too few players joined. */
+  @Column({ type: 'timestamptz', nullable: true }) startsAt: Date | null;
   @CreateDateColumn({ type: 'timestamptz' }) createdAt: Date;
   @UpdateDateColumn({ type: 'timestamptz' }) updatedAt: Date;
 }
@@ -107,7 +114,6 @@ export class RoomPlayerEntity {
   @Column({ type: 'uuid' })
   userId: string;
   @Column({ type: 'integer' }) seat: number;
-  @Column({ default: false }) ready: boolean;
   @CreateDateColumn({ type: 'timestamptz' }) joinedAt: Date;
 }
 
@@ -192,10 +198,70 @@ export class RewardRequestEntity {
   @CreateDateColumn({ type: 'timestamptz' }) createdAt: Date;
 }
 
+/** A Telebirr number players send deposits to. One is active at a time; old ones stay for the record. */
+@Entity('payment_accounts')
+@Index('UQ_payment_accounts_one_active', ['active'], { unique: true, where: `"active" = true` })
+export class PaymentAccountEntity {
+  @PrimaryGeneratedColumn('uuid') id: string;
+  /** The admin who set this number and gets its requests. */
+  @Column({ type: 'bigint' }) telegramId: string;
+  @Column({ type: 'varchar' }) name: string;
+  @Column({ type: 'varchar' }) phone: string;
+  @Column({ default: true }) active: boolean;
+  @CreateDateColumn({ type: 'timestamptz' }) createdAt: Date;
+}
+
+/** Money the house kept: a cut of a prize pool or a poker pot. */
+@Entity('house_earnings')
+export class HouseEarningEntity {
+  @PrimaryGeneratedColumn('uuid') id: string;
+  @Column({ type: 'varchar' }) gameSlug: string;
+  @Column({ type: 'integer' }) amount: number;
+  @Index()
+  @Column({ type: 'uuid', nullable: true })
+  matchId: string | null;
+  /** Unique, so replaying a match step never counts twice. */
+  @Index({ unique: true })
+  @Column({ type: 'varchar' })
+  key: string;
+  @CreateDateColumn({ type: 'timestamptz' }) createdAt: Date;
+}
+
+/** A Telebirr deposit or withdrawal waiting to be checked by hand. */
+@Entity('payment_requests')
+@Index(['status', 'createdAt'])
+// A transaction ID can back one deposit only, but can be resubmitted if it was rejected.
+@Index('UQ_payment_requests_reference', ['reference'], { unique: true, where: `"reference" IS NOT NULL AND "status" <> 'rejected'` })
+export class PaymentRequestEntity {
+  @PrimaryGeneratedColumn('uuid') id: string;
+  @Index()
+  @Column({ type: 'uuid' })
+  userId: string;
+  @Column({ type: 'varchar' }) kind: 'deposit' | 'withdrawal';
+  /** Whole birr. */
+  @Column({ type: 'integer' }) amount: number;
+  @Column({ type: 'varchar' }) status: 'pending' | 'approved' | 'rejected';
+  /** Deposits: the Telebirr transaction ID the player entered. */
+  @Column({ type: 'varchar', nullable: true }) reference: string | null;
+  /** Withdrawals: the number to send the money to. */
+  @Column({ type: 'varchar', nullable: true }) phone: string | null;
+  /** The Telebirr account this request went through. */
+  @Column({ type: 'uuid', nullable: true }) accountId: string | null;
+  @Column({ type: 'uuid', nullable: true }) decidedBy: string | null;
+  @Column({ type: 'timestamptz', nullable: true }) decidedAt: Date | null;
+  @CreateDateColumn({ type: 'timestamptz' }) createdAt: Date;
+}
+
 /** A scheduled poker tournament created by an administrator. */
 @Entity('tournaments')
 @Index(['status', 'startsAt'])
 export class TournamentEntity {
+  @Column({ type: 'varchar', default: 'holdem' }) variant: 'holdem' | 'omaha';
+  @Column({ type: 'integer', default: 2 }) minPlayers: number;
+  /** Set on tournaments that schedule themselves; unique, so no start is created twice. */
+  @Index({ unique: true })
+  @Column({ type: 'varchar', nullable: true })
+  autoKey: string | null;
   @PrimaryGeneratedColumn('uuid') id: string;
   @Column({ type: 'varchar' }) name: string;
   @Column({ type: 'varchar', default: 'poker' }) gameSlug: GameSlug;
@@ -233,6 +299,9 @@ export const ENTITIES = [
   TournamentEntity,
   TournamentEntryEntity,
   RewardRequestEntity,
+  PaymentAccountEntity,
+  HouseEarningEntity,
+  PaymentRequestEntity,
   UserEntity,
   LedgerEntryEntity,
   GameEntity,

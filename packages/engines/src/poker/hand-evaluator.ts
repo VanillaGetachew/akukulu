@@ -108,6 +108,25 @@ export function evaluateBest(cards: Card[]): EvaluatedHand {
 }
 
 /** Positive if a beats b, negative if b beats a, 0 for a tie. */
+/** Omaha: the best hand using exactly two hole cards and exactly three board cards. */
+export function evaluateOmaha(hole: Card[], board: Card[]): EvaluatedHand {
+  let best: EvaluatedHand | null = null;
+  for (let a = 0; a < hole.length; a++) {
+    for (let b = a + 1; b < hole.length; b++) {
+      for (let x = 0; x < board.length; x++) {
+        for (let y = x + 1; y < board.length; y++) {
+          for (let z = y + 1; z < board.length; z++) {
+            const hand = evaluateFive([hole[a], hole[b], board[x], board[y], board[z]]);
+            if (!best || hand.score > best.score) best = hand;
+          }
+        }
+      }
+    }
+  }
+  if (!best) throw new Error('Omaha needs two hole cards and three board cards');
+  return best;
+}
+
 export function compareHands(a: Card[], b: Card[]): number {
   return evaluateBest(a).score - evaluateBest(b).score;
 }

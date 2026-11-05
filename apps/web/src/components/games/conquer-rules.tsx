@@ -90,7 +90,7 @@ export const CONQUER_RULES: { am: string; en: string; items: string[] }[] = [
       'Each player puts in the table stake every round, and the round winner takes both stakes.',
       'ጆከር ለመሬት (a table option, 1v1 or 4 players): everyone needs twice the stake to play (a 50-point table needs 100), and the second stake is held until the round ends, so it cannot be used in another game. The rules are the same, but if you go out and your last discarded card is a real joker (★, not a printed JOKER), you win double the stake. Otherwise the held stakes are given back.',
       'After a round, everyone can choose Rematch to play another round.',
-      'Points are virtual and have no cash value.',
+      'The stake is real birr. The house keeps 10% of the prize at stakes up to 50 ETB, 8% up to 500 ETB and 5% above that.',
     ],
   },
 ];

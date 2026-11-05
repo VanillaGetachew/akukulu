@@ -16,7 +16,7 @@ export interface TestApp {
   close(): Promise<void>;
 }
 
-export async function startApp(databaseUrl: string, opts: { dropSchema: boolean }): Promise<TestApp> {
+export async function startApp(databaseUrl: string, opts: { dropSchema: boolean; env?: Record<string, string> }): Promise<TestApp> {
   process.env.DISABLE_MATCH_SWEEP = 'true';
   // Tests drive matches far faster than a human; the production limit is 10/s.
   process.env.ACTION_RATE_LIMIT_PER_SEC = '1000';
@@ -30,6 +30,7 @@ export async function startApp(databaseUrl: string, opts: { dropSchema: boolean 
     ALLOW_DEV_AUTH: 'true',
     TELEGRAM_BOT_USERNAME: 'akukulu_test_bot',
     ADMIN_TELEGRAM_IDS: ADMIN_TELEGRAM_ID,
+    ...opts.env,
   });
   const moduleRef = await Test.createTestingModule({
     imports: [AppModule.forRoot({ config, redis: null, dataSource: { dropSchema: opts.dropSchema, logging: false } })],

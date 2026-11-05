@@ -55,7 +55,9 @@ export class UsersService {
       if (this.config.adminTelegramIds.includes(telegramId)) user.isAdmin = true;
       user = await repo.save(user);
 
-      if (isNew) {
+      if (isNew && this.config.paymentsEnabled) {
+        await this.recordReferrer(manager, user, startParam);
+      } else if (isNew) {
         await this.ledger.apply(manager, {
           userId: user.id,
           amount: ECONOMY.welcomeBonus,
@@ -68,6 +70,13 @@ export class UsersService {
       }
       return user;
     });
+  }
+
+  private async recordReferrer(manager: EntityManager, user: UserEntity, startParam: string | null) {
+    const referrerTelegramId = startParam?.startsWith('ref_') ? telegramIdFromReferral(startParam.slice(4)) : null;
+    if (!referrerTelegramId || referrerTelegramId === user.telegramId) return;
+    const referrer = await manager.getRepository(UserEntity).findOneBy({ telegramId: referrerTelegramId });
+    if (referrer) await manager.getRepository(UserEntity).update(user.id, { referredById: referrer.id });
   }
 
   private async applyReferral(manager: EntityManager, user: UserEntity, startParam: string | null) {

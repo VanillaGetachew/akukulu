@@ -1073,14 +1073,16 @@ export function PokerTable({ state, view, act, pending, serverNow }: TableProps<
 
   // Card sizes: five board cards across most of the felt; my hole cards a touch larger.
   const boardW = Math.round(Math.max(32, Math.min(54, (feltW * 0.82 - 4 * 4) / 5)));
-  const holeW = Math.round(Math.min(58, boardW + 4));
+  // Omaha deals four cards, so they have to be narrower to fit.
+  const myHoleCount = view.players.find((p) => p.playerId === user?.id)?.hole.length ?? 2;
+  const holeW = Math.round(Math.min(58, boardW + 4) * (myHoleCount > 2 ? 0.72 : 1));
   // A seat whose avatar + name box would sit under my face-up cards (right of my seat) moves up out of their way.
   const seatAt = (k: number) => {
     const p = baseSeat(k);
     if (k % slots === 0 || !me) return p;
     const home = baseSeat(0);
     const cardsLeft = home.x + 44;
-    const cardsRight = cardsLeft + holeW * 2 + 2;
+    const cardsRight = cardsLeft + holeW * myHoleCount + 2;
     const cardsTop = home.y - 12;
     const cardsBottom = cardsTop + holeW * 1.4;
     const overlapsX = p.x + 40 > cardsLeft && p.x - 40 < cardsRight;

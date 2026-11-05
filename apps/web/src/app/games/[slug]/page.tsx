@@ -154,7 +154,7 @@ export default function GameLobby() {
         : need(customValue) > balance
           ? joker
             ? `${dobe ? 'ዶቤ' : 'ጆከር ለመሬት'} needs twice the stake (${need(customValue).toLocaleString()}); you have ${balance.toLocaleString()}`
-            : `You only have ${balance.toLocaleString()} points`
+            : `You only have ${balance.toLocaleString()} ETB`
           : null;
   const compact = (n: number) => (n >= 1000 ? `${n % 1000 === 0 ? n / 1000 : (n / 1000).toFixed(1)}K` : String(n));
 
@@ -293,7 +293,7 @@ export default function GameLobby() {
                   {customError && <p className="mt-2 text-xs text-danger">{customError}</p>}
                   {!customError && !affordable && (
                     <p className="mt-2 text-xs text-danger">
-                      You need {need(stake).toLocaleString()} points for this table{joker ? ` (${dobe ? 'ዶቤ' : 'ጆከር ለመሬት'}: twice the stake)` : ''}.
+                      You need {need(stake).toLocaleString()} ETB for this table{joker ? ` (${dobe ? 'ዶቤ' : 'ጆከር ለመሬት'}: twice the stake)` : ''}.
                     </p>
                   )}
                 </div>

@@ -79,7 +79,7 @@ export default function LeaderboardPage() {
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-sm font-bold">{r.userId === user?.id ? `${r.displayName} (you)` : r.displayName}</div>
                     <div className="text-[13px] text-muted">
-                      {r.played} played, {r.pointsWon.toLocaleString()} points won
+                      {r.played} played, {r.pointsWon.toLocaleString()} ETB won
                     </div>
                   </div>
                   <div className="text-right">

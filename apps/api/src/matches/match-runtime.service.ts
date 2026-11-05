@@ -1,7 +1,9 @@
-import { Injectable, Logger, OnApplicationBootstrap, OnModuleDestroy } from '@nestjs/common';
+import { Inject, Injectable, Logger, OnApplicationBootstrap, OnModuleDestroy } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { DataSource, EntityManager, In } from 'typeorm';
 import { cryptoRng, getEngine, type EngineContext, type EngineResult, type GameEngine, type Rng } from '@akukulu/engines';
-import type { MatchStatePayload, MatchSummary } from '@akukulu/shared';
+import { POKER_RAKE_PERCENT, houseCut, houseCutPercent, pokerRakeCap, type MatchStatePayload, type MatchSummary, type PokerConfig } from '@akukulu/shared';
+import { APP_CONFIG, type AppConfig } from '../config';
 import {
   MatchEntity,
   MatchEventEntity,
@@ -36,6 +38,18 @@ interface Committed {
 const SWEEP_INTERVAL_MS = 5_000;
 const MAX_TIMER_MS = 2_147_000_000;
 
+/**
+ * How much a ledger movement counts as wagering. A held second stake is not a bet until
+ * it is lost, and a poker cash buy-in is not one at all: those count hand by hand.
+ */
+function wagerOf(intent: { type: string; amount: number; key: string }, state: unknown): number {
+  if (intent.type === 'stake' && !intent.key.includes(':hold:')) return -intent.amount;
+  if (intent.type === 'bet') return -intent.amount;
+  if (intent.type === 'refund' && intent.key.includes(':refund:')) return -intent.amount;
+  if (intent.type === 'buyin' && (state as { config?: { mode?: string } }).config?.mode === 'tournament') return -intent.amount;
+  return 0;
+}
+
 function engineFor(slug: MatchEntity['gameSlug']): GameEngine {
   const engine = getEngine(slug);
   if (!engine) throw new GameError('GAME_UNAVAILABLE', 'This game is not available yet');
@@ -64,6 +78,7 @@ export class MatchRuntimeService implements OnApplicationBootstrap, OnModuleDest
     private readonly broadcaster: Broadcaster,
     private readonly rooms: RoomPresenter,
     private readonly presence: PresenceService,
+    @Inject(APP_CONFIG) private readonly config: AppConfig,
   ) {}
 
   /* ---------------- lifecycle & recovery ---------------- */
@@ -142,7 +157,7 @@ export class MatchRuntimeService implements OnApplicationBootstrap, OnModuleDest
     const engine = engineFor(room.gameSlug);
     let config: unknown;
     try {
-      config = engine.parseConfig(room.config, room.stake);
+      config = this.withHouseCut(room.gameSlug, engine.parseConfig(room.config, room.stake));
     } catch (err) {
       throw new GameError('BAD_CONFIG', (err as Error).message);
     }
@@ -165,7 +180,7 @@ export class MatchRuntimeService implements OnApplicationBootstrap, OnModuleDest
       seats.map((s) => manager.getRepository(MatchPlayerEntity).create({ matchId: match.id, userId: s.userId, seat: s.seat })),
     );
     const touchedUsers = new Set<string>();
-    await this.applyLedger(manager, match.id, res, touchedUsers);
+    await this.applyLedger(manager, match.id, match.gameSlug, res, touchedUsers);
     await this.appendEvents(manager, match.id, null, null, res);
     let finished = false;
     if (engine.isFinished(res.state)) {
@@ -186,7 +201,7 @@ export class MatchRuntimeService implements OnApplicationBootstrap, OnModuleDest
     const engine = engineFor(gameSlug);
     let config: unknown;
     try {
-      config = engine.parseConfig(configInput, stake);
+      config = this.withHouseCut(gameSlug, engine.parseConfig(configInput, stake));
     } catch (err) {
       throw new GameError('BAD_CONFIG', (err as Error).message);
     }
@@ -203,7 +218,7 @@ export class MatchRuntimeService implements OnApplicationBootstrap, OnModuleDest
           )
         : [];
       const touchedUsers = new Set<string>();
-      await this.applyLedger(manager, match.id, res, touchedUsers);
+      await this.applyLedger(manager, match.id, match.gameSlug, res, touchedUsers);
       await this.appendEvents(manager, match.id, null, null, res);
       return { match, players, touchedUsers, finished: false };
     });
@@ -291,7 +306,7 @@ export class MatchRuntimeService implements OnApplicationBootstrap, OnModuleDest
         joined.push(input.userId);
       }
       const touchedUsers = new Set<string>();
-      await this.applyLedger(manager, matchId, res, touchedUsers);
+      await this.applyLedger(manager, matchId, match.gameSlug, res, touchedUsers);
       if (input.kind === 'action') {
         await this.appendEvents(manager, matchId, input.userId, input.clientActionId, res, input.action);
       } else if (input.kind === 'join') {
@@ -324,19 +339,48 @@ export class MatchRuntimeService implements OnApplicationBootstrap, OnModuleDest
     });
   }
 
-  private async applyLedger(manager: EntityManager, matchId: string, res: EngineResult<unknown>, touched: Set<string>) {
+  /** Poker takes its cut inside the engine, so tables and prize lists show the real amounts. */
+  private withHouseCut(slug: MatchEntity['gameSlug'], config: unknown): unknown {
+    if (!this.config.paymentsEnabled || slug !== 'poker') return config;
+    const c = config as PokerConfig;
+    if (c.mode === 'tournament' || c.mode === 'mtt') return { ...c, housePercent: houseCutPercent(c.buyIn) };
+    return { ...c, rake: { percent: POKER_RAKE_PERCENT, cap: pokerRakeCap(c.bigBlind) } };
+  }
+
+  private async recordHouseEarning(manager: EntityManager, slug: string, matchId: string, amount: number, key: string) {
+    await manager.query(
+      `INSERT INTO house_earnings (id, "gameSlug", amount, "matchId", key, "createdAt") VALUES ($1, $2, $3, $4, $5, now()) ON CONFLICT (key) DO NOTHING`,
+      [randomUUID(), slug, amount, matchId, `match:${matchId}:${key}`],
+    );
+  }
+
+  private async applyLedger(manager: EntityManager, matchId: string, slug: MatchEntity['gameSlug'], res: EngineResult<unknown>, touched: Set<string>) {
     if (!res.ok) return;
+    // Ludo, Conquer and Crazy: the winner's prize is paid less the house cut. Refunds are never cut.
+    const stake = Number((res.state as { config?: { stake?: unknown } }).config?.stake ?? 0);
+    const percent = this.config.paymentsEnabled && (slug === 'ludo' || slug === 'conquer' || slug === 'crazy') ? houseCutPercent(stake) : 0;
     for (const intent of res.ledger) {
       if (intent.amount === 0) continue;
+      const cut = intent.type === 'payout' && intent.amount > 0 ? houseCut(intent.amount, percent) : 0;
+      if (cut > 0) await this.recordHouseEarning(manager, slug, matchId, cut, intent.key);
       const r = await this.ledger.apply(manager, {
         userId: intent.playerId,
-        amount: intent.amount,
+        amount: intent.amount - cut,
         type: intent.type,
-        description: intent.description,
+        description: cut > 0 ? `${intent.description} (after ${percent}% house cut)` : intent.description,
         key: `match:${matchId}:${intent.key}`,
         matchId,
       });
-      if (r.applied) touched.add(intent.playerId);
+      if (r.applied) {
+        touched.add(intent.playerId);
+        await this.ledger.recordWager(manager, intent.playerId, wagerOf(intent, res.state));
+      }
+    }
+    for (const event of res.events) {
+      if (event.type === 'house_cut') await this.recordHouseEarning(manager, slug, matchId, Number(event.data?.amount), String(event.data?.key));
+      if (event.type === 'wagers') {
+        for (const [playerId, amount] of Object.entries(event.data?.amounts as Record<string, number>)) await this.ledger.recordWager(manager, playerId, amount);
+      }
     }
   }
 

@@ -83,7 +83,7 @@ export function DiscardPile({ cards, count, active }: { cards: Card[]; count: nu
             className={`absolute left-2 top-1.5 rounded-[8px] shadow-[0_2px_5px_rgba(0,0,0,.45)] ${top && active ? 'outline outline-2 outline-gold' : ''}`}
             style={{ transform: `translate(${t.x}px, ${t.y}px) rotate(${top ? t.rot * 0.35 : t.rot}deg)`, zIndex: i }}
           >
-            <CardFace card={c} width={w} />
+            <CardFace card={c} width={w} plain />
           </div>
         );
       })}

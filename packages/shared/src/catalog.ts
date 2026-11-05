@@ -97,6 +97,30 @@ export function getCatalogEntry(slug: GameSlug): GameCatalogEntry {
 }
 
 /** Virtual-points economy constants. Points are free, non-transferable and non-redeemable. */
+/** Limits for manual Telebirr payments, in whole birr. */
+export const PAYMENTS = {
+  minDeposit: 50,
+  maxDeposit: 50_000,
+  minWithdrawal: 50,
+  maxWithdrawal: 50_000,
+  maxPendingDeposits: 3,
+} as const;
+
+/** How long a room waits for players before it starts, or closes if too few joined. */
+export const ROOM_COUNTDOWN_SECONDS = 60;
+
+/** Real-money promotions, in whole birr. */
+export const PROMOTIONS = {
+  /** First deposit: this share is added as bonus, up to the maximum. */
+  firstDepositBonusPercent: 100,
+  firstDepositBonusMax: 1000,
+  /** The bonus can be played at once, and withdrawn after wagering this many times the bonus. */
+  bonusWagerMultiple: 5,
+  /** The inviter is paid once the invited player has wagered this much. */
+  referralWager: 100,
+  referralReward: 5,
+} as const;
+
 export const ECONOMY = {
   welcomeBonus: 1000,
   dailyReward: 200,

@@ -39,6 +39,7 @@ export class RoomPresenter {
       config: room.config,
       matchId: room.matchId,
       inviteLink: room.visibility === 'private' || room.status === 'waiting' ? this.inviteLink(room.code) : null,
+      startsAt: room.startsAt?.toISOString() ?? null,
       createdAt: room.createdAt.toISOString(),
       players: seats
         .filter((s) => s.roomId === room.id)
@@ -47,7 +48,6 @@ export class RoomPresenter {
           return {
             userId: s.userId,
             seat: s.seat,
-            ready: s.ready,
             displayName: u ? displayName(u) : 'Player',
             photoUrl: u?.photoUrl ?? null,
           };

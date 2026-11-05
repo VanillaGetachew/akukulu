@@ -50,6 +50,7 @@ export class RewardsService {
 
   /** Grants a reward: a pending request, or an immediate credit when approval is off. */
   async grant(manager: EntityManager, g: RewardGrant): Promise<{ status: 'pending' | 'paid' | 'duplicate'; balance?: number }> {
+    if (this.config.paymentsEnabled) return { status: 'duplicate' };
     if (!this.requiresApproval) {
       const res = await this.ledger.apply(manager, { userId: g.userId, amount: g.amount, type: g.type === 'daily' ? 'daily_reward' : g.type, description: g.description, key: g.key });
       return res.applied ? { status: 'paid', balance: res.balance } : { status: 'duplicate', balance: res.balance };
@@ -88,6 +89,7 @@ export class RewardsService {
 
   /** Approves a pending request and credits it — exactly once, even if approved twice concurrently. */
   async approve(id: string, adminId: string): Promise<{ balance: number }> {
+    if (this.config.paymentsEnabled) throw new GameError('REWARDS_DISABLED', 'Free rewards are turned off while real-money payments are on');
     const res = await this.dataSource.transaction(async (manager) => {
       const req = await manager.getRepository(RewardRequestEntity).findOne({ where: { id }, lock: { mode: 'pessimistic_write' } });
       if (!req) throw new GameError('NOT_FOUND', 'Reward request not found', 404);

@@ -72,7 +72,7 @@ function HandFan({
               className={`rounded-[9px] shadow-[0_1px_4px_rgba(0,0,0,.3)] transition ${lifted ? 'outline outline-[3px] outline-lime' : ''} ${dim ? 'brightness-[.6]' : ''}`}
               style={{ width: cw, height: ch }}
             >
-              <CardFace card={c} width={cw} star={wildRanks.includes(c[0])} />
+              <CardFace card={c} width={cw} star={wildRanks.includes(c[0])} plain />
             </div>
             {pick > 0 && (
               <span className="absolute -top-2 left-1/2 grid h-5 w-5 -translate-x-1/2 place-items-center rounded-full bg-lime text-[11px] font-black text-[#07071a] shadow">{pick + 1}</span>
@@ -96,7 +96,7 @@ function Seat({ name, count, current, left, revealed, points }: { name: string; 
       {revealed ? (
         <div className="mt-1 flex flex-wrap justify-center gap-0.5">
           {revealed.map((c) => (
-            <CardFace key={c} card={c} width={22} compact />
+            <CardFace key={c} card={c} width={22} plain />
           ))}
           {points !== null && <span className="ml-1 self-center text-[10px] font-bold text-white/70">{points} pts</span>}
         </div>

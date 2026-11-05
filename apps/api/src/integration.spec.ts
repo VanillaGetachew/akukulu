@@ -22,6 +22,7 @@ import { GamesService } from './games/games.service';
 import { MatchRuntimeService } from './matches/match-runtime.service';
 import { LedgerService } from './wallet/ledger.service';
 import { PokerService } from './poker/poker.service';
+import { RoomsService } from './rooms/rooms.service';
 import { ADMIN_TELEGRAM_ID, client, connect, emitAck, initDataFor, startApp, type TestApp } from './testing/harness';
 
 const DB = process.env.TEST_DATABASE_URL;
@@ -59,16 +60,18 @@ suite('API integration', () => {
   const act = (p: Player, matchId: string, action: Record<string, unknown>, clientActionId = randomUUID()) =>
     emitAck(p.socket, 'match:action', { matchId, clientActionId, action });
 
+  /** What happens when a room's one-minute countdown ends. */
+  const settle = (code: string): Promise<any> => t.app.get(RoomsService).settle(code);
+
   async function startRoom(game: string, stake: number, players: Player[]): Promise<string> {
     const created = await api('POST', '/rooms', players[0].token, { gameSlug: game, stake, visibility: 'private' });
     expect(created.status).toBe(201);
     const code = created.body.code;
     for (const p of players.slice(1)) expect((await api('POST', `/rooms/${code}/join`, p.token)).status).toBe(200);
     for (const p of players) await emitAck(p.socket, 'room:subscribe', { code });
-    let room;
-    for (const p of players) room = (await api('POST', `/rooms/${code}/ready`, p.token, { ready: true })).body;
+    const room = await settle(code);
     expect(room.status).toBe('in_progress');
-    return room.matchId;
+    return room.matchId!;
   }
 
   beforeAll(async () => {
@@ -393,8 +396,7 @@ suite('API integration', () => {
     expect(cash.body.code).not.toBe(created.body.code);
     await api('POST', `/rooms/${cash.body.code}/leave`, three[1].token);
     for (const p of three.slice(1)) await api('POST', `/rooms/${created.body.code}/join`, p.token);
-    let room;
-    for (const p of three) room = (await api('POST', `/rooms/${created.body.code}/ready`, p.token, { ready: true })).body;
+    const room = await settle(created.body.code);
     expect(room.status).toBe('in_progress');
     for (const p of three) expect(await balance(p)).toBe(900);
     const s = await state<PokerView>(room.matchId, three[0]);
@@ -597,12 +599,14 @@ suite('API integration', () => {
     const plain = await api('POST', '/rooms/quick-play', guest.token, { gameSlug: 'conquer', stake: 400 });
     expect(plain.body.code).not.toBe(joker.body.code);
     await api('POST', `/rooms/${plain.body.code}/leave`, guest.token);
-    const same = await api('POST', '/rooms/quick-play', guest.token, { gameSlug: 'conquer', stake: 400, config: { jokerToGround: true } });
-    expect(same.body.code).toBe(joker.body.code);
-    await api('POST', `/rooms/${same.body.code}/leave`, guest.token);
     // With less than twice the stake the guest cannot sit down.
     await t.app.get(LedgerService).applyStandalone({ userId: guest.id, amount: -300, type: 'test', description: 'x', key: `drain:${guest.id}` });
     expect((await api('POST', `/rooms/${joker.body.code}/join`, guest.token)).body.code).toBe('INSUFFICIENT_BALANCE');
+    await t.app.get(LedgerService).applyStandalone({ userId: guest.id, amount: 300, type: 'test', description: 'x', key: `undrain:${guest.id}` });
+    // With enough, quick play finds the matching table, and a full table starts at once.
+    const same = await api('POST', '/rooms/quick-play', guest.token, { gameSlug: 'conquer', stake: 400, config: { jokerToGround: true } });
+    expect(same.body.code).toBe(joker.body.code);
+    expect(same.body.status).toBe('in_progress');
     await api('POST', `/rooms/${joker.body.code}/leave`, host.token);
 
     // During a round both stakes are held, so they cannot be spent in another game.
@@ -610,7 +614,7 @@ suite('API integration', () => {
     const b = await login('HoldB');
     const created = await api('POST', '/rooms', a.token, { gameSlug: 'conquer', stake: 100, visibility: 'private', config: { jokerToGround: true } });
     await api('POST', `/rooms/${created.body.code}/join`, b.token);
-    for (const p of [a, b]) await api('POST', `/rooms/${created.body.code}/ready`, p.token, { ready: true });
+    await settle(created.body.code);
     const matchId = (await api('GET', `/rooms/${created.body.code}`, a.token)).body.matchId;
     expect(await balance(a)).toBe(800);
     expect(await balance(b)).toBe(800);
@@ -626,7 +630,6 @@ suite('API integration', () => {
     expect(created.status).toBe(201);
     expect(created.body).toMatchObject({ maxPlayers: 4, minPlayers: 2 });
     for (const p of four.slice(1)) expect((await api('POST', `/rooms/${created.body.code}/join`, p.token)).status).toBe(200);
-    for (const p of four) await api('POST', `/rooms/${created.body.code}/ready`, p.token, { ready: true });
     const matchId = (await api('GET', `/rooms/${created.body.code}`, four[0].token)).body.matchId;
     expect(matchId).toBeTruthy();
     // Stake + held stake are off every balance during the round.
@@ -650,12 +653,34 @@ suite('API integration', () => {
     for (const p of four) if (p !== winner) expect(await balance(p)).toBe(950);
   });
 
-  it('a 4-seat Conquer table starts with 3 players once everyone seated is ready', async () => {
+  it('runs the room countdown: closes without enough players, starts with them, starts at once when full', async () => {
+    const [a, b, c, d] = [await login('TimerA'), await login('TimerB'), await login('TimerC'), await login('TimerD')];
+    const alone = await api('POST', '/rooms', a.token, { gameSlug: 'ludo', stake: 100, visibility: 'private' });
+    expect(new Date(alone.body.startsAt).getTime()).toBeGreaterThan(Date.now() + 50_000);
+    expect(new Date(alone.body.startsAt).getTime()).toBeLessThanOrEqual(Date.now() + 60_000);
+    expect(await balance(a)).toBe(1000);
+    expect((await settle(alone.body.code)).status).toBe('cancelled');
+    expect(await balance(a)).toBe(1000);
+
+    const two = await api('POST', '/rooms', a.token, { gameSlug: 'ludo', stake: 100, visibility: 'private' });
+    await api('POST', `/rooms/${two.body.code}/join`, b.token);
+    expect((await api('GET', `/rooms/${two.body.code}`, a.token)).body.status).toBe('waiting');
+    expect((await settle(two.body.code)).status).toBe('in_progress');
+    expect(await balance(a)).toBe(900);
+    await api('POST', `/rooms/${two.body.code}/leave`, a.token);
+
+    const full = await api('POST', '/rooms', c.token, { gameSlug: 'ludo', stake: 0, visibility: 'private', maxPlayers: 2 });
+    const joined = await api('POST', `/rooms/${full.body.code}/join`, d.token);
+    expect(joined.body.status).toBe('in_progress');
+    expect((await settle(full.body.code)).status).toBe('in_progress');
+    await api('POST', `/rooms/${full.body.code}/leave`, c.token);
+  });
+
+  it('a 4-seat Conquer table starts with 3 players when the countdown ends', async () => {
     const three = [await login('Ermias'), await login('Fikir'), await login('Genet')];
     const created = await api('POST', '/rooms', three[0].token, { gameSlug: 'conquer', stake: 0, visibility: 'private', config: { players: 4 } });
     for (const p of three.slice(1)) await api('POST', `/rooms/${created.body.code}/join`, p.token);
-    let room;
-    for (const p of three) room = (await api('POST', `/rooms/${created.body.code}/ready`, p.token, { ready: true })).body;
+    const room = await settle(created.body.code);
     expect(room.status).toBe('in_progress');
     const s = await state<ConquerView>(room.matchId, three[0]);
     expect(s.view.players).toHaveLength(3);

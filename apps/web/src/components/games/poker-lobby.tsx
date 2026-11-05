@@ -147,6 +147,8 @@ function TournamentDrawer({ t, onClose, action }: { t: PokerTournamentSummary; o
             {row('Starts', new Date(t.startsAt).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'short' }))}
             {row('Prize pool', <span className="text-gold">{t.prizePool.toLocaleString()}</span>)}
             {t.guarantee > 0 && row('Guaranteed', t.guarantee.toLocaleString())}
+            {t.minPlayers > 2 && row('Starts with', `${t.minPlayers}+ players, or it is cancelled and refunded`)}
+            {t.variant === 'omaha' && row('Game', 'Pot-limit Omaha: 4 cards, use exactly 2')}
             {row('1st prize', (t.payouts[0] ?? 0).toLocaleString())}
             {row('Places paid', t.payouts.length)}
             {row('Buy-in', t.buyIn ? t.buyIn.toLocaleString() : 'Free')}

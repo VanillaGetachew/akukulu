@@ -1,3 +1,4 @@
+import type { PaymentRequestSummary } from './payments';
 import type { GameSlug } from './catalog';
 import type { LudoView } from './games/ludo';
 import type { PokerReactionEvent, PokerView } from './games/poker';
@@ -15,6 +16,10 @@ export interface UserProfile {
   lastName: string | null;
   photoUrl: string | null;
   balance: number;
+  /** Part of the balance that is bonus and cannot be withdrawn yet. */
+  bonusLocked: number;
+  /** Birr still to wager before the bonus can be withdrawn. */
+  bonusWagerLeft: number;
   isAdmin: boolean;
   createdAt: string;
   referralCode: string;
@@ -52,11 +57,12 @@ export interface RoomPlayerSummary {
   displayName: string;
   photoUrl: string | null;
   seat: number;
-  ready: boolean;
 }
 
 export interface RoomSummary {
   id: string;
+  /** When the countdown ends: the room starts then, or closes if too few players joined. */
+  startsAt: string | null;
   code: string;
   gameSlug: GameSlug;
   visibility: RoomVisibility;
@@ -146,6 +152,7 @@ export interface ServerToClientEvents {
   'match:state': (state: MatchStatePayload) => void;
   'match:ended': (summary: MatchSummary) => void;
   'balance:update': (payload: { balance: number }) => void;
+  'payment:request': (request: PaymentRequestSummary) => void;
   'match:reaction': (payload: PokerReactionEvent) => void;
   'error': (payload: { message: string }) => void;
 }

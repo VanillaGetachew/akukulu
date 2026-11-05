@@ -43,7 +43,7 @@ export const CRAZY_RULES: { am: string; en: string; items: string[] }[] = [
     items: [
       'The game ends as soon as someone plays their last card. You can finish with an 8, a J, or a 7 carrying your last cards.',
       'If nobody can play or draw, the player with the fewest points in hand wins. An 8 or J is worth 50, K Q and 10 are 10, an A is 1, and other cards are their number.',
-      'Everyone pays the table stake, and the winner takes the whole pot. Points are virtual and have no cash value.',
+      'Everyone pays the table stake, and the winner takes the pot less the house fee: 10% at stakes up to 50 ETB, 8% up to 500 ETB and 5% above that.',
     ],
   },
   {

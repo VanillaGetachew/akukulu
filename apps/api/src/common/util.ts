@@ -82,6 +82,8 @@ export function toProfile(u: UserEntity): UserProfile {
     lastName: u.lastName,
     photoUrl: u.photoUrl,
     balance: u.balance,
+    bonusLocked: u.bonusLocked ?? 0,
+    bonusWagerLeft: u.bonusWagerLeft ?? 0,
     isAdmin: u.isAdmin,
     createdAt: u.createdAt.toISOString(),
     referralCode: referralCodeFor(String(u.telegramId)),
