@@ -7,7 +7,6 @@ import type { Socket } from 'socket.io-client';
 import { DataSource } from 'typeorm';
 import { seededRng } from '@akukulu/engines';
 import {
-  GAME_SLUGS,
   HIDDEN_CARD,
   LEGACY_CONQUER_MAINTENANCE_MESSAGE,
   NO_ENGINE_MAINTENANCE_MESSAGE,
@@ -16,6 +15,7 @@ import {
   type CrazyView,
   type LudoView,
   type MatchStatePayload,
+  type PenaltyView,
   type PokerView,
 } from '@akukulu/shared';
 import { GamesService } from './games/games.service';
@@ -85,7 +85,7 @@ suite('API integration', () => {
     await t?.close();
   });
 
-  it('serves exactly the five-game catalog and prunes legacy games', async () => {
+  it('serves exactly the game catalog, in home page order, and prunes legacy games', async () => {
     const ds = t.app.get(DataSource);
     await ds.query(`INSERT INTO games (slug, name, tagline, description, "minPlayers", "maxPlayers") VALUES ('bingo','Bingo','x','x',1,1)`);
     // A database seeded before Conquer had an engine carries the automatic "rules pending" maintenance.
@@ -94,7 +94,7 @@ suite('API integration', () => {
     await ds.query(`UPDATE games SET maintenance = true, "maintenanceMessage" = $1 WHERE slug = 'crazy'`, [NO_ENGINE_MAINTENANCE_MESSAGE]);
     await t.app.get(GamesService).syncCatalog();
     const res = await api('GET', '/games');
-    expect(res.body.map((g: { slug: string }) => g.slug)).toEqual([...GAME_SLUGS]);
+    expect(res.body.map((g: { slug: string }) => g.slug)).toEqual(['crazy', 'poker', 'ludo', 'conquer', 'penalty', 'blackjack']);
     const bySlug = Object.fromEntries(res.body.map((g: { slug: string }) => [g.slug, g]));
     expect(bySlug.ludo.playable).toBe(true);
     expect(bySlug.conquer).toMatchObject({ playable: true, maintenance: false, beta: false, minPlayers: 2, maxPlayers: 4 });
@@ -674,6 +674,31 @@ suite('API integration', () => {
     expect(joined.body.status).toBe('in_progress');
     expect((await settle(full.body.code)).status).toBe('in_progress');
     await api('POST', `/rooms/${full.body.code}/leave`, c.token);
+  });
+
+  it('plays a Penalty Shootout: hidden picks, turn about, one payout', async () => {
+    const [a, b] = [await login('KickA'), await login('KickB')];
+    const room = await api('POST', '/rooms', a.token, { gameSlug: 'penalty', stake: 100, visibility: 'private' });
+    expect(room.body).toMatchObject({ maxPlayers: 2, minPlayers: 2 });
+    const joined = await api('POST', `/rooms/${room.body.code}/join`, b.token);
+    expect(joined.body.status).toBe('in_progress');
+    const matchId = joined.body.matchId as string;
+    expect(await balance(a)).toBe(900);
+    for (let i = 0; i < 20; i++) {
+      const s = await state<PenaltyView>(matchId, a);
+      if (s.status !== 'active') break;
+      const kicker = s.view.kickerId === a.id ? a : b;
+      const keeper = kicker === a ? b : a;
+      // a's kicks are always saved; b's always go in.
+      expect(await act(kicker, matchId, { type: 'choose', side: 'left' })).toEqual({ ok: true });
+      const hidden = await state<PenaltyView>(matchId, keeper);
+      expect(hidden.view).toMatchObject({ myChoice: null, opponentReady: true });
+      expect(await act(keeper, matchId, { type: 'choose', side: kicker === a ? 'left' : 'right' })).toEqual({ ok: true });
+    }
+    const end = await state<PenaltyView>(matchId, a);
+    expect(end.view).toMatchObject({ phase: 'finished', winnerId: b.id, finishReason: 'score' });
+    expect(await balance(a)).toBe(900);
+    expect(await balance(b)).toBe(1100);
   });
 
   it('quick play respects the chosen table size', async () => {

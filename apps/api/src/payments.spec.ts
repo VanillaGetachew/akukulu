@@ -247,6 +247,26 @@ suite('real-money mode', () => {
     expect(tx.find((r) => r.type === 'payout')!.description).toContain('after 8% house cut');
   });
 
+  it('takes the house cut from a Penalty Shootout prize, and nothing at a free table', async () => {
+    const before = await earnings();
+    const [a, b] = [await funded(100), await funded(100)];
+    const created = await api('POST', '/rooms', a.token, { gameSlug: 'penalty', stake: 50, visibility: 'private' });
+    const joined = await api('POST', `/rooms/${created.body.code}/join`, b.token);
+    expect(joined.body.status).toBe('in_progress');
+    const socket = await connect(t.url, a.token);
+    sockets.push(socket);
+    expect(await emitAck(socket, 'match:action', { matchId: joined.body.matchId, clientActionId: 'pk-leave', action: { type: 'leave' } })).toMatchObject({ ok: true });
+    // Pot of 100 at 10%.
+    expect(await balance(b)).toBe(140);
+    expect((await earnings()) - before).toBe(10);
+
+    const free = await api('POST', '/rooms', a.token, { gameSlug: 'penalty', stake: 0, visibility: 'private' });
+    const started = await api('POST', `/rooms/${free.body.code}/join`, b.token);
+    expect(await emitAck(socket, 'match:action', { matchId: started.body.matchId, clientActionId: 'pk-leave-2', action: { type: 'leave' } })).toMatchObject({ ok: true });
+    expect(await balance(b)).toBe(140);
+    expect((await earnings()) - before).toBe(10);
+  });
+
   it('gives the first deposit a capped bonus that unlocks after wagering', async () => {
     const p = await player();
     const first = await decide((await deposit(p, 200)).body.id, 'approve');

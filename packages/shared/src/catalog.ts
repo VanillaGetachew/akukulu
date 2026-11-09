@@ -2,7 +2,7 @@
  * The one and only game catalog. Every layer (seed data, registry, API, lobby,
  * bot, docs) derives its list of games from here.
  */
-export const GAME_SLUGS = ['ludo', 'poker', 'blackjack', 'conquer', 'crazy'] as const;
+export const GAME_SLUGS = ['ludo', 'poker', 'blackjack', 'conquer', 'crazy', 'penalty'] as const;
 export type GameSlug = (typeof GAME_SLUGS)[number];
 
 export function isGameSlug(value: unknown): value is GameSlug {
@@ -35,7 +35,7 @@ export const GAME_CATALOG: readonly GameCatalogEntry[] = [
     minPlayers: 2,
     maxPlayers: 4,
     solo: false,
-    sortOrder: 1,
+    sortOrder: 3,
     defaultMaintenance: false,
   },
   {
@@ -57,7 +57,7 @@ export const GAME_CATALOG: readonly GameCatalogEntry[] = [
     minPlayers: 1,
     maxPlayers: 1,
     solo: true,
-    sortOrder: 3,
+    sortOrder: 6,
     defaultMaintenance: false,
   },
   {
@@ -78,6 +78,17 @@ export const GAME_CATALOG: readonly GameCatalogEntry[] = [
     description: 'Crazy Eights for 2–5 players: match the suit or rank, play an 8 to change the suit, stack 2s, and be the first to empty your hand.',
     minPlayers: 2,
     maxPlayers: 5,
+    solo: false,
+    sortOrder: 1,
+    defaultMaintenance: false,
+  },
+  {
+    slug: 'penalty',
+    name: 'Penalty Shootout',
+    tagline: 'ፔናልቲ · 1v1',
+    description: 'One against one: take turns shooting and saving. Pick your side in secret. Five kicks each, then sudden death.',
+    minPlayers: 2,
+    maxPlayers: 2,
     solo: false,
     sortOrder: 5,
     defaultMaintenance: false,

@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
-import type { BlackjackView, ConquerView, CrazyView, LudoView, MatchSummary, PokerView, RoomSummary } from '@akukulu/shared';
+import type { BlackjackView, ConquerView, CrazyView, LudoView, MatchSummary, PenaltyView, PokerView, RoomSummary } from '@akukulu/shared';
 import { api } from '@/lib/api';
 import { useSession } from '@/lib/session';
 import { useMatch } from '@/lib/use-match';
@@ -15,6 +15,7 @@ import { PokerTable } from '@/components/games/poker-table';
 import { BlackjackTable } from '@/components/games/blackjack-table';
 import { ConquerTable } from '@/components/games/conquer-table';
 import { CrazyTable } from '@/components/games/crazy-table';
+import { PenaltyTable } from '@/components/games/penalty-table';
 import { CardRain, LudoWin } from '@/components/fx';
 
 function WaitingRoom({ room, onAction, busy }: { room: RoomSummary; onAction: (path: string, body?: unknown) => void; busy: boolean }) {
@@ -270,6 +271,8 @@ export default function RoomPage() {
         return <ConquerTable {...common} view={match.state.view as ConquerView} />;
       case 'crazy':
         return <CrazyTable {...common} view={match.state.view as CrazyView} />;
+      case 'penalty':
+        return <PenaltyTable {...common} view={match.state.view as PenaltyView} />;
     }
   })();
 

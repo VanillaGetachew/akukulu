@@ -2,23 +2,25 @@
 
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, useRef } from 'react';
 import { isGameSlug, type GameSlug, type GameSummary, type RoomSummary, WAGER_OPTIONS } from '@akukulu/shared';
 import { api } from '@/lib/api';
 import { useSession } from '@/lib/session';
 import { ART_BG, GameThumb } from '@/components/art';
 import { ConquerRulesList } from '@/components/games/conquer-rules';
 import { CrazyRulesList } from '@/components/games/crazy-rules';
+import { GameTutorial, tutorialSeen } from '@/components/games/game-tutorial';
 import { PokerLobby } from '@/components/games/poker-lobby';
 import { Avatar, Coin, EmptyState, ErrorState, LoadingState, MaintenanceState, Page, Toast } from '@/components/ui';
 
 /** Preset wagers per game; min is the smallest custom wager the server accepts. */
 const STAKES: Record<GameSlug, { label: string; options: number[]; default: number; min: number }> = {
-  ludo: { label: 'Entry stake', options: [...WAGER_OPTIONS], default: 10, min: 10 },
+  ludo: { label: 'Entry stake', options: [0, ...WAGER_OPTIONS], default: 10, min: 10 },
   poker: { label: 'Buy-in', options: [200, 500, 1000, 2500, 5000, 10000, 25000, 50000], default: 500, min: 100 },
   blackjack: { label: 'Minimum bet', options: [...WAGER_OPTIONS], default: 10, min: 10 },
-  conquer: { label: 'Stake per round', options: [...WAGER_OPTIONS], default: 10, min: 10 },
-  crazy: { label: 'Entry stake', options: [...WAGER_OPTIONS], default: 10, min: 10 },
+  conquer: { label: 'Stake per round', options: [0, ...WAGER_OPTIONS], default: 10, min: 10 },
+  crazy: { label: 'Entry stake', options: [0, ...WAGER_OPTIONS], default: 10, min: 10 },
+  penalty: { label: 'Entry stake', options: [0, ...WAGER_OPTIONS], default: 10, min: 10 },
 };
 /** Poker Sit & Go buy-ins (the buy-in goes to the prize pool; free tournaments are allowed). */
 const SNG_STAKES = { label: 'Tournament buy-in', options: [...WAGER_OPTIONS], default: 10, min: 10 };
@@ -37,6 +39,13 @@ const RULES: Record<GameSlug, string[]> = {
   blackjack: ['Get closer to 21 than the dealer without going over.', 'Blackjack pays 3:2. Dealer stands on all 17s.', 'Double on any two cards, split pairs up to four hands.', 'Split aces get one card each.'],
   conquer: [],
   crazy: [],
+  penalty: [
+    'One against one. You take turns shooting and being the goalkeeper.',
+    'Shooter and keeper each tap Left, Middle or Right in secret. If the keeper picks the same side, it is saved. If not, it is a goal.',
+    'Five kicks each, stopping early once someone cannot be caught. Level after five goes to sudden death.',
+    'You have 15 seconds to pick. Run out of time and a side is picked for you; three misses in a row loses the match.',
+    'The winner takes the pot, less the house fee on tables with a stake.',
+  ],
 };
 
 /** A table option switch (ጆከር ለመሬት, ዶቤ). */
@@ -85,6 +94,15 @@ export default function GameLobby() {
   // Games of this kind I am still in (left the table without finishing), to jump back into.
   const [active, setActive] = useState<{ rooms: RoomSummary[] } | null>(null);
 
+  const [tutorial, setTutorial] = useState(false);
+  const pageBalance = user?.balance;
+  const startedOnFree = useRef(false);
+  useEffect(() => {
+    if (startedOnFree.current || pageBalance === undefined || !isGameSlug(slug)) return;
+    startedOnFree.current = true;
+    if (pageBalance < STAKES[slug].default && STAKES[slug].options[0] === 0) setStake(0);
+  }, [pageBalance, slug]);
+
   const load = useCallback(async () => {
     if (!isGameSlug(slug)) return;
     setRefreshing(true);
@@ -108,6 +126,11 @@ export default function GameLobby() {
     const t = setInterval(() => void load(), 8000);
     return () => clearInterval(t);
   }, [load]);
+
+  const gamePlayable = !!game?.playable;
+  useEffect(() => {
+    if (gamePlayable && isGameSlug(slug) && !tutorialSeen(slug)) setTutorial(true);
+  }, [gamePlayable, slug]);
 
   async function run(fn: () => Promise<RoomSummary>) {
     setBusy(true);
@@ -202,7 +225,7 @@ export default function GameLobby() {
             <div className="absolute inset-x-0 bottom-0 px-4 pb-4 sm:px-5">
               <h1 className="font-display text-[30px] font-bold leading-none tracking-[-0.025em]">{game.name}</h1>
               <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] font-semibold text-fg/80">
-                <span>{game.solo ? 'You against the dealer' : `${game.minPlayers}–${game.maxPlayers} players`}</span>
+                <span>{game.solo ? 'You against the dealer' : game.minPlayers === game.maxPlayers ? `${game.minPlayers} players` : `${game.minPlayers}–${game.maxPlayers} players`}</span>
                 <span className="flex items-center gap-1.5">
                   <span className={`h-1.5 w-1.5 rounded-full ${game.activePlayers > 0 ? 'bg-lime' : 'bg-muted/60'}`} aria-hidden />
                   {game.activePlayers} playing now
@@ -240,6 +263,49 @@ export default function GameLobby() {
                   {pokerMode !== 'sitgo' && <PokerLobby mode={pokerMode} />}
                 </>
               )}
+              {!game.solo && !pokerCash && (
+                <section className="mb-4">
+                  <h2 className="section-title mb-3">Open tables</h2>
+                  {rooms === null ? (
+                    <LoadingState />
+                  ) : rooms.length === 0 ? (
+                    <EmptyState title="No open tables right now" body="Pick a stake below and start one. Others can join you." />
+                  ) : (
+                    <div className="grid gap-2">
+                      {rooms.filter((r) => slug !== 'poker' || r.config.mode === 'tournament').map((r) => (
+                        <div key={r.id} className="card flex items-center justify-between gap-3 px-4 py-3">
+                          <div className="flex items-center gap-3">
+                            <div className="flex -space-x-2">
+                              {r.players.slice(0, 4).map((p) => (
+                                <Avatar key={p.userId} name={p.displayName} photoUrl={p.photoUrl} size={28} ring="ring-2 ring-panel" />
+                              ))}
+                            </div>
+                            <div>
+                              <div className="text-sm font-bold">{r.players.length} of {r.maxPlayers} seats taken</div>
+                              <div className="flex items-center gap-1 text-xs text-muted">
+                                {r.stake === 0 ? 'Free' : (<><Coin className="h-3 w-3" /> {r.stake}</>)} · {r.players.length}/{r.maxPlayers} players
+                                {r.config.jokerToGround === true && <span className="ml-1 rounded-full bg-gold/20 px-1.5 font-ethiopic font-bold text-gold">ጆከር ለመሬት</span>}
+                                {r.config.dobe === true && <span className="ml-1 rounded-full bg-gold/20 px-1.5 font-ethiopic font-bold text-gold">ዶቤ</span>}
+                                {r.gameSlug === 'poker' && (
+                                  <span className="ml-1 rounded-full bg-white/10 px-1.5 font-bold">{r.config.mode === 'tournament' ? 'Sit & Go' : 'Cash'}</span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                          <button
+                            className="btn-primary btn-sm"
+                            disabled={busy || balance < need(r.stake, r.config.jokerToGround === true || r.config.dobe === true)}
+                            onClick={() => run(() => api(`/rooms/${r.code}/join`, { body: {} }))}
+                          >
+                            Join
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </section>
+              )}
+
               {!pokerCash && (
               <section className="card mb-4 grid gap-4 p-4">
                 {slug === 'poker' && (
@@ -340,7 +406,7 @@ export default function GameLobby() {
                   </div>
                 )}
 
-                {slug !== 'blackjack' && slug !== 'conquer' && (
+                {slug !== 'blackjack' && slug !== 'conquer' && slug !== 'penalty' && (
                   <div>
                     <div className="label mb-2">Players at the table</div>
                     <div className="flex gap-2">
@@ -385,48 +451,6 @@ export default function GameLobby() {
               </section>
               )}
 
-              {!game.solo && !pokerCash && (
-                <section className="mb-4">
-                  <h2 className="section-title mb-3">Open tables</h2>
-                  {rooms === null ? (
-                    <LoadingState />
-                  ) : rooms.length === 0 ? (
-                    <EmptyState title="No open tables" body="Start a quick game and others will join you." />
-                  ) : (
-                    <div className="grid gap-2">
-                      {rooms.filter((r) => slug !== 'poker' || r.config.mode === 'tournament').map((r) => (
-                        <div key={r.id} className="card flex items-center justify-between gap-3 px-4 py-3">
-                          <div className="flex items-center gap-3">
-                            <div className="flex -space-x-2">
-                              {r.players.slice(0, 4).map((p) => (
-                                <Avatar key={p.userId} name={p.displayName} photoUrl={p.photoUrl} size={28} ring="ring-2 ring-panel" />
-                              ))}
-                            </div>
-                            <div>
-                              <div className="text-sm font-bold">{r.players.length} of {r.maxPlayers} seats taken</div>
-                              <div className="flex items-center gap-1 text-xs text-muted">
-                                {r.stake === 0 ? 'Free' : (<><Coin className="h-3 w-3" /> {r.stake}</>)} · {r.code}
-                                {r.config.jokerToGround === true && <span className="ml-1 rounded-full bg-gold/20 px-1.5 font-ethiopic font-bold text-gold">ጆከር ለመሬት</span>}
-                                {r.config.dobe === true && <span className="ml-1 rounded-full bg-gold/20 px-1.5 font-ethiopic font-bold text-gold">ዶቤ</span>}
-                                {r.gameSlug === 'poker' && (
-                                  <span className="ml-1 rounded-full bg-white/10 px-1.5 font-bold">{r.config.mode === 'tournament' ? 'Sit & Go' : 'Cash'}</span>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                          <button
-                            className="btn-primary btn-sm"
-                            disabled={busy || balance < need(r.stake, r.config.jokerToGround === true || r.config.dobe === true)}
-                            onClick={() => run(() => api(`/rooms/${r.code}/join`, { body: {} }))}
-                          >
-                            Join
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </section>
-              )}
             </>
           )}
 
@@ -440,6 +464,9 @@ export default function GameLobby() {
               </span>
             </summary>
             <div className="mt-3">
+            <button className="btn-ghost btn-sm mb-3" onClick={() => setTutorial(true)}>
+              Show the walkthrough again
+            </button>
             {slug === 'conquer' ? (
               <ConquerRulesList />
             ) : slug === 'crazy' ? (
@@ -459,6 +486,7 @@ export default function GameLobby() {
           </div>
         </>
       )}
+      {tutorial && isGameSlug(slug) && <GameTutorial slug={slug} onClose={() => setTutorial(false)} />}
       <Toast message={toast} onClose={() => setToast(null)} />
     </Page>
   );

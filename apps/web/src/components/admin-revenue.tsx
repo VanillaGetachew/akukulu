@@ -7,7 +7,7 @@ import { LoadingState } from '@/components/ui';
 
 const etb = (n: number) => `${n.toLocaleString()} ETB`;
 
-const GAME_NAMES: Record<string, string> = { ludo: 'Ludo', poker: 'Poker', conquer: 'Conquer', crazy: 'Crazy', blackjack: 'Blackjack' };
+const GAME_NAMES: Record<string, string> = { ludo: 'Ludo', poker: 'Poker', conquer: 'Conquer', crazy: 'Crazy', penalty: 'Penalty Shootout', blackjack: 'Blackjack' };
 
 function Row({ label, value, muted }: { label: string; value: string; muted?: boolean }) {
   return (
