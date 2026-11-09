@@ -187,14 +187,43 @@ function CrazyArt() {
   );
 }
 
+function PenaltyArt() {
+  return (
+    <>
+      <rect width="160" height="120" fill="#17532f" />
+      <rect y="78" width="160" height="14" fill="#1d6439" />
+      <rect y="106" width="160" height="14" fill="#1d6439" />
+      <g stroke="#e9f3ea" strokeOpacity=".35" strokeWidth=".8">
+        {Array.from({ length: 11 }, (_, i) => (
+          <path key={i} d={`M${30 + i * 10} 26V76`} />
+        ))}
+        {Array.from({ length: 6 }, (_, i) => (
+          <path key={i} d={`M30 ${26 + i * 10}H130`} />
+        ))}
+      </g>
+      <path d="M30 76V26H130V76" fill="none" stroke="#f5f7fb" strokeWidth="4" strokeLinejoin="round" />
+      <g transform="translate(58 62) rotate(-32)">
+        <circle cy="-22" r="5.5" fill="#e8c39e" />
+        <rect x="-7" y="-17" width="14" height="18" rx="4" fill="#e6c77f" />
+        <path d="M-7-14-17-24M7-14 17-24" stroke="#e6c77f" strokeWidth="4.5" strokeLinecap="round" />
+        <path d="M-4 1-5 13M4 1 5 13" stroke="#202a38" strokeWidth="4.5" strokeLinecap="round" />
+      </g>
+      <g transform="translate(106 46)">
+        <circle r="9" fill="#fff" stroke="#1c2430" strokeWidth="1.2" />
+        <path d="M0-4 3.8-1.2 2.4 3.2H-2.4L-3.8-1.2Z" fill="#1c2430" />
+      </g>
+    </>
+  );
+}
+
 /** Each artwork's base colour, for extending it into wider banners. */
-export const ART_BG: Record<GameSlug, string> = { ludo: '#16357a', poker: '#3a0f17', blackjack: '#0d3a28', conquer: '#3a2410', crazy: '#0c3b3a' };
+export const ART_BG: Record<GameSlug, string> = { ludo: '#16357a', poker: '#3a0f17', blackjack: '#0d3a28', conquer: '#3a2410', crazy: '#0c3b3a', penalty: '#17532f' };
 
 /** Game artwork, filling its box. */
 export function GameThumb({ slug }: { slug: GameSlug }) {
   return (
     <svg viewBox="0 0 160 120" preserveAspectRatio="xMidYMid slice" className="block h-full w-full" aria-hidden="true">
-      {slug === 'ludo' ? <LudoArt /> : slug === 'poker' ? <PokerArt /> : slug === 'blackjack' ? <BlackjackArt /> : slug === 'conquer' ? <ConquerArt /> : <CrazyArt />}
+      {slug === 'ludo' ? <LudoArt /> : slug === 'poker' ? <PokerArt /> : slug === 'blackjack' ? <BlackjackArt /> : slug === 'conquer' ? <ConquerArt /> : slug === 'penalty' ? <PenaltyArt /> : <CrazyArt />}
     </svg>
   );
 }
@@ -305,5 +334,7 @@ export function GameThumbClassic({ slug }: { slug: GameSlug }) {
       return <ConquerThumbClassic />;
     case 'crazy':
       return <CrazyThumbClassic />;
+    case 'penalty':
+      return <GameThumb slug="penalty" />;
   }
 }
