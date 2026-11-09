@@ -115,12 +115,22 @@ export function nextAutoTournamentStart(t: { everyHours: number; hourOffset: num
 }
 
 /** Permanent cash tables: blinds per stake level. Buy-in is 40–100 big blinds. */
-export const POKER_CASH_STAKES = [
+export interface PokerCashStake {
+  smallBlind: number;
+  bigBlind: number;
+  /** A fixed buy-in, for small tables. Missing means the usual 40–100 big blinds. */
+  cashBuyIn?: number;
+}
+
+export const POKER_CASH_STAKES: readonly PokerCashStake[] = [
   { smallBlind: 5, bigBlind: 10 },
   { smallBlind: 25, bigBlind: 50 },
   { smallBlind: 100, bigBlind: 200 },
   { smallBlind: 500, bigBlind: 1000 },
-] as const;
+  // Small tables, cheapest first in the lobby.
+  { smallBlind: 1, bigBlind: 2, cashBuyIn: 50 },
+  { smallBlind: 1, bigBlind: 2, cashBuyIn: 100 },
+];
 export const POKER_CASH_MIN_BB = 40;
 export const POKER_CASH_MAX_BB = 100;
 

@@ -65,6 +65,112 @@ export function LudoWin({ count = 90 }: { count?: number }) {
   );
 }
 
+const FLAG_RIBBONS = ['#2b9a5a', '#f6c431', '#d93a32'];
+
+function MiniBall({ size }: { size: number }) {
+  return (
+    <svg viewBox="-10 -10 20 20" width={size} height={size} className="block drop-shadow-[0_3px_5px_rgba(0,0,0,.45)]">
+      <circle r="9" fill="#fff" stroke="#1c2430" strokeWidth="1.2" />
+      <path d="M0-4 3.8-1.2 2.4 3.2H-2.4L-3.8-1.2Z" fill="#1c2430" />
+      <path d="M0-4V-8.6M3.8-1.2 8.1-2.6M2.4 3.2 5 7M-2.4 3.2-5 7M-3.8-1.2-8.1-2.6" stroke="#1c2430" strokeWidth="1" />
+    </svg>
+  );
+}
+
+/**
+ * The Penalty Shootout winner's celebration: one last shot into a net at the top of the
+ * screen, a gold star for the winner, flag-coloured ribbons and footballs coming down.
+ */
+export function PenaltyWin() {
+  const ribbons = useMemo(
+    () =>
+      Array.from({ length: 54 }, (_, i) => ({
+        color: FLAG_RIBBONS[i % 3],
+        left: Math.random() * 100,
+        delay: 0.5 + Math.random() * 1.8,
+        duration: 2.4 + Math.random() * 2,
+        r0: Math.random() * 360,
+        r1: Math.random() * 900 - 450,
+        drift: Math.random() * 120 - 60,
+        long: 16 + Math.random() * 18,
+      })),
+    [],
+  );
+  const balls = useMemo(
+    () =>
+      Array.from({ length: 12 }, (_, i) => ({
+        left: 4 + (i * 92) / 11,
+        delay: 0.7 + Math.random() * 1.6,
+        duration: 2.2 + Math.random() * 1.2,
+        r0: Math.random() * 180,
+        r1: 540 + Math.random() * 540,
+        size: 22 + Math.random() * 16,
+      })),
+    [],
+  );
+  return (
+    <div className="pointer-events-none fixed inset-0 z-[45] overflow-hidden" aria-hidden="true">
+      {ribbons.map((r, i) => (
+        <div
+          key={i}
+          className="absolute top-0"
+          style={
+            {
+              left: `${r.left}%`,
+              animation: `fx-fall ${r.duration}s linear ${r.delay}s both`,
+              '--r0': `${r.r0}deg`,
+              '--r1': `${r.r1}deg`,
+              '--drift': `${r.drift}px`,
+            } as React.CSSProperties
+          }
+        >
+          <div style={{ width: 5, height: r.long, background: r.color, borderRadius: 2 }} />
+        </div>
+      ))}
+      {balls.map((b, i) => (
+        <div
+          key={`b${i}`}
+          className="absolute top-0"
+          style={
+            {
+              left: `${b.left}%`,
+              animation: `fx-fall ${b.duration}s cubic-bezier(.45,.05,.8,.6) ${b.delay}s both`,
+              '--r0': `${b.r0}deg`,
+              '--r1': `${b.r1}deg`,
+              '--drift': '0px',
+            } as React.CSSProperties
+          }
+        >
+          <MiniBall size={b.size} />
+        </div>
+      ))}
+      <div className="absolute inset-x-0 top-[9%] flex justify-center">
+        <svg viewBox="0 0 220 130" className="w-[min(78vw,320px)] overflow-visible">
+          <g className="pk-win-net" fill="none" stroke="#e6edf7" strokeOpacity=".55" strokeWidth="1">
+            {Array.from({ length: 13 }, (_, i) => (
+              <path key={`v${i}`} d={`M${20 + i * 15} 14V112`} />
+            ))}
+            {Array.from({ length: 7 }, (_, i) => (
+              <path key={`h${i}`} d={`M20 ${14 + i * 16.3}H200`} />
+            ))}
+          </g>
+          <path d="M20 112V14H200V112" fill="none" stroke="#fff" strokeWidth="7" strokeLinejoin="round" />
+          <g className="pk-win-shot">
+            <circle r="13" fill="#fff" stroke="#1c2430" strokeWidth="1.6" />
+            <path d="M0-5.6 5.3-1.7 3.4 4.5H-3.4L-5.3-1.7Z" fill="#1c2430" />
+          </g>
+          <g transform="translate(110 62)">
+            <g className="pk-win-star">
+              <path d="M0-40 11.5-13 40.5-11.5 18-.5 26 31 0 15.5-26 31-18-.5-40.5-11.5-11.5-13Z" fill="#f6c431" stroke="#8a5a00" strokeWidth="2.5" strokeLinejoin="round" />
+              <path d="M0-25 7-9 24-7.5 10.5.5 15 18 0 9-15 18-10.5.5-24-7.5-7-9Z" fill="#fff3b0" />
+            </g>
+          </g>
+        </svg>
+      </div>
+    </div>
+  );
+}
+
 /** Cards falling from the sky — shown to the winner. Purely decorative and click-through. */
 export function CardRain({ count = 28 }: { count?: number }) {
   const cards = useMemo(

@@ -431,8 +431,12 @@ suite('API integration', () => {
     const a = await login('Abebe');
     const b = await login('Bethel');
     const tables = (await api('GET', '/poker/tables', a.token)).body;
-    expect(tables.map((x: { bigBlind: number }) => x.bigBlind)).toEqual([10, 50, 200, 1000]);
-    const table = tables[0];
+    // Smallest buy-in first: the two small tables, then the regular stakes.
+    expect(tables.map((x: { bigBlind: number; maxBuyIn: number }) => [x.bigBlind, x.maxBuyIn])).toEqual([[2, 50], [2, 100], [10, 1000], [50, 5000], [200, 20000], [1000, 100000]]);
+    expect(tables[0]).toMatchObject({ smallBlind: 1, bigBlind: 2, minBuyIn: 50, maxBuyIn: 50, maxSeats: 9 });
+    expect((await api('POST', `/poker/tables/${tables[0].matchId}/sit`, a.token, { buyIn: 49 })).status).toBe(400);
+    expect((await api('POST', `/poker/tables/${tables[0].matchId}/sit`, a.token, { buyIn: 51 })).status).toBe(400);
+    const table = tables[2];
     expect(table).toMatchObject({ smallBlind: 5, bigBlind: 10, minBuyIn: 400, maxBuyIn: 1000, seated: 0, maxSeats: 9 });
     // Anyone can watch before sitting down.
     const watching = await state<PokerView>(table.matchId, a);
@@ -466,7 +470,7 @@ suite('API integration', () => {
     expect(s.view.players.map((p) => p.playerId)).toEqual([b.id]);
     expect(s.status).toBe('active');
     expect((await api('GET', '/me/active', a.token)).body.matches.map((m: { id: string }) => m.id)).not.toContain(table.matchId);
-    expect((await api('GET', '/poker/tables', b.token)).body[0]).toMatchObject({ seated: 1, seatedHere: true });
+    expect((await api('GET', '/poker/tables', b.token)).body[2]).toMatchObject({ seated: 1, seatedHere: true });
 
     // Both kept the hand; each sees only their own cards (nothing was shown down).
     const history = (await api('GET', `/poker/hands?matchId=${table.matchId}`, a.token)).body;

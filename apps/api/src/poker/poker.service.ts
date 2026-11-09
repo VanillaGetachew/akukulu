@@ -2,6 +2,7 @@ import { Inject, Injectable, Logger, OnApplicationBootstrap, OnModuleDestroy } f
 import { DataSource, In } from 'typeorm';
 import { describeHand, mttPrizePool, type PokerMttState, type PokerState } from '@akukulu/engines';
 import {
+  POKER_CASH_MAX_BB,
   POKER_CASH_STAKES,
   pokerMttPayouts,
   type Card,
@@ -21,7 +22,7 @@ import { GameError, displayName } from '../common/util';
 
 const SWEEP_MS = 5_000;
 /** Names for the always-open cash tables, one per stake level; a second table at a level gets " II". */
-const TABLE_NAMES = ['Addis', 'Lalibela', 'Gondar', 'Axum'];
+const TABLE_NAMES = ['Addis', 'Lalibela', 'Gondar', 'Axum', 'Bahir Dar', 'Hawassa'];
 
 export interface TournamentInput {
   name: string;
@@ -151,13 +152,17 @@ export class PokerService implements OnApplicationBootstrap, OnModuleDestroy {
   async ensureCashTables() {
     const matches = await this.cashMatches();
     for (const [i, stake] of POKER_CASH_STAKES.entries()) {
-      const atStake = matches.filter((m) => (m.state as PokerState).config.bigBlind === stake.bigBlind);
+      const maxBuyIn = stake.cashBuyIn ?? stake.bigBlind * POKER_CASH_MAX_BB;
+      const atStake = matches.filter((m) => {
+        const c = (m.state as PokerState).config;
+        return c.bigBlind === stake.bigBlind && c.buyIn === maxBuyIn;
+      });
       const hasSeat = atStake.some((m) => {
         const s = m.state as PokerState;
         return s.players.length < s.config.maxSeats;
       });
       if (hasSeat) continue;
-      const base = `${TABLE_NAMES[i] ?? 'Table'} ${stake.smallBlind}/${stake.bigBlind}`;
+      const base = stake.cashBuyIn ? `${TABLE_NAMES[i] ?? 'Table'} ${stake.cashBuyIn} ETB` : `${TABLE_NAMES[i] ?? 'Table'} ${stake.smallBlind}/${stake.bigBlind}`;
       const tableName = atStake.length ? `${base} ${['II', 'III', 'IV', 'V', 'VI'][atStake.length - 1] ?? atStake.length + 1}` : base;
       await this.runtime.startStandalone('poker', { permanent: true, ...stake, tableName }, 0, []);
     }
@@ -180,7 +185,7 @@ export class PokerService implements OnApplicationBootstrap, OnModuleDestroy {
           seatedHere: seated.some((p) => p.playerId === userId),
         };
       })
-      .sort((a, b) => a.bigBlind - b.bigBlind || a.name.localeCompare(b.name));
+      .sort((a, b) => a.maxBuyIn - b.maxBuyIn || a.name.localeCompare(b.name));
   }
 
   async sit(userId: string, matchId: string, buyIn: number, seat?: number) {

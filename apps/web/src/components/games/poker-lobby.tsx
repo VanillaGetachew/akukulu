@@ -62,7 +62,7 @@ function CashTables() {
               {t.seatedHere && <span className="rounded-full bg-lime/15 px-1.5 text-[10px] font-bold text-lime">Seated</span>}
             </div>
             <div className="mt-0.5 flex items-center gap-1 text-xs text-muted">
-              Blinds {t.smallBlind}/{t.bigBlind} · Buy-in <Coin className="h-3 w-3" /> {t.minBuyIn.toLocaleString()}–{t.maxBuyIn.toLocaleString()}
+              Blinds {t.smallBlind}/{t.bigBlind} · Buy-in <Coin className="h-3 w-3" /> {t.minBuyIn === t.maxBuyIn ? t.maxBuyIn.toLocaleString() : `${t.minBuyIn.toLocaleString()}–${t.maxBuyIn.toLocaleString()}`}
             </div>
             <div className="mt-1 flex gap-0.5" aria-label={`${t.seated} of ${t.maxSeats} seats taken`}>
               {Array.from({ length: t.maxSeats }, (_, i) => (

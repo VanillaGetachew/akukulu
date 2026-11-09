@@ -121,3 +121,16 @@ export function HandHistoryList({ matchId, limit = 30, empty = 'No hands yet.' }
     </div>
   );
 }
+
+/** Hand history behind a button, so it only takes up room when someone asks for it. */
+export function HandHistoryButton({ label = 'Poker hand history', limit = 20 }: { label?: string; limit?: number }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="grid gap-3">
+      <button className="btn-ghost w-full" onClick={() => setOpen((o) => !o)} aria-expanded={open}>
+        {open ? 'Hide hand history' : label}
+      </button>
+      {open && <HandHistoryList limit={limit} empty="Hands you play at the poker tables will show up here." />}
+    </div>
+  );
+}

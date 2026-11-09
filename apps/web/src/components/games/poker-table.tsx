@@ -336,53 +336,6 @@ function ReactionPicker({ title, items, onPick, onClose }: { title: string; item
 
 /* ------------------------------------------------------------------ seat geometry */
 
-/** A spot on the stadium: on the top or bottom arc (degrees from centre, + is right), or on a straight side (0 = top, 1 = bottom). */
-type Spot = { a: 'T' | 'B'; deg: number } | { a: 'L' | 'R'; f: number };
-
-/** Portrait seat layouts, clockwise from me at the bottom: up the left side, across the top, down the right. */
-const LAYOUTS: Record<number, Spot[]> = {
-  1: [{ a: 'B', deg: 0 }],
-  2: [{ a: 'B', deg: 0 }, { a: 'T', deg: 0 }],
-  3: [{ a: 'B', deg: 0 }, { a: 'L', f: 0.3 }, { a: 'R', f: 0.3 }],
-  4: [{ a: 'B', deg: 0 }, { a: 'L', f: 0.5 }, { a: 'T', deg: 0 }, { a: 'R', f: 0.5 }],
-  5: [{ a: 'B', deg: 0 }, { a: 'L', f: 0.62 }, { a: 'T', deg: -40 }, { a: 'T', deg: 40 }, { a: 'R', f: 0.62 }],
-  6: [{ a: 'B', deg: 0 }, { a: 'L', f: 0.95 }, { a: 'L', f: 0.05 }, { a: 'T', deg: 0 }, { a: 'R', f: 0.05 }, { a: 'R', f: 0.95 }],
-  7: [{ a: 'B', deg: 0 }, { a: 'L', f: 0.98 }, { a: 'L', f: 0.02 }, { a: 'T', deg: -42 }, { a: 'T', deg: 42 }, { a: 'R', f: 0.02 }, { a: 'R', f: 0.98 }],
-  8: [
-    { a: 'B', deg: 0 },
-    { a: 'L', f: 1 },
-    { a: 'L', f: 0 },
-    { a: 'T', deg: -52 },
-    { a: 'T', deg: 0 },
-    { a: 'T', deg: 52 },
-    { a: 'R', f: 0 },
-    { a: 'R', f: 1 },
-  ],
-  9: [
-    { a: 'B', deg: 0 },
-    { a: 'L', f: 0.86 },
-    { a: 'L', f: 0.4 },
-    { a: 'T', deg: -62 },
-    { a: 'T', deg: -20 },
-    { a: 'T', deg: 20 },
-    { a: 'T', deg: 62 },
-    { a: 'R', f: 0.4 },
-    { a: 'R', f: 0.86 },
-  ],
-  10: [
-    { a: 'B', deg: 0 },
-    { a: 'L', f: 0.9 },
-    { a: 'L', f: 0.5 },
-    { a: 'L', f: 0.1 },
-    { a: 'T', deg: -50 },
-    { a: 'T', deg: 0 },
-    { a: 'T', deg: 50 },
-    { a: 'R', f: 0.1 },
-    { a: 'R', f: 0.5 },
-    { a: 'R', f: 0.9 },
-  ],
-};
-
 /* ------------------------------------------------------------------ actions */
 
 function ActionButton({ children, onClick, disabled, tone }: { children: ReactNode; onClick: () => void; disabled?: boolean; tone: 'grey' | 'blue' | 'green' }) {
@@ -858,7 +811,7 @@ function SitDown({ matchId, seat, cash, onDone }: { matchId: string; seat: numbe
   return (
     <div className="grid gap-3">
       <p className="text-sm" style={{ color: UI.text }}>
-        Buy in for {fmt(cash.minBuyIn)}–{fmt(cash.maxBuyIn)} chips. You are dealt in from the next hand (posting a big blind if a game is running) and can stand up
+        Buy in for {cash.minBuyIn === cash.maxBuyIn ? fmt(cash.minBuyIn) : `${fmt(cash.minBuyIn)}–${fmt(cash.maxBuyIn)}`} chips. You are dealt in from the next hand (posting a big blind if a game is running) and can stand up
         with your chips at any time.
       </p>
       {short ? (
@@ -1023,16 +976,6 @@ export function PokerTable({ state, view, act, pending, serverNow }: TableProps<
   // Seats sit on a line just inside the rail's outer edge.
   const pathW = railW - 12;
   const pathH = railH - 12;
-  const spotPoint = (s: Spot) => {
-    const r = pathW / 2;
-    const straight = Math.max(0, pathH - pathW);
-    const topC = cy - straight / 2;
-    const botC = cy + straight / 2;
-    const rad = 'deg' in s ? (s.deg * Math.PI) / 180 : 0;
-    if (s.a === 'T') return { x: cx + r * Math.sin(rad), y: topC - r * Math.cos(rad) };
-    if (s.a === 'B') return { x: cx + r * Math.sin(rad), y: botC + r * Math.cos(rad) };
-    return { x: s.a === 'L' ? cx - r : cx + r, y: topC + ('f' in s ? s.f : 0) * straight };
-  };
   // Short portrait table: spread seats evenly round an upright stadium, me at the bottom centre, then clockwise.
   const evenPoint = (k: number, total: number) => {
     const r = pathW / 2;
@@ -1077,9 +1020,8 @@ export function PokerTable({ state, view, act, pending, serverNow }: TableProps<
   const slots = Math.max(1, Math.min(10, cash ? view.config.maxSeats : Math.max(n, 1)));
   const anchor = cash ? (me?.seat ?? 0) : 0;
   const slotOf = (p: PokerPlayerView, i: number) => (cash ? (p.seat - anchor + slots) % slots : (i - Math.max(0, meIndex) + n) % n);
-  // Portrait: the hand-placed Stake layout when the table is tall enough, otherwise seats spaced evenly round the rail.
-  const tall = pathH - pathW >= pathW * 0.55;
-  const baseSeat = (k: number) => (portrait ? (tall ? spotPoint((LAYOUTS[slots] ?? LAYOUTS[10])[k % slots]) : evenPoint(k, slots)) : flatPoint(k, slots));
+  // Seats are spaced equally round the rail, so the gaps between them match.
+  const baseSeat = (k: number) => (portrait ? evenPoint(k, slots) : flatPoint(k, slots));
 
   // Card sizes: five board cards across most of the felt; my hole cards a touch larger.
   const boardW = Math.round(Math.max(32, Math.min(54, (feltW * 0.82 - 4 * 4) / 5)));

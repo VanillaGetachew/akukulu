@@ -10,6 +10,7 @@ import { ART_BG, GameThumb } from '@/components/art';
 import { ConquerRulesList } from '@/components/games/conquer-rules';
 import { CrazyRulesList } from '@/components/games/crazy-rules';
 import { GameTutorial, tutorialSeen } from '@/components/games/game-tutorial';
+import { HandHistoryButton } from '@/components/games/poker-history';
 import { PokerLobby } from '@/components/games/poker-lobby';
 import { Avatar, Coin, EmptyState, ErrorState, LoadingState, MaintenanceState, Page, Toast } from '@/components/ui';
 
@@ -261,6 +262,9 @@ export default function GameLobby() {
                     ))}
                   </div>
                   {pokerMode !== 'sitgo' && <PokerLobby mode={pokerMode} />}
+                  <div className="mb-4">
+                    <HandHistoryButton label="My hand history" />
+                  </div>
                 </>
               )}
               {!game.solo && !pokerCash && (
