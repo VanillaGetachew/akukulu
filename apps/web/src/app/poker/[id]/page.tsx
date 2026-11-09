@@ -15,7 +15,7 @@ export default function PokerTablePage() {
   }
   return (
     <Page nav={false}>
-      <PokerTable state={match.state} view={match.state.view as PokerView} act={match.act} pending={match.pending} serverNow={match.serverNow} />
+      <PokerTable key={id} state={match.state} view={match.state.view as PokerView} act={match.act} pending={match.pending} serverNow={match.serverNow} />
       <Toast message={match.error} onClose={() => match.setError(null)} />
     </Page>
   );

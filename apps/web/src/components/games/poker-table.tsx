@@ -14,6 +14,7 @@ import {
   type PokerView,
 } from '@akukulu/shared';
 import { useDialog } from '@/lib/dialog';
+import { TableSwitcher } from './table-switcher';
 import { api } from '@/lib/api';
 import { useSession } from '@/lib/session';
 import { CardBack, CardFace } from '@/components/card-face';
@@ -1120,6 +1121,7 @@ export function PokerTable({ state, view, act, pending, serverNow }: TableProps<
         <Link href="/games/poker" aria-label="Lobby — another table" className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-xl font-bold leading-none shadow-[0_3px_8px_rgba(0,0,0,.45)]" style={{ background: '#2f3a46' }}>
           +
         </Link>
+        <TableSwitcher matchId={state.matchId} size={36} />
         <div className="ml-auto">
           <RoundButton label={t ? 'Tournament info' : 'Table info'} onClick={() => setSheet('info')}>
             <TrophyIcon />

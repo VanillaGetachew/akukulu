@@ -60,7 +60,7 @@ function DepositForm({ onDeposit }: { onDeposit: (amount: number, reason: string
   );
 }
 
-type AdminUser = UserProfile & { isBanned: boolean };
+type AdminUser = UserProfile & { isBanned: boolean; phone: string | null };
 
 export default function AdminPage() {
   const { user } = useSession();
@@ -251,7 +251,7 @@ export default function AdminPage() {
                     <div className="font-bold">
                       {u.firstName} {u.username && <span className="text-muted">@{u.username}</span>}
                     </div>
-                    <div className="text-xs text-muted">{u.balance.toLocaleString()} ETB · tg {u.telegramId}{u.isBanned && ' · banned'}</div>
+                    <div className="text-xs text-muted">{u.balance.toLocaleString()} ETB · tg {u.telegramId}{u.phone && ` · ${u.phone}`}{u.isBanned && ' · banned'}</div>
                   </div>
                   <div className="flex gap-2">
                     <button className={`px-3 py-1.5 text-xs ${depositFor === u.id ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setDepositFor(depositFor === u.id ? null : u.id)}>

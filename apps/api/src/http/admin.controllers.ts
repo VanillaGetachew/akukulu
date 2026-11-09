@@ -65,7 +65,7 @@ export class AdminController {
     const repo = this.dataSource.getRepository(UserEntity);
     const where = q ? [{ username: ILike(`%${q}%`) }, { firstName: ILike(`%${q}%`) }, ...(/^\d+$/.test(q) ? [{ telegramId: q }] : [])] : {};
     const rows = await repo.find({ where, order: { createdAt: 'DESC' }, take: 50 });
-    return rows.map((u) => ({ ...toProfile(u), isBanned: u.isBanned, lastSeenAt: u.lastSeenAt }));
+    return rows.map((u) => ({ ...toProfile(u), phone: u.phone, isBanned: u.isBanned, lastSeenAt: u.lastSeenAt }));
   }
 
   @Patch('users/:id')
@@ -287,6 +287,13 @@ export class InternalController {
   withdraw(@Param('telegramId') telegramId: string, @Body() input: unknown) {
     const b = body(input);
     return this.payments.requestWithdrawal(telegramId, Number(b.amount), reqString(b.phone, 'phone', 32));
+  }
+
+  /** The bot passes on a number only when Telegram says it belongs to the sender. */
+  @Post('users/:telegramId/phone')
+  @HttpCode(200)
+  async savePhone(@Param('telegramId') telegramId: string, @Body() input: unknown) {
+    return this.summary(await this.users.savePhone(telegramId, reqString(body(input).phone, 'phone', 32)));
   }
 
   @Get('payments/pending/:adminTelegramId')

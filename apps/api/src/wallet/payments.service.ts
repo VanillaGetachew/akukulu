@@ -12,7 +12,7 @@ import {
 import { APP_CONFIG, type AppConfig } from '../config';
 import { PaymentAccountEntity, PaymentRequestEntity, UserEntity } from '../database/entities';
 import { Broadcaster } from '../realtime/broadcaster';
-import { GameError, displayName } from '../common/util';
+import { GameError, assertPhoneShared, displayName } from '../common/util';
 import { LedgerService } from './ledger.service';
 
 /** Returns +2517XXXXXXXX / +2519XXXXXXXX, or null when it is not an Ethiopian mobile number. */
@@ -70,6 +70,7 @@ export class PaymentsService {
   private assertActive(user: UserEntity | null): asserts user is UserEntity {
     if (!user) throw new GameError('NOT_FOUND', 'User not found', 404);
     if (user.isBanned) throw new GameError('BANNED', 'This account is banned', 403);
+    assertPhoneShared(user);
   }
 
   /* ---- The current Telebirr account ---- */

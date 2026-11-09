@@ -94,14 +94,30 @@ function JokerFace({ width, compact }: { width: number; compact?: boolean }) {
   );
 }
 
+/** The false joker in the simple deck: a white card with a big F and a jester. */
 function PlainJoker({ width, tint }: { width: number; tint?: CardTint }) {
   return (
     <svg viewBox="0 0 100 140" width={width} height={width * 1.4} aria-hidden="true" className="block">
-      <rect x="1" y="1" width="98" height="138" rx="9" fill={tint === 'gold' ? '#fff6dc' : '#ffffff'} stroke={tint === 'gold' ? '#d4a72c' : '#d6ccb6'} strokeWidth={tint ? 3 : 1.4} />
-      <text x="9" y="42" fontFamily={FONT} fontWeight="700" fontSize="36" letterSpacing="-3" fill={RED}>
-        JK
+      <rect x="1" y="1" width="98" height="138" rx="9" fill="#ffffff" stroke={tint === 'gold' ? '#d4a72c' : '#d6ccb6'} strokeWidth={tint ? 3 : 1.4} />
+      <text x="9" y="42" fontFamily={FONT} fontWeight="800" fontSize="40" fill={RED}>
+        F
       </text>
-      <path d="M50 52 L57 69 L76 69 L61 80 L67 98 L50 87 L33 98 L39 80 L24 69 L43 69 Z" fill="#e0a92a" transform="translate(12 22)" />
+      {/* A jester: three-pointed cap with bells, a smiling face and a pointed collar. */}
+      <g transform="translate(54 92)">
+        <path d="M-24 25-30 40-17 33-10 44 0 34 10 44 17 33 30 40 24 25Z" fill="#2f5fa8" stroke="#1c3a6b" strokeWidth="1.2" strokeLinejoin="round" />
+        <path d="M-3-14C-12-32-28-37-38-27-29-27-23-20-20-6Z" fill={RED} stroke="#7d1818" strokeWidth="1.2" strokeLinejoin="round" />
+        <path d="M3-14C12-32 28-37 38-27 29-27 23-20 20-6Z" fill="#2f5fa8" stroke="#1c3a6b" strokeWidth="1.2" strokeLinejoin="round" />
+        <path d="M-15-8C-13-26-6-40 0-46 6-40 13-26 15-8Z" fill="#f2c94c" stroke="#a9861f" strokeWidth="1.2" strokeLinejoin="round" />
+        <circle cx="-39" cy="-26" r="4" fill="#f2c94c" stroke="#a9861f" strokeWidth="1" />
+        <circle cx="39" cy="-26" r="4" fill="#f2c94c" stroke="#a9861f" strokeWidth="1" />
+        <circle cy="-48" r="4" fill={RED} stroke="#7d1818" strokeWidth="1" />
+        <path d="M-20-8H20" stroke="#a9861f" strokeWidth="3.5" strokeLinecap="round" />
+        <ellipse cy="9" rx="17" ry="19" fill="#fbe6d0" stroke="#c9a585" strokeWidth="1.2" />
+        <path d="M-10 3Q-6-1-2 3M2 3Q6-1 10 3" fill="none" stroke="#2b2b33" strokeWidth="2" strokeLinecap="round" />
+        <circle cx="-10" cy="12" r="3" fill={RED} opacity=".45" />
+        <circle cx="10" cy="12" r="3" fill={RED} opacity=".45" />
+        <path d="M-9 15Q0 25 9 15" fill="none" stroke={RED} strokeWidth="2.4" strokeLinecap="round" />
+      </g>
     </svg>
   );
 }

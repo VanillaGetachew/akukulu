@@ -16,6 +16,7 @@ import { BlackjackTable } from '@/components/games/blackjack-table';
 import { ConquerTable } from '@/components/games/conquer-table';
 import { CrazyTable } from '@/components/games/crazy-table';
 import { PenaltyTable } from '@/components/games/penalty-table';
+import { TableSwitcher } from '@/components/games/table-switcher';
 import { CardRain, LudoWin, PenaltyWin } from '@/components/fx';
 
 function WaitingRoom({ room, onAction, busy }: { room: RoomSummary; onAction: (path: string, body?: unknown) => void; busy: boolean }) {
@@ -200,6 +201,11 @@ function ResultSheet({ summary, stake }: { summary: MatchSummary; stake: number 
 export default function RoomPage() {
   const { code: rawCode } = useParams<{ code: string }>();
   const code = rawCode.toUpperCase();
+  // Keyed, so switching to another table starts clean rather than carrying this one's result.
+  return <RoomView key={code} code={code} />;
+}
+
+function RoomView({ code }: { code: string }) {
   const router = useRouter();
   const { socket, connected } = useSession();
   const [room, setRoom] = useState<RoomSummary | null>(null);
@@ -238,8 +244,9 @@ export default function RoomPage() {
   const dialog = useDialog();
   const status = match.state?.status;
   // A shootout won by a kick shows that kick before the result sheet covers the pitch.
-  const penaltyEnding = (match.state?.view as PenaltyView | undefined)?.finishReason;
-  const resultDelay = room?.gameSlug === 'penalty' && penaltyEnding && penaltyEnding !== 'forfeit' ? PENALTY_REVEAL_MS + 400 : 0;
+  const ending = (match.state?.view as PenaltyView | CrazyView | undefined)?.finishReason;
+  // A card game leaves the final table on screen for a moment, so everyone can see how it ended.
+  const resultDelay = !ending || ending === 'forfeit' ? 0 : room?.gameSlug === 'penalty' ? PENALTY_REVEAL_MS + 400 : room?.gameSlug === 'crazy' ? 6000 : 0;
   useEffect(() => {
     if (status !== 'finished' && status !== 'cancelled') return;
     const timer = setTimeout(() => {
@@ -310,6 +317,11 @@ export default function RoomPage() {
       ) : (
         <>
           {table}
+          {match.state && match.state.view.game !== 'poker' && (
+            <div className="fixed right-2 z-[37]" style={{ top: `calc(var(--safe-top) + ${match.state.view.game === 'penalty' ? 64 : 8}px)` }}>
+              <TableSwitcher matchId={match.state.matchId} />
+            </div>
+          )}
           {match.state?.status === 'active' && room.gameSlug !== 'blackjack' && (
             <div className="mt-4 flex justify-center">
               <button

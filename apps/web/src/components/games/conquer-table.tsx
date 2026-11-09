@@ -24,6 +24,8 @@ import {
   type ConquerPrediction,
   type ConquerView,
   type Rank,
+  houseCut,
+  houseCutPercent,
 } from '@akukulu/shared';
 import { useSession } from '@/lib/session';
 import { Coin, PlayingCard } from '@/components/ui';
@@ -49,6 +51,18 @@ function FanCard({ card, selected, joker, marked, width = 54 }: { card: Card; se
       <CardFace card={card} width={width} star={joker} plain />
     </div>
   );
+}
+
+const ROUND_REVIEW_MS = 5000;
+
+/** What the winner actually receives: `won` (their profit) less the house cut taken on each payout. */
+function netWin(won: number, stake: number, players: number): number {
+  const percent = houseCutPercent(stake);
+  const losers = Math.max(0, players - 1);
+  const extra = won - stake * losers;
+  // A double win pays each loser's held stake as its own payout.
+  const extraCut = extra > 0 ? (stake > 0 && extra % stake === 0 ? (extra / stake) * houseCut(stake, percent) : houseCut(extra, percent)) : 0;
+  return won - houseCut(stake * players, percent) - extraCut;
 }
 
 /** A face-up card in the opponent's fan (one of their melds). */
@@ -370,6 +384,23 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
   const dealtTo = (id: string | undefined) => (landed ? landed.filter((x) => x === id).length : Infinity);
   const dealtMine = dealtTo(user?.id);
   const vh = useViewportHeight();
+
+  // A round that ends while you watch stays on the table for a moment before the result appears.
+  const endedRound = view.roundResult && (view.phase === 'roundOver' || view.phase === 'finished') ? view.round : null;
+  const seenEnd = useRef(endedRound);
+  const [reviewing, setReviewing] = useState(false);
+  useEffect(() => {
+    if (endedRound === null) {
+      seenEnd.current = null;
+      setReviewing(false);
+      return;
+    }
+    if (endedRound === seenEnd.current) return;
+    seenEnd.current = endedRound;
+    setReviewing(true);
+    const timer = setTimeout(() => setReviewing(false), ROUND_REVIEW_MS);
+    return () => clearTimeout(timer);
+  }, [endedRound]);
   const handCardW = vh < 560 ? 42 : vh < 660 ? 48 : vh < 780 ? 56 : vh < 900 ? 62 : 68;
   const [hint, setHint] = useState<string | null>(null);
   const [handRef, handWidth] = useWidth<HTMLDivElement>();
@@ -556,63 +587,96 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
   }
 
   const result = view.roundResult;
+  const roundEnded = !!result && (view.phase === 'roundOver' || view.phase === 'finished');
+  const winnerText = result ? (result.winnerId === null ? 'Round drawn' : result.winnerId === user?.id ? 'You won the round!' : `${nameOf(state, result.winnerId)} won the round`) : '';
   const myMelds = view.melds.filter((m) => m.ownerId === user?.id);
   const meldTap = (m: ConquerMeldView) =>
     openTargets.includes(m.id) ? () => layOff(m) : undefined;
   const blocked = selected.length === 1 && view.undiscardable.includes(selected[0]);
   const many = opponents.length > 1;
+  // Play runs clockwise from me: the next player sits to my left, the last to my right, anyone else opposite.
+  const sideLeft = many ? opponents[0] : null;
+  const sideRight = many ? opponents[opponents.length - 1] : null;
+  const topOpponents = many ? opponents.slice(1, -1) : opponents;
   // Each opponent's seat: their melds face-up in their fan, ahead of their hidden cards.
-  const seatWidth = many ? Math.max(80, (oppWidth - 8) / opponents.length) : oppWidth;
+  const seatWidth = many ? Math.min(220, oppWidth) : oppWidth;
+  const sideFanLength = Math.round(Math.min(280, vh * 0.34));
+
+  const renderOpponent = (o: (typeof opponents)[number], place: 'top' | 'left' | 'right') => {
+    const info = state.players.find((p) => p.userId === o.playerId);
+    const melds = view.melds.filter((m) => m.ownerId === o.playerId);
+    const faces = new Map<Card, FanFace>();
+    const meldOf = new Map<Card, ConquerMeldView>();
+    for (const m of melds)
+      for (const p of m.cards) {
+        faces.set(p.card, { placed: p, active: openTargets.includes(m.id) });
+        meldOf.set(p.card, m);
+      }
+    // When a round ends, the cards still in their hand turn face-up.
+    const revealed = roundEnded ? o.revealedHand ?? null : null;
+    for (const c of revealed ?? []) faces.set(c, { placed: { card: c, as: c, wild: false }, active: false });
+    const shown = Math.min(o.handCount, dealtTo(o.playerId));
+    const hand: Card[] = revealed ? [...revealed].sort(bySuitRank) : Array.from({ length: shown }, () => '??' as Card);
+    const cards: Card[] = [...melds.flatMap((m) => m.cards.map((p) => p.card)), ...hand];
+    const current = o.playerId === view.currentPlayerId;
+    const nameRow = (
+      <div className="mb-1 flex max-w-full items-center gap-1 text-[11px] font-bold">
+        <span className={`h-2 w-2 shrink-0 rounded-full ${info?.online ? 'bg-lime' : 'bg-white/40'}`} title={info?.online ? 'Online' : 'Offline'} />
+        <span className="truncate">{info?.displayName ?? 'Opponent'}</span>
+        <span className="shrink-0 font-normal text-white/60">· {o.out ? 'out' : hand.length}</span>
+      </div>
+    );
+    const fan = (width: number) => (
+      <Fan
+        cards={cards}
+        width={width}
+        flip
+        faceWidth={many ? 26 : 36}
+        faces={faces}
+        onTap={(c) => {
+          const m = meldOf.get(c);
+          if (m && openTargets.includes(m.id)) layOff(m);
+        }}
+      />
+    );
+    if (place === 'top') {
+      return (
+        <div key={o.playerId} className={`flex min-w-0 flex-col items-center rounded-xl pb-1 ${many ? 'flex-1' : 'w-full'} ${many && current ? 'bg-lime/10 ring-1 ring-lime/50' : ''}`}>
+          {nameRow}
+          <div className="w-full pt-3">{fan(seatWidth)}</div>
+        </div>
+      );
+    }
+    // A side seat: the same fan, turned to face the middle of the table.
+    return (
+      <div key={o.playerId} className={`flex w-[62px] shrink-0 flex-col items-center rounded-xl py-1 ${current ? 'bg-lime/10 ring-1 ring-lime/50' : ''}`}>
+        <div className="flex w-full items-center justify-center gap-1 px-1 text-[11px] font-bold">
+          <span className={`h-2 w-2 shrink-0 rounded-full ${info?.online ? 'bg-lime' : 'bg-white/40'}`} />
+          <span className="min-w-0 truncate">{info?.displayName ?? 'Opponent'}</span>
+        </div>
+        <div className="mb-0.5 text-[11px] text-white/60">{o.out ? 'out' : hand.length}</div>
+        <div className="relative w-[50px]" style={{ height: sideFanLength }}>
+          <div className="absolute left-1/2 top-1/2" style={{ width: sideFanLength, transform: `translate(-50%, -50%) rotate(${place === 'left' ? 90 : -90}deg)` }}>
+            {fan(sideFanLength)}
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   return shell(
     <>
-      {/* Opponents */}
-      <div ref={oppRef} data-deal="opp" className={`mx-auto flex w-full shrink-0 justify-center gap-1 pt-2 ${many ? 'px-10' : 'max-w-md px-8'}`}>
-        {opponents.map((o) => {
-          const info = state.players.find((p) => p.userId === o.playerId);
-          const melds = view.melds.filter((m) => m.ownerId === o.playerId);
-          const faces = new Map<Card, FanFace>();
-          const meldOf = new Map<Card, ConquerMeldView>();
-          for (const m of melds)
-            for (const p of m.cards) {
-              faces.set(p.card, { placed: p, active: openTargets.includes(m.id) });
-              meldOf.set(p.card, m);
-            }
-          const shown = Math.min(o.handCount, dealtTo(o.playerId));
-          const cards: Card[] = [...melds.flatMap((m) => m.cards.map((p) => p.card)), ...Array.from({ length: shown }, () => '??' as Card)];
-          const current = o.playerId === view.currentPlayerId;
-          return (
-            <div
-              key={o.playerId}
-              className={`flex min-w-0 flex-col items-center rounded-xl pb-1 ${many ? 'flex-1' : 'w-full'} ${many && current ? 'bg-lime/10 ring-1 ring-lime/50' : ''} ${o.out ? 'opacity-40' : ''}`}
-            >
-              <div className="mb-1 flex max-w-full items-center gap-1.5 text-xs font-bold">
-                <span className={`h-2 w-2 shrink-0 rounded-full ${info?.online ? 'bg-lime' : 'bg-white/40'}`} title={info?.online ? 'Online' : 'Offline'} />
-                <span className="truncate">{info?.displayName ?? 'Opponent'}</span>
-                <span className="shrink-0 font-normal text-white/60">· {o.out ? 'out' : shown}</span>
-              </div>
-              <div className="w-full pt-3">
-                <Fan
-                  cards={cards}
-                  width={seatWidth}
-                  flip
-                  faceWidth={many ? 26 : 36}
-                  faces={faces}
-                  onTap={(c) => {
-                    const m = meldOf.get(c);
-                    if (m && openTargets.includes(m.id)) layOff(m);
-                  }}
-                />
-              </div>
-            </div>
-          );
-        })}
+      {/* Opponents: across the top for 1 v 1, and to my left, right and opposite for bigger tables. */}
+      <div ref={oppRef} data-deal="opp" className={`mx-auto flex w-full shrink-0 justify-center gap-1 pt-2 ${many ? 'px-12' : 'max-w-md px-8'}`}>
+        {topOpponents.map((o) => renderOpponent(o, 'top'))}
       </div>
 
       {/* Table: deck and discard, then my melds — scrolls instead of overlapping. */}
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden px-2">
+      <div className="flex min-h-0 flex-1 items-center">
+      {sideLeft && renderOpponent(sideLeft, 'left')}
+      <div className="flex max-h-full min-h-0 min-w-0 flex-1 flex-col self-stretch overflow-y-auto overflow-x-hidden px-2">
         <div className="my-auto flex w-full flex-col items-center gap-2 py-1">
-      <div className="flex shrink-0 items-center justify-center gap-10">
+      <div className={`flex shrink-0 items-center justify-center ${many ? 'gap-3' : 'gap-10'}`}>
         <div className="flex flex-col items-center gap-1">
           <div className="relative pt-10">
             {/* The base card lies face-up under the deck; its corner (rank and suit) stays visible. */}
@@ -677,6 +741,8 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
           )}
         </div>
       </div>
+      {sideRight && renderOpponent(sideRight, 'right')}
+      </div>
 
       {/* Turn bar */}
       {view.phase !== 'roundOver' && view.phase !== 'finished' && (
@@ -708,6 +774,21 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
                 {view.mustOpen ? ' and must go in this turn' : ''}
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* The round just ended: who won, and the cards I was left holding, before the result appears. */}
+      {roundEnded && reviewing && (
+        <div className="shrink-0 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+          <div className="mx-auto mb-2 flex w-fit items-center gap-3 rounded-full bg-black/55 py-1.5 pl-4 pr-1.5 text-sm font-bold">
+            {winnerText}
+            <button className="btn-gold btn-sm" onClick={() => setReviewing(false)}>
+              Continue
+            </button>
+          </div>
+          <div ref={handRef} className="mx-auto w-full max-w-xl">
+            <Fan cards={[...(me?.revealedHand ?? view.hand)].sort(bySuitRank)} width={handWidth} wild={wild} />
           </div>
         </div>
       )}
@@ -754,12 +835,12 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
       )}
 
       {/* Round result */}
-      {result && (view.phase === 'roundOver' || view.phase === 'finished') && result.winnerId === user?.id && <CardRain />}
-      {result && (view.phase === 'roundOver' || view.phase === 'finished') && (
+      {roundEnded && !reviewing && result.winnerId === user?.id && <CardRain />}
+      {roundEnded && !reviewing && (
         <div className="absolute inset-0 z-30 grid place-items-center bg-black/55 p-4">
           <div className="card grid w-full max-w-md gap-3 p-5 text-fg">
             <div className="font-display text-xl font-extrabold">
-              {result.winnerId === null ? 'Round drawn' : result.winnerId === user?.id ? 'You won the round!' : `${nameOf(state, result.winnerId)} won the round`}
+              {winnerText}
             </div>
             <div className="text-xs text-muted">
               {result.reason === 'dobe'
@@ -780,20 +861,20 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
             {(() => {
               const stake = view.config.stake;
               // The winner gains `won` (older results have none); each loser loses an equal share of it.
-              const gained = result.won ?? stake;
-              const lost = Math.round(gained / Math.max(1, view.players.length - 1));
+              const gained = netWin(result.won ?? stake, stake, view.players.length);
+              const lost = Math.round((result.won ?? stake) / Math.max(1, view.players.length - 1));
               const amount = result.winnerId === user?.id ? gained : lost;
               const mine = result.winnerId === null ? 0 : result.winnerId === user?.id ? amount : -amount;
               return (
                 <div className={`flex items-center justify-center gap-2 rounded-xl py-2.5 text-lg font-black ${mine > 0 ? 'bg-lime/15 text-lime' : mine < 0 ? 'bg-danger/15 text-danger' : 'bg-white/5 text-muted'}`}>
                   <Coin className="h-5 w-5" />
-                  {stake === 0 ? 'Free round — nothing at stake' : mine > 0 ? `You won ${amount.toLocaleString()} ETB before the house fee` : mine < 0 ? `You lost ${amount.toLocaleString()} ETB` : 'Draw — stakes returned'}
+                  {stake === 0 ? 'Free round — nothing at stake' : mine > 0 ? `You won ${amount.toLocaleString()} ETB` : mine < 0 ? `You lost ${amount.toLocaleString()} ETB` : 'Draw — stakes returned'}
                 </div>
               );
             })()}
             {view.players.map((p) => {
-              const won = result.won ?? view.config.stake;
-              const share = Math.round(won / Math.max(1, view.players.length - 1));
+              const won = netWin(result.won ?? view.config.stake, view.config.stake, view.players.length);
+              const share = Math.round((result.won ?? view.config.stake) / Math.max(1, view.players.length - 1));
               const delta = result.winnerId === null ? 0 : p.playerId === result.winnerId ? won : -share;
               return (
                 <div key={p.playerId} className="grid gap-1">
@@ -803,14 +884,9 @@ export function ConquerTable({ state, view, act, pending, serverNow }: TableProp
 
                       <span className={delta > 0 ? 'text-lime' : delta < 0 ? 'text-danger' : 'text-muted'}>
                         {delta > 0 ? '+' : ''}
-                        {delta.toLocaleString()}
+                        {(delta || 0).toLocaleString()}
                       </span>
                     </span>
-                  </div>
-                  <div className="flex flex-wrap gap-0.5">
-                    {[...(p.revealedHand ?? [])].sort(bySuitRank).map((c) => (
-                      <MiniCard key={c} placed={{ card: c, as: c, wild: false }} />
-                    ))}
                   </div>
                 </div>
               );

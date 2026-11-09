@@ -31,6 +31,10 @@ export class UserEntity {
   @Column({ type: 'varchar', nullable: true }) languageCode: string | null;
   /** Non-redeemable virtual points. Only LedgerService may change this column. */
   @Column({ type: 'integer', default: 0 }) balance: number;
+  /** The phone number on the player's Telegram account, shared through Telegram. */
+  @Column({ type: 'varchar', nullable: true }) phone: string | null;
+  /** Set on accounts created since phone numbers became required. */
+  @Column({ default: false }) phoneRequired: boolean;
   /** Part of the balance that is bonus and cannot be withdrawn yet. */
   @Column({ type: 'integer', default: 0 }) bonusLocked: number;
   @Column({ type: 'integer', default: 0 }) bonusWagerLeft: number;

@@ -17,6 +17,8 @@ export interface AppConfig {
   rewardsRequireApproval: boolean;
   /** Real-money mode: manual Telebirr deposits and withdrawals, and no free welcome, daily or referral rewards. */
   paymentsEnabled: boolean;
+  /** New accounts must share a phone number before they can play. */
+  requirePhone: boolean;
   corsOrigins: string[];
 }
 
@@ -52,6 +54,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     internalApiKey: env.INTERNAL_API_KEY || null,
     rewardsRequireApproval: bool(env.REWARDS_REQUIRE_APPROVAL, true),
     paymentsEnabled: bool(env.PAYMENTS_ENABLED, false),
+    requirePhone: bool(env.REQUIRE_PHONE, production),
     corsOrigins: (env.CORS_ORIGINS ?? 'http://localhost:3000').split(',').map((s) => s.trim()).filter(Boolean),
   };
 }

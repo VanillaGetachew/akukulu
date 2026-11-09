@@ -6,10 +6,11 @@ import { SessionProvider, useSession } from '@/lib/session';
 import { Emblem, LogoMark } from '@/components/art';
 import { LoadingState } from '@/components/ui';
 import { PaymentAlerts } from '@/components/payment-alerts';
+import { PhoneGate } from '@/components/phone-gate';
 import { DialogProvider } from '@/lib/dialog';
 
 function Gate({ children }: { children: ReactNode }) {
-  const { status, error, launchParam, devLogin } = useSession();
+  const { status, error, launchParam, devLogin, user } = useSession();
   const router = useRouter();
   const routed = useRef(false);
   const [name, setName] = useState('');
@@ -83,6 +84,8 @@ function Gate({ children }: { children: ReactNode }) {
       </div>
     );
   }
+
+  if (user?.needsPhone) return <PhoneGate />;
 
   return (
     <>

@@ -8,6 +8,8 @@ interface TelegramWebApp {
   setBackgroundColor?(color: string): void;
   openTelegramLink?(url: string): void;
   openLink?(url: string): void;
+  /** Asks to send the user's phone number to the bot. */
+  requestContact?(callback: (shared: boolean) => void): void;
   HapticFeedback?: {
     impactOccurred(style: 'light' | 'medium' | 'heavy' | 'rigid' | 'soft'): void;
     notificationOccurred(type: 'error' | 'success' | 'warning'): void;
