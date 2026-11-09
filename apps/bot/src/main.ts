@@ -113,10 +113,20 @@ const paymentSteps = new Map<number, PaymentStep>();
 
 const cancel = Markup.inlineKeyboard([[Markup.button.callback('✖️ Cancel', 'pay_cancel')]]);
 
+const askForPhone = (ctx: Context) =>
+  ctx.reply(
+    'Welcome to Akukulu! To finish signing up, tap the button below to share the phone number on your Telegram account.',
+    Markup.keyboard([[Markup.button.contactRequest('📱 Share my phone number')]]).resize().oneTime(),
+  );
+
 bot.start(async (ctx) => {
   paymentSteps.delete(ctx.from.id);
   const payload = ctx.payload?.trim() || null;
   const summary = await register(ctx, payload);
+  if (summary.profile.needsPhone) {
+    await askForPhone(ctx);
+    return;
+  }
   // The web app's Deposit and Withdraw buttons link here.
   if (env.paymentsEnabled && payload === 'deposit') {
     const { text, keyboard } = await depositScreen(ctx);
@@ -142,6 +152,19 @@ bot.start(async (ctx) => {
     ].join('\n'),
     mainMenu(),
   );
+});
+
+// Comes from the button above, or from the Mini App's own request. Only the sender's own number counts.
+bot.on('contact', async (ctx) => {
+  const { contact } = ctx.message;
+  if (contact.user_id !== ctx.from.id) {
+    await ctx.reply('Please share your own number, using the button.');
+    return;
+  }
+  await register(ctx, null);
+  await internal(`/users/${ctx.from.id}/phone`, { phone: contact.phone_number });
+  await ctx.reply('✅ Thanks, your number is saved.', Markup.removeKeyboard());
+  await ctx.reply('What would you like to do?', mainMenu());
 });
 
 bot.action('menu', async (ctx) => {

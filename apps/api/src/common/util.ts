@@ -87,7 +87,19 @@ export function toProfile(u: UserEntity): UserProfile {
     isAdmin: u.isAdmin,
     createdAt: u.createdAt.toISOString(),
     referralCode: referralCodeFor(String(u.telegramId)),
+    needsPhone: !!u.phoneRequired && !u.phone,
   };
+}
+
+/** Refuses play and payments for a new player who hasn't shared their phone number. */
+export function assertPhoneShared(u: Pick<UserEntity, 'phone' | 'phoneRequired'>) {
+  if (u.phoneRequired && !u.phone) throw new GameError('PHONE_REQUIRED', 'Please share your phone number first', 403);
+}
+
+/** Telegram sends numbers with or without a plus. Returns +digits, or null if it isn't a phone number. */
+export function normalizeContactPhone(input: string): string | null {
+  const digits = input.replace(/[\s()-]/g, '').replace(/^\+/, '');
+  return /^\d{8,15}$/.test(digits) ? `+${digits}` : null;
 }
 
 export function utcDay(date = new Date()): string {

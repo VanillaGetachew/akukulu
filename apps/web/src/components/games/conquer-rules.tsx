@@ -28,7 +28,7 @@ export const CONQUER_RULES: { am: string; en: string; items: string[] }[] = [
       'Before the deal one player calls, without seeing the base card: ላይ (Up), ታች (Down), ጎን (Side) or ላይና ታች (Up & Down).',
       'The base card is then turned over and placed face-up under the deck. With base 5♣: ላይ = 6♣ 6♠, ታች = 4♣ 4♠, ጎን = 5♦ 5♥, ላይና ታች = 6♣ 4♣.',
       'These cards are the real jokers (★). A real joker can stand for any card a meld needs, even a card that is already on the table (for example the 10♥ when the real 10♥ is already melded).',
-      'A printed JOKER card is a false joker: it can only be a copy of one of this round’s joker cards.',
+      'The F card with the jester is a false joker: it can only be a copy of one of this round’s joker cards.',
       'The players take turns making the call in each new round.',
     ],
   },

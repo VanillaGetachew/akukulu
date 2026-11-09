@@ -2,7 +2,7 @@ import { Body, Controller, Get, HttpCode, Param, Patch, Post, Query, UseGuards }
 import { AdminGuard, CurrentUser, JwtAuthGuard } from '../auth/guards';
 import type { UserEntity } from '../database/entities';
 import { PokerService, type TournamentInput } from '../poker/poker.service';
-import { GameError, body, optInt, reqString } from '../common/util';
+import { GameError, body, optInt, reqString, assertPhoneShared } from '../common/util';
 
 const isUuid = (v: string) => /^[0-9a-f-]{36}$/i.test(v);
 
@@ -20,6 +20,7 @@ export class PokerController {
   @Post('tables/:matchId/sit')
   @HttpCode(200)
   sit(@CurrentUser() user: UserEntity, @Param('matchId') matchId: string, @Body() input: unknown) {
+    assertPhoneShared(user);
     if (!isUuid(matchId)) throw new GameError('NOT_FOUND', 'Table not found', 404);
     const b = body(input);
     const seat = b.seat === undefined ? undefined : optInt(b.seat, 'seat', 0, 8, 0);
@@ -46,6 +47,7 @@ export class PokerController {
   @Post('tournaments/:id/register')
   @HttpCode(200)
   register(@CurrentUser() user: UserEntity, @Param('id') id: string) {
+    assertPhoneShared(user);
     if (!isUuid(id)) throw new GameError('NOT_FOUND', 'Tournament not found', 404);
     return this.poker.register(user.id, id);
   }

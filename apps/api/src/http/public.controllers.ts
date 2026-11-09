@@ -11,7 +11,7 @@ import { RoomsService } from '../rooms/rooms.service';
 import { WalletService } from '../wallet/wallet.service';
 import { PresenceService } from '../realtime/presence.service';
 import { PokerService } from '../poker/poker.service';
-import { GameError, body, displayName, optInt, reqString, toProfile } from '../common/util';
+import { GameError, body, displayName, optInt, reqString, toProfile, assertPhoneShared } from '../common/util';
 
 @Controller('auth')
 export class AuthController {
@@ -81,6 +81,7 @@ export class RoomsController {
 
   @Post()
   create(@CurrentUser() user: UserEntity, @Body() input: unknown) {
+    assertPhoneShared(user);
     const b = body(input);
     return this.rooms.create(user, {
       gameSlug: reqString(b.gameSlug, 'gameSlug'),
@@ -94,6 +95,7 @@ export class RoomsController {
   @Post('quick-play')
   @HttpCode(200)
   quickPlay(@CurrentUser() user: UserEntity, @Body() input: unknown) {
+    assertPhoneShared(user);
     const b = body(input);
     return this.rooms.quickPlay(user, reqString(b.gameSlug, 'gameSlug'), b.stake === undefined ? undefined : optInt(b.stake, 'stake', 0, 1_000_000, 0), body(b.config), b.maxPlayers === undefined ? undefined : optInt(b.maxPlayers, 'maxPlayers', 2, 9, 2));
   }
@@ -106,6 +108,7 @@ export class RoomsController {
   @Post(':code/join')
   @HttpCode(200)
   join(@CurrentUser() user: UserEntity, @Param('code') code: string) {
+    assertPhoneShared(user);
     return this.rooms.join(user, code);
   }
 

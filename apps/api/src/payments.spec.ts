@@ -401,3 +401,38 @@ suite('real-money mode switched off', () => {
     await t.close();
   });
 });
+
+suite('new players sharing a phone number', () => {
+  it('blocks play and payments until the number is shared, and only for accounts that need it', async () => {
+    const t = await startApp(DB!, { dropSchema: true, env: { PAYMENTS_ENABLED: 'true', REQUIRE_PHONE: 'true' } });
+    const api = client(t.url);
+    const internal = async (path: string, payload: unknown) => {
+      const res = await fetch(`${t.url}/api/internal${path}`, { method: 'POST', headers: { 'x-internal-key': 'internal-test-key', 'content-type': 'application/json' }, body: JSON.stringify(payload) });
+      return { status: res.status, body: (await res.json()) as any };
+    };
+    const login = await api('POST', '/auth/telegram', undefined, { initData: initDataFor(71_000, 'NewPlayer') });
+    expect(login.body.user.needsPhone).toBe(true);
+    const token = login.body.token as string;
+
+    const room = await api('POST', '/rooms', token, { gameSlug: 'penalty', stake: 0, visibility: 'private' });
+    expect(room.status).toBe(403);
+    expect(room.body.code).toBe('PHONE_REQUIRED');
+    expect((await api('POST', '/rooms/quick-play', token, { gameSlug: 'ludo', stake: 0 })).body.code).toBe('PHONE_REQUIRED');
+    expect((await internal('/users/71000/payments/withdraw', { amount: 100, phone: '0912345678' })).body.code).toBe('PHONE_REQUIRED');
+
+    expect((await internal('/users/71000/phone', { phone: 'not a number' })).body.code).toBe('BAD_PHONE');
+    const saved = await internal('/users/71000/phone', { phone: '251 912 345 678' });
+    expect(saved.body.profile.needsPhone).toBe(false);
+    expect((await api('GET', '/me', token)).body.needsPhone).toBe(false);
+    expect((await api('POST', '/rooms', token, { gameSlug: 'penalty', stake: 0, visibility: 'private' })).status).toBe(201);
+
+    // The number stays private: it isn't in what the player's own profile or others can read.
+    expect(JSON.stringify((await api('GET', '/me', token)).body)).not.toContain('912345678');
+
+    // Accounts from before the rule are left alone.
+    const old = await api('POST', '/auth/telegram', undefined, { initData: initDataFor(71_001, 'OldPlayer') });
+    await t.app.get(DataSource).query(`UPDATE users SET "phoneRequired" = false WHERE "telegramId" = 71001`);
+    expect((await api('GET', '/me', old.body.token)).body.needsPhone).toBe(false);
+    await t.close();
+  });
+});

@@ -24,6 +24,8 @@ export interface UserProfile {
   isAdmin: boolean;
   createdAt: string;
   referralCode: string;
+  /** A new player who hasn't shared their phone number yet. They can't play until they do. */
+  needsPhone: boolean;
 }
 
 export interface AuthResponse {

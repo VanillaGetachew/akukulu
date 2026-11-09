@@ -5,7 +5,7 @@ import { APP_CONFIG, type AppConfig } from '../config';
 import { UserEntity } from '../database/entities';
 import { LedgerService } from '../wallet/ledger.service';
 import { RewardsService } from '../wallet/rewards.service';
-import { telegramIdFromReferral } from '../common/util';
+import { GameError, normalizeContactPhone, telegramIdFromReferral } from '../common/util';
 
 export interface TelegramIdentity {
   id: number | string;
@@ -35,6 +35,17 @@ export class UsersService {
     return this.dataSource.getRepository(UserEntity).findOneBy({ telegramId });
   }
 
+  /** Saves the number Telegram shared for this account. */
+  async savePhone(telegramId: string, phone: string): Promise<UserEntity> {
+    const number = normalizeContactPhone(phone);
+    if (!number) throw new GameError('BAD_PHONE', 'That does not look like a phone number');
+    const repo = this.dataSource.getRepository(UserEntity);
+    const user = await repo.findOneBy({ telegramId });
+    if (!user) throw new GameError('NOT_FOUND', 'User not found', 404);
+    user.phone = number;
+    return repo.save(user);
+  }
+
   /**
    * Creates or refreshes a user from a verified Telegram identity. New users get
    * the welcome bonus; a `ref_<code>` start parameter credits the referrer once.
@@ -45,7 +56,7 @@ export class UsersService {
       const repo = manager.getRepository(UserEntity);
       let user = await repo.findOne({ where: { telegramId }, lock: { mode: 'pessimistic_write' } });
       const isNew = !user;
-      if (!user) user = repo.create({ telegramId, balance: 0 });
+      if (!user) user = repo.create({ telegramId, balance: 0, phoneRequired: this.config.requirePhone });
       user.firstName = (identity.first_name || 'Player').slice(0, 64);
       user.lastName = identity.last_name?.slice(0, 64) ?? null;
       user.username = identity.username?.slice(0, 64) ?? null;

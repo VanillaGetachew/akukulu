@@ -85,8 +85,32 @@ function HandFan({
 }
 
 /** An opponent: name, a small fan of card backs (or their cards face-up when the game is over). */
-function Seat({ name, count, current, left, revealed, points }: { name: string; count: number; current: boolean; left: boolean; revealed: Card[] | null; points: number | null }) {
+function Seat({ name, count, current, left, revealed, points, side }: { name: string; count: number; current: boolean; left: boolean; revealed: Card[] | null; points: number | null; side?: boolean }) {
   const shown = Math.min(count, 8);
+  if (side) {
+    return (
+      <div className={`flex w-[66px] shrink-0 flex-col items-center rounded-xl px-1 py-1.5 transition ${current ? 'bg-lime/15 ring-2 ring-lime/70' : 'bg-black/20'} ${left ? 'opacity-50' : ''}`}>
+        <span className="max-w-full truncate text-[11px] font-bold">{name}</span>
+        <span className="text-[11px] text-white/60">{left ? 'left' : count}</span>
+        {revealed ? (
+          <div className="mt-1 flex flex-wrap justify-center gap-0.5">
+            {revealed.map((c) => (
+              <CardFace key={c} card={c} width={26} plain />
+            ))}
+            {points !== null && <span className="text-[10px] font-bold text-white/70">{points} pts</span>}
+          </div>
+        ) : (
+          <div className="relative mt-1 w-[34px]" style={{ height: 22 + Math.max(0, shown - 1) * 9 }}>
+            {Array.from({ length: shown }, (_, i) => (
+              <div key={i} className="absolute left-[6px]" style={{ top: i * 9 - 5, transform: 'rotate(90deg)' }}>
+                <CardBack width={22} />
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
   return (
     <div className={`flex min-w-[5.5rem] flex-col items-center rounded-xl px-2 py-1.5 transition ${current ? 'bg-lime/15 ring-2 ring-lime/70' : 'bg-black/20'} ${left ? 'opacity-40' : ''}`}>
       <div className="flex max-w-[8rem] items-center gap-1 text-[11px] font-bold">
@@ -299,6 +323,24 @@ export function CrazyTable({ state, view, act, pending, serverNow }: TableProps<
     setSelected([c]);
   };
 
+  // Play runs clockwise from me: the next player sits to my left, the last to my right, anyone else opposite.
+  const sideSeats = opponents.length > 1;
+  const sideLeft = sideSeats ? opponents[0] : null;
+  const sideRight = sideSeats ? opponents[opponents.length - 1] : null;
+  const topSeats = sideSeats ? opponents.slice(1, -1) : opponents;
+  const seat = (p: (typeof opponents)[number], side = false) => (
+    <Seat
+      key={p.playerId}
+      name={nameOf(state, p.playerId)}
+      count={dealtTo(p.playerId, p.handCount)}
+      current={p.playerId === view.currentPlayerId}
+      left={p.status === 'forfeited'}
+      revealed={p.revealedHand}
+      points={p.points}
+      side={side}
+    />
+  );
+
   const status = describe(view.lastEvent, name);
   const turnText = myTurn
     ? view.pendingDraw > 0
@@ -317,22 +359,14 @@ export function CrazyTable({ state, view, act, pending, serverNow }: TableProps<
 
       {/* Opponents */}
       <div data-deal="opp" className="flex shrink-0 flex-wrap justify-center gap-1.5 px-11 pt-2">
-        {opponents.map((p) => (
-          <Seat
-            key={p.playerId}
-            name={nameOf(state, p.playerId)}
-            count={dealtTo(p.playerId, p.handCount)}
-            current={p.playerId === view.currentPlayerId}
-            left={p.status === 'forfeited'}
-            revealed={p.revealedHand}
-            points={p.points}
-          />
-        ))}
+        {topSeats.map((p) => seat(p))}
       </div>
 
-      {/* Deck and discard */}
-      <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 overflow-hidden px-2">
-        <div className="flex items-end justify-center gap-10">
+      {/* Deck and discard, with the side seats either side of them */}
+      <div className="flex min-h-0 flex-1 items-center gap-1 px-1">
+      {sideLeft && seat(sideLeft, true)}
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col items-center justify-center gap-2 overflow-hidden">
+        <div className={`flex items-end justify-center ${sideLeft ? 'gap-4' : 'gap-10'}`}>
           <div className="flex flex-col items-center gap-1">
             <button
               type="button"
@@ -373,7 +407,12 @@ export function CrazyTable({ state, view, act, pending, serverNow }: TableProps<
             {myTurn ? 'You start — play any card' : `${view.currentPlayerId ? nameOf(state, view.currentPlayerId) : ''} starts with any card`}
           </div>
         )}
+        {finished && view.winnerId && (
+          <div className="rounded-full bg-gold px-3 py-1 text-xs font-extrabold text-[#17171c]">{view.winnerId === user?.id ? 'You won!' : `${nameOf(state, view.winnerId)} won`}</div>
+        )}
         {status && <div className="max-w-xs text-center text-[11px] text-white/75">{status}</div>}
+      </div>
+      {sideRight && seat(sideRight, true)}
       </div>
 
       {/* Turn and hand */}
