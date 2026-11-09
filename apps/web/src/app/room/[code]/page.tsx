@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
-import type { BlackjackView, ConquerView, CrazyView, LudoView, MatchSummary, PenaltyView, PokerView, RoomSummary } from '@akukulu/shared';
+import { PENALTY_REVEAL_MS, type BlackjackView, type ConquerView, type CrazyView, type LudoView, type MatchSummary, type PenaltyView, type PokerView, type RoomSummary } from '@akukulu/shared';
 import { api } from '@/lib/api';
 import { useSession } from '@/lib/session';
 import { useMatch } from '@/lib/use-match';
@@ -16,7 +16,7 @@ import { BlackjackTable } from '@/components/games/blackjack-table';
 import { ConquerTable } from '@/components/games/conquer-table';
 import { CrazyTable } from '@/components/games/crazy-table';
 import { PenaltyTable } from '@/components/games/penalty-table';
-import { CardRain, LudoWin } from '@/components/fx';
+import { CardRain, LudoWin, PenaltyWin } from '@/components/fx';
 
 function WaitingRoom({ room, onAction, busy }: { room: RoomSummary; onAction: (path: string, body?: unknown) => void; busy: boolean }) {
   const { user } = useSession();
@@ -165,7 +165,7 @@ function ResultSheet({ summary, stake }: { summary: MatchSummary; stake: number 
   return (
     <div className="fixed inset-0 z-40 grid place-items-end bg-black/60 p-4 backdrop-blur-sm sm:place-items-center" role="dialog" aria-modal="true">
       {/* Each game celebrates its own way: Ludo with confetti and a trophy, the card games with falling cards. */}
-      {(delta > 0 || mine?.outcome === 'win') && (summary.gameSlug === 'ludo' ? <LudoWin /> : <CardRain />)}
+      {(delta > 0 || mine?.outcome === 'win') && (summary.gameSlug === 'ludo' ? <LudoWin /> : summary.gameSlug === 'penalty' ? <PenaltyWin /> : <CardRain />)}
       <div className="card w-full max-w-md animate-pop p-5">
         <h2 className={`font-display text-2xl font-extrabold ${delta > 0 || mine?.outcome === 'win' ? 'text-lime' : delta < 0 ? 'text-danger' : ''}`}>{title}</h2>
         <div className="mt-3 grid gap-1.5">
@@ -237,12 +237,17 @@ export default function RoomPage() {
 
   const dialog = useDialog();
   const status = match.state?.status;
+  // A shootout won by a kick shows that kick before the result sheet covers the pitch.
+  const penaltyEnding = (match.state?.view as PenaltyView | undefined)?.finishReason;
+  const resultDelay = room?.gameSlug === 'penalty' && penaltyEnding && penaltyEnding !== 'forfeit' ? PENALTY_REVEAL_MS + 400 : 0;
   useEffect(() => {
-    if (status === 'finished' || status === 'cancelled') {
+    if (status !== 'finished' && status !== 'cancelled') return;
+    const timer = setTimeout(() => {
       if (match.ended) setFinalSummary(match.ended);
       else if (room?.matchId) void api<MatchSummary>(`/matches/${room.matchId}`).then(setFinalSummary).catch(() => undefined);
-    }
-  }, [status, match.ended, room?.matchId]);
+    }, resultDelay);
+    return () => clearTimeout(timer);
+  }, [status, match.ended, room?.matchId, resultDelay]);
 
   async function roomAction(path: string, body?: unknown) {
     setBusy(true);

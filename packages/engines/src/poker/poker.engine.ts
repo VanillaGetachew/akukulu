@@ -738,6 +738,8 @@ export const pokerEngine: GameEngine<PokerState, PokerConfig, PokerView> = {
       c.smallBlind = raw.smallBlind !== undefined ? intInRange(raw.smallBlind, 1, c.bigBlind, 'smallBlind') : Math.max(1, Math.floor(c.bigBlind / 2));
       c.minBuyIn = c.bigBlind * POKER_CASH_MIN_BB;
       c.buyIn = c.bigBlind * POKER_CASH_MAX_BB;
+      // Small tables have one fixed buy-in instead of a range.
+      if (raw.cashBuyIn !== undefined) c.minBuyIn = c.buyIn = intInRange(raw.cashBuyIn, 1, 1_000_000, 'cashBuyIn');
       if (typeof raw.tableName === 'string' && raw.tableName.trim()) c.tableName = raw.tableName.trim().slice(0, 40);
       if (raw.turnSeconds !== undefined) c.turnSeconds = intInRange(raw.turnSeconds, 10, 120, 'turnSeconds');
       return c;

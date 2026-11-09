@@ -23,7 +23,7 @@ export const DEFAULT_PENALTY_CONFIG: PenaltyConfig = {
 };
 
 /** How long a kick plays out on screen; added to the next choice's clock. */
-export const PENALTY_REVEAL_MS = 2600;
+export const PENALTY_REVEAL_MS = 3000;
 
 export type PenaltyAction = { type: 'choose'; side: PenaltySide } | { type: 'leave' };
 

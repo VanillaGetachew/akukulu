@@ -9,6 +9,9 @@ import { useViewportHeight, useWidth } from './card-table';
 import { nameOf, type TableProps } from './types';
 
 /** Classic board colours. */
+/** Squares of empty drawing kept above the board. */
+const TOP_ROOM = 1;
+
 const COLOR: Record<LudoColor, string> = { red: '#e53935', green: '#2e9e48', yellow: '#f6b80e', blue: '#1f7fdc' };
 const LIGHT: Record<LudoColor, string> = { red: '#ff8a80', green: '#7be08f', yellow: '#ffe082', blue: '#82c1ff' };
 const DARK: Record<LudoColor, string> = { red: '#8e1b1b', green: '#145c27', yellow: '#9a6a00', blue: '#0d4a8a' };
@@ -358,19 +361,19 @@ export function LudoTable({ state, view, act, pending, serverNow }: TableProps<L
         ←
       </Link>
       <div className="mx-auto flex min-h-0 w-full max-w-[600px] flex-1 flex-col justify-center px-2 pt-10">
-        <div className="mb-2 flex items-start justify-between">
+        <div className="relative z-[1] mb-2 flex items-start justify-between">
           {corner('tl')}
           {corner('tr')}
         </div>
         <div ref={boxRef} className="w-full">
-          {/* overflow visible: a pawn standing on the top row reaches above the board's edge. */}
+          {/* A strip above the board leaves room for a pawn standing on the top row. iPhones clip anything outside the drawing. */}
           <svg
             ref={boardRef}
-            viewBox="0 0 15 15"
+            viewBox={`0 ${-TOP_ROOM} 15 ${15 + TOP_ROOM}`}
             width={size}
-            height={size}
-            className="mx-auto block touch-manipulation select-none rounded-[14px] drop-shadow-[0_18px_30px_rgba(0,0,0,.45)]"
-            style={{ overflow: 'visible', outline: '5px solid #0b1d47', outlineOffset: 0 }}
+            height={(size * (15 + TOP_ROOM)) / 15}
+            className="mx-auto block touch-manipulation select-none drop-shadow-[0_18px_30px_rgba(0,0,0,.45)]"
+            style={{ marginTop: (-size * TOP_ROOM) / 15 }}
             role="img"
             aria-label="Ludo board"
           >
@@ -520,7 +523,7 @@ export function LudoTable({ state, view, act, pending, serverNow }: TableProps<L
             {view.phase !== 'finished' && <TurnClock deadline={view.turnDeadline} serverNow={serverNow} total={view.config.turnSeconds} />}
           </div>
           <div className="truncate text-xs text-white/70">{eventText}</div>
-          {view.config.stake > 0 && <div className="text-[11px] text-white/60">Pot: {view.config.stake * view.players.length} points to the winner</div>}
+          {view.config.stake > 0 && <div className="text-[11px] text-white/60">Pot: {view.config.stake * view.players.length} ETB to the winner, less the house fee</div>}
         </div>
       </div>
     </div>
