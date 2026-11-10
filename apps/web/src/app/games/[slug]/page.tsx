@@ -10,7 +10,6 @@ import { ART_BG, GameThumb } from '@/components/art';
 import { ConquerRulesList } from '@/components/games/conquer-rules';
 import { CrazyRulesList } from '@/components/games/crazy-rules';
 import { GameTutorial, tutorialSeen } from '@/components/games/game-tutorial';
-import { HandHistoryButton } from '@/components/games/poker-history';
 import { PokerLobby } from '@/components/games/poker-lobby';
 import { Avatar, Coin, EmptyState, ErrorState, LoadingState, MaintenanceState, Page, Toast } from '@/components/ui';
 
@@ -29,14 +28,14 @@ const STAKES: Record<GameSlug, { label: string; options: number[]; default: numb
 const SNG_STAKES = { label: 'Tournament buy-in', options: [...WAGER_OPTIONS], default: 10, min: 10 };
 
 const RULES: Record<GameSlug, string[]> = {
-  ludo: ['Roll a 6 to bring a token out.', 'Land on an opponent to send it home — except on star and start squares.', 'A 6, a capture or reaching home earns another roll. Three 6s in a row ends your turn.', 'Exact roll needed to finish. First to bring all four tokens home wins the pot.'],
+  ludo: ['Roll a 6 to bring a token out.', 'Land on an opponent to send it home — except on star and start squares.', 'A 6, a capture or reaching home earns another roll, as many times in a row as you roll them.', 'Exact roll needed to finish. First to bring all four tokens home wins the pot.'],
   poker: [
     "No-limit Texas Hold'em. Two hole cards, five community cards; the best five-card hand wins.",
     'Blinds rotate each hand. Check, bet, call, raise or fold; all-ins create side pots.',
     'Cash tables are always open at fixed blinds. Sit down at any free seat with 40–100 big blinds, and stand up whenever you like: your chips go back to your balance. Joining a game in progress costs one big blind.',
     'Scheduled tournaments are announced by the Akukulu team. Register before the start (unregistering returns the buy-in); late registration stays open for the first levels. Blinds rise by the clock, antes start at level 4, tables are balanced as players bust, and about 15% of the field is paid.',
     'Sit & Go: everyone pays the same buy-in into a prize pool and starts with 1,500 chips. Blinds rise every 6 hands; bust out and you are out. The prize pool is paid by finishing place.',
-    'Your current hand is named under your cards ("Two Pair, Aces & Kings"). Every hand you play is kept in the hand history — open it from the table or your profile.',
+    'Your current hand is named under your cards ("Two Pair, Aces & Kings"). Every hand you play is kept in the hand history, which you can open from the table or your profile.',
     'Use the bet slider or the ½ pot, ¾ pot, pot and all-in buttons. Tick Check / fold to act automatically when it is your turn.',
   ],
   blackjack: ['Get closer to 21 than the dealer without going over.', 'Blackjack pays 3:2. Dealer stands on all 17s.', 'Double on any two cards, split pairs up to four hands.', 'Split aces get one card each.'],
@@ -247,7 +246,7 @@ export default function GameLobby() {
                 <span>{game.solo ? 'You against the dealer' : game.minPlayers === game.maxPlayers ? `${game.minPlayers} players` : `${game.minPlayers}–${game.maxPlayers} players`}</span>
                 <span className="flex items-center gap-1.5">
                   <span className={`h-1.5 w-1.5 rounded-full ${game.activePlayers > 0 ? 'bg-lime' : 'bg-muted/60'}`} aria-hidden />
-                  {game.activePlayers} playing now
+                  {game.activePlayers} here now
                 </span>
               </div>
             </div>
@@ -280,9 +279,6 @@ export default function GameLobby() {
                     ))}
                   </div>
                   {pokerMode !== 'sitgo' && <PokerLobby mode={pokerMode} />}
-                  <div className="mb-4">
-                    <HandHistoryButton label="My hand history" />
-                  </div>
                 </>
               )}
               {!game.solo && !pokerCash && (

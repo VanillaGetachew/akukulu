@@ -20,6 +20,13 @@ export function pokerRakeCap(bigBlind: number): number {
   return bigBlind;
 }
 
+/** Sending money to another player, in whole birr. The fee comes out of the amount sent. */
+export const TRANSFERS = { min: 10, max: 50_000, feePercent: 2, minFee: 1 } as const;
+
+export function transferFee(amount: number): number {
+  return Math.max(TRANSFERS.minFee, Math.ceil((amount * TRANSFERS.feePercent) / 100));
+}
+
 export function houseCut(amount: number, percent: number): number {
   return Math.floor((amount * percent) / 100);
 }

@@ -1,16 +1,19 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { PROMOTIONS, type LedgerEntrySummary } from '@akukulu/shared';
+import { PROMOTIONS, TRANSFERS, type LedgerEntrySummary } from '@akukulu/shared';
 import { api } from '@/lib/api';
 import { openShare, openTelegramLink } from '@/lib/telegram';
 import { useSession } from '@/lib/session';
-import { Coin, EmptyState, ErrorState, LoadingState, Page, Points } from '@/components/ui';
+import { Coin, EmptyState, ErrorState, LoadingState, Page, Points, Toast } from '@/components/ui';
+import { TransferForm } from '@/components/transfer-form';
 
 export default function WalletPage() {
   const { user, refreshUser } = useSession();
   const [rows, setRows] = useState<LedgerEntrySummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [sending, setSending] = useState(false);
+  const [sent, setSent] = useState<string | null>(null);
 
   const [botLink, setBotLink] = useState('https://t.me/Akukulugamebot');
   const load = useCallback(async () => {
@@ -45,6 +48,9 @@ export default function WalletPage() {
           <button className="btn-ghost btn-sm" onClick={() => openTelegramLink(`${botLink}?start=withdraw`)}>
             ➖ Withdraw
           </button>
+          <button className="btn-ghost btn-sm" onClick={() => setSending(true)}>
+            💸 Send to a player
+          </button>
         </div>
         <p className="mt-3 max-w-sm text-[13px] text-muted">Deposits and withdrawals are made with Telebirr in the Akukulu bot.</p>
         {!!user?.bonusLocked && (
@@ -68,6 +74,7 @@ export default function WalletPage() {
         <h2 className="mb-1 text-sm font-bold text-fg">House fees</h2>
         <p>Ludo, Conquer, Crazy and poker tournaments: 10% of the prize pool for stakes up to 50 ETB, 8% up to 500 ETB and 5% above that.</p>
         <p className="mt-1">Poker cash games: 5% of each pot, up to a limit set by the blinds. Nothing is taken from a hand that ends before the flop.</p>
+        <p className="mt-1">Sending money to another player: {TRANSFERS.feePercent}% of the amount, at least {TRANSFERS.minFee} ETB.</p>
       </section>
       <h2 className="section-title mb-3">History</h2>
       {error ? (
@@ -97,6 +104,18 @@ export default function WalletPage() {
           ))}
         </div>
       )}
+      {sending && (
+        <TransferForm
+          available={Math.max(0, (user?.balance ?? 0) - (user?.bonusLocked ?? 0))}
+          onClose={() => setSending(false)}
+          onSent={(r) => {
+            setSending(false);
+            setSent(`Sent. ${r.recipientName} received ${r.receives.toLocaleString()} ETB.`);
+            void load();
+          }}
+        />
+      )}
+      <Toast message={sent} tone="success" onClose={() => setSent(null)} />
     </Page>
   );
 }

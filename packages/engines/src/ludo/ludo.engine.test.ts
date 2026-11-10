@@ -145,17 +145,19 @@ describe('Ludo movement', () => {
     expect(moved.current).toBe(0);
   });
 
-  it('forfeits the turn on three consecutive sixes', () => {
+  it('keeps the turn for every six, however many in a row', () => {
     let s = twoPlayer({ a: [10, 20, -1, -1] });
-    for (let i = 0; i < 2; i++) {
+    for (let i = 0; i < 5; i++) {
       s = expectOk(ludoEngine.act(s, 'a', { type: 'roll' }, ctx(dice(6))));
+      expect(s.phase).toBe('move');
       s = expectOk(ludoEngine.act(s, 'a', { type: 'move', token: 0 }, ctx()));
       expect(s.current).toBe(0);
+      expect(s.phase).toBe('roll');
     }
-    s = expectOk(ludoEngine.act(s, 'a', { type: 'roll' }, ctx(dice(6))));
-    expect(s.players[0].tokens[0]).toBe(22);
+    expect(s.players[0].tokens[0]).toBe(40);
+    s = expectOk(ludoEngine.act(s, 'a', { type: 'roll' }, ctx(dice(3))));
+    s = expectOk(ludoEngine.act(s, 'a', { type: 'move', token: 0 }, ctx()));
     expect(s.current).toBe(1);
-    expect(s.consecutiveSixes).toBe(0);
   });
 
   it('rolls again on a six with no legal move', () => {

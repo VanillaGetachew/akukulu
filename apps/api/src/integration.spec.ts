@@ -782,6 +782,23 @@ suite('API integration', () => {
     }
   });
 
+  it('counts everyone inside a game: waiting, playing, or looking at its lobby', async () => {
+    const count = async (slug: string) => (await api('GET', '/games')).body.find((g: { slug: string }) => g.slug === slug).activePlayers as number;
+    const [a, b, c] = [await login('InsideA'), await login('InsideB'), await login('InsideC')];
+    const before = await count('rps');
+    // Looking at the lobby counts, once per player however often it refreshes.
+    await api('GET', '/games/rps/rooms', c.token);
+    await api('GET', '/games/rps/rooms', c.token);
+    expect(await count('rps')).toBe(before + 1);
+    // So does waiting in a room, and playing.
+    const room = await api('POST', '/rooms', a.token, { gameSlug: 'rps', stake: 0, visibility: 'private' });
+    expect(await count('rps')).toBe(before + 2);
+    const joined = await api('POST', `/rooms/${room.body.code}/join`, b.token);
+    expect(await count('rps')).toBe(before + 3);
+    await act(a, joined.body.matchId, { type: 'leave' });
+    expect(await count('rps')).toBe(before + 1);
+  });
+
   it('quick play respects the chosen table size', async () => {
     const [a, b, c] = [await login('SeatsA'), await login('SeatsB'), await login('SeatsC')];
     const two = await api('POST', '/rooms/quick-play', a.token, { gameSlug: 'crazy', stake: 37, maxPlayers: 2 });

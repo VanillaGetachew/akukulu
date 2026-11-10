@@ -3,6 +3,7 @@
  * Opt-in: set TEST_DATABASE_URL (see `npm run test:integration` in the repo root).
  */
 import type { Socket } from 'socket.io-client';
+import { randomUUID } from 'node:crypto';
 import { DataSource } from 'typeorm';
 import type { PaymentRequestSummary } from '@akukulu/shared';
 import { normalizeEthiopianPhone, normalizeReference } from './wallet/payments.service';
@@ -292,6 +293,71 @@ suite('real-money mode', () => {
     // Pot of 100 at 10%.
     expect(await balance(c)).toBe(50 - 50 + 90);
     expect((await earnings()) - before).toBe(25);
+  });
+
+  it('sends money between players, keeps a 2% fee, and never sends twice', async () => {
+    const before = await earnings();
+    const [a, b] = [await funded(1000), await funded(100)];
+    const ds = t.app.get(DataSource);
+    await ds.query(`UPDATE users SET phone = '+251911000111', username = 'Receiver_One' WHERE id = $1`, [b.id]);
+
+    // Found by local number, international number or username; the fee is shown first.
+    for (const to of ['0911000111', '+251 911 000 111', '@receiver_one']) {
+      const preview = await api('POST', '/me/transfer/preview', a.token, { to, amount: 250 });
+      expect(preview.status).toBe(200);
+      expect(preview.body).toMatchObject({ recipientId: b.id, amount: 250, fee: 5, receives: 245 });
+    }
+    expect(await balance(a)).toBe(1000);
+    expect((await api('POST', '/me/transfer/preview', a.token, { to: '0999999999', amount: 250 })).status).toBe(404);
+    expect((await api('POST', '/me/transfer/preview', a.token, { to: '0911000111', amount: 5 })).status).toBe(400);
+    expect((await api('POST', '/me/transfer/preview', a.token, { to: '0911000111', amount: 1001 })).body.code).toBe('INSUFFICIENT_BALANCE');
+    expect((await api('POST', '/me/transfer/preview', b.token, { to: '0911000111', amount: 50 })).body.code).toBe('SELF_TRANSFER');
+
+    const requestId = randomUUID();
+    const sent = await api('POST', '/me/transfer', a.token, { recipientId: b.id, amount: 250, requestId });
+    expect(sent.body).toMatchObject({ amount: 250, fee: 5, receives: 245, balance: 750 });
+    // A second tap with the same id changes nothing.
+    const again = await api('POST', '/me/transfer', a.token, { recipientId: b.id, amount: 250, requestId });
+    expect(again.body.balance).toBe(750);
+    expect(await balance(a)).toBe(750);
+    expect(await balance(b)).toBe(345);
+    expect((await earnings()) - before).toBe(5);
+
+    // The smallest transfer still pays the 1 ETB minimum fee.
+    expect((await api('POST', '/me/transfer', a.token, { recipientId: b.id, amount: 10, requestId: randomUUID() })).body).toMatchObject({ fee: 1, receives: 9, balance: 740 });
+    expect((await earnings()) - before).toBe(6);
+
+    // Not more than you have, not to yourself, not to nobody, and not without a proper id.
+    expect((await api('POST', '/me/transfer', a.token, { recipientId: b.id, amount: 741, requestId: randomUUID() })).body.code).toBe('INSUFFICIENT_BALANCE');
+    expect((await api('POST', '/me/transfer', a.token, { recipientId: a.id, amount: 50, requestId: randomUUID() })).body.code).toBe('SELF_TRANSFER');
+    expect((await api('POST', '/me/transfer', a.token, { recipientId: randomUUID(), amount: 50, requestId: randomUUID() })).status).toBe(404);
+    expect((await api('POST', '/me/transfer', a.token, { recipientId: b.id, amount: 50, requestId: 'x' })).status).toBe(400);
+    expect((await api('POST', '/me/transfer', a.token, { recipientId: b.id, amount: 50.5, requestId: randomUUID() })).status).toBe(400);
+    expect(await balance(a)).toBe(740);
+
+    // Two transfers at once cannot spend the same money.
+    const both = await Promise.all([1, 2].map(() => api('POST', '/me/transfer', a.token, { recipientId: b.id, amount: 500, requestId: randomUUID() })));
+    expect(both.map((r) => r.status).sort()).toEqual([200, 400]);
+    expect(await balance(a)).toBe(240);
+    expect(await balance(b)).toBe(354 + 490);
+
+    // Bonus money has to be wagered before it can be sent on.
+    await ds.query(`UPDATE users SET "bonusLocked" = 200, "bonusWagerLeft" = 1000 WHERE id = $1`, [a.id]);
+    expect((await api('POST', '/me/transfer', a.token, { recipientId: b.id, amount: 100, requestId: randomUUID() })).body.code).toBe('BONUS_LOCKED');
+    expect((await api('POST', '/me/transfer', a.token, { recipientId: b.id, amount: 40, requestId: randomUUID() })).status).toBe(200);
+    await ds.query(`UPDATE users SET "bonusLocked" = 0, "bonusWagerLeft" = 0 WHERE id = $1`, [a.id]);
+
+    // A banned player can neither send nor receive.
+    await ds.query(`UPDATE users SET "isBanned" = true WHERE id = $1`, [b.id]);
+    expect((await api('POST', '/me/transfer/preview', a.token, { to: '0911000111', amount: 50 })).status).toBe(404);
+    expect((await api('POST', '/me/transfer', a.token, { recipientId: b.id, amount: 50, requestId: randomUUID() })).status).toBe(404);
+    expect(await balance(a)).toBe(200);
+
+    const history = (await api('GET', '/me/transactions?limit=5', a.token)).body as { type: string; description: string; amount: number }[];
+    expect(history[0]).toMatchObject({ type: 'transfer_out', amount: -40 });
+    expect(history[0].description).toContain('Sent to');
+    const revenue = (await api('GET', '/admin/revenue', adminToken)).body;
+    expect(revenue.bySource.some((s: { source: string }) => s.source === 'Transfer fees')).toBe(true);
   });
 
   it('gives the first deposit a capped bonus that unlocks after wagering', async () => {

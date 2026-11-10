@@ -114,6 +114,20 @@ export interface LedgerEntrySummary {
   createdAt: string;
 }
 
+/** What a transfer will do, shown to the sender before they confirm. */
+export interface TransferPreview {
+  recipientId: string;
+  recipientName: string;
+  amount: number;
+  fee: number;
+  /** What the other player gets: the amount less the fee. */
+  receives: number;
+}
+
+export interface TransferResult extends TransferPreview {
+  balance: number;
+}
+
 export interface LeaderboardRow {
   rank: number;
   userId: string;

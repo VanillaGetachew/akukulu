@@ -23,7 +23,7 @@ const STEPS: Record<GameSlug, Step[]> = {
     SHARED_TABLES,
     { icon: '💰', title: 'Stakes', body: STAKE_NOTE },
     { icon: '6️⃣', title: 'Get on the board', body: 'Tap the die on your turn. You need a 6 to bring a token out. Then tap the token you want to move.' },
-    { icon: '💥', title: 'Capture', body: 'Land on an opponent to send them back home, except on star and start squares. A 6, a capture or reaching home gives you another roll, but three 6s in a row ends your turn.' },
+    { icon: '💥', title: 'Capture', body: 'Land on an opponent to send them back home, except on star and start squares. A 6, a capture or reaching home gives you another roll, every time.' },
     { icon: '🏁', title: 'Finish', body: 'You need the exact number to bring a token home. The first player with all four home wins.' },
   ],
   poker: [

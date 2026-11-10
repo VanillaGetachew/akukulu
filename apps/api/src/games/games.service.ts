@@ -5,11 +5,31 @@ import { GAME_CATALOG, GAME_SLUGS, LEGACY_CONQUER_MAINTENANCE_MESSAGE, NO_ENGINE
 import { GameEntity } from '../database/entities';
 import { GameError } from '../common/util';
 
+/** The lobby refreshes every 8 seconds; two missed refreshes and the player has gone. */
+const LOBBY_PRESENCE_MS = 20_000;
+
 @Injectable()
 export class GamesService implements OnApplicationBootstrap {
   private readonly logger = new Logger(GamesService.name);
 
+  /** Who has a game's lobby open: user id to when they were last seen there. */
+  private readonly lobby = new Map<GameSlug, Map<string, number>>();
+
   constructor(private readonly dataSource: DataSource) {}
+
+  seenInLobby(slug: GameSlug, userId: string) {
+    let seen = this.lobby.get(slug);
+    if (!seen) this.lobby.set(slug, (seen = new Map()));
+    seen.set(userId, Date.now());
+  }
+
+  private inLobby(slug: GameSlug): string[] {
+    const seen = this.lobby.get(slug);
+    if (!seen) return [];
+    const cutoff = Date.now() - LOBBY_PRESENCE_MS;
+    for (const [userId, at] of seen) if (at < cutoff) seen.delete(userId);
+    return [...seen.keys()];
+  }
 
   async onApplicationBootstrap() {
     await this.syncCatalog();
@@ -62,16 +82,17 @@ export class GamesService implements OnApplicationBootstrap {
 
   async list(): Promise<GameSummary[]> {
     const games = await this.dataSource.getRepository(GameEntity).find({ order: { sortOrder: 'ASC' } });
-    const counts: { gameSlug: GameSlug; players: string; rooms: string }[] = await this.dataSource.query(`
-      SELECT r."gameSlug",
-             COUNT(DISTINCT rp."userId") AS players,
-             COUNT(DISTINCT r.id) FILTER (WHERE r.status = 'waiting' AND r.visibility = 'public') AS rooms
-      FROM rooms r
-      LEFT JOIN room_players rp ON rp."roomId" = r.id
-      WHERE r.status IN ('waiting', 'in_progress')
-      GROUP BY r."gameSlug"`);
-    const bySlug = new Map(counts.map((c) => [c.gameSlug, c]));
-    return games.map((g) => this.toSummary(g, Number(bySlug.get(g.slug)?.players ?? 0), Number(bySlug.get(g.slug)?.rooms ?? 0)));
+    const counts: { gameSlug: GameSlug; rooms: string }[] = await this.dataSource.query(`
+      SELECT "gameSlug", COUNT(*) AS rooms FROM rooms WHERE status = 'waiting' AND visibility = 'public' GROUP BY "gameSlug"`);
+    // Everyone inside a game: waiting in a room, seated in a match (poker tables and tournaments too), or looking at its lobby.
+    const seated: { gameSlug: GameSlug; userId: string }[] = await this.dataSource.query(`
+      SELECT r."gameSlug", rp."userId" FROM rooms r JOIN room_players rp ON rp."roomId" = r.id WHERE r.status IN ('waiting', 'in_progress')
+      UNION
+      SELECT m."gameSlug", mp."userId" FROM matches m JOIN match_players mp ON mp."matchId" = m.id WHERE m.status = 'active'`);
+    const inside = new Map<GameSlug, Set<string>>(games.map((g) => [g.slug, new Set(this.inLobby(g.slug))]));
+    for (const row of seated) inside.get(row.gameSlug)?.add(row.userId);
+    const rooms = new Map(counts.map((c) => [c.gameSlug, Number(c.rooms)]));
+    return games.map((g) => this.toSummary(g, inside.get(g.slug)?.size ?? 0, rooms.get(g.slug) ?? 0));
   }
 
   toSummary(g: GameEntity, activePlayers = 0, openRooms = 0): GameSummary {
