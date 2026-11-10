@@ -324,17 +324,24 @@ export function PenaltyTable({ state, view, act, pending, serverNow }: TableProp
     if (!kick || kick.seq === seen.current) return;
     seen.current = kick.seq;
     setShot(kick);
+  }, [view.lastKick]);
+  // The timers hang off the kick being shown, so later updates from the server cannot cancel them.
+  const userId = useRef(user?.id);
+  userId.current = user?.id;
+  useEffect(() => {
+    if (!shot) return;
     const done = setTimeout(() => setShot(null), PENALTY_REVEAL_MS);
     // Felt at the moment the shot is decided, not when it is taken.
-    const mine = kick.kickerId === user?.id ? kick.goal : !kick.goal;
     const felt = setTimeout(() => {
-      if (kick.kickerId === user?.id || kick.keeperId === user?.id) haptic(mine ? 'success' : 'error');
+      const me = userId.current;
+      const mine = shot.kickerId === me ? shot.goal : !shot.goal;
+      if (shot.kickerId === me || shot.keeperId === me) haptic(mine ? 'success' : 'error');
     }, T.impact);
     return () => {
       clearTimeout(done);
       clearTimeout(felt);
     };
-  }, [view.lastKick, user?.id]);
+  }, [shot]);
   const ms = useKickClock(shot);
 
   const revealing = shot !== null;

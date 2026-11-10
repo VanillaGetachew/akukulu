@@ -1,4 +1,6 @@
 import type { PenaltyView } from './games/penalty';
+import type { RpsView } from './games/rps';
+import type { BingoView } from './games/bingo';
 import type { PaymentRequestSummary } from './payments';
 import type { GameSlug } from './catalog';
 import type { LudoView } from './games/ludo';
@@ -7,7 +9,7 @@ import type { BlackjackView } from './games/blackjack';
 import type { ConquerView } from './games/conquer';
 import type { CrazyView } from './games/crazy';
 
-export type GameView = LudoView | PokerView | BlackjackView | ConquerView | CrazyView | PenaltyView;
+export type GameView = LudoView | PokerView | BlackjackView | ConquerView | CrazyView | PenaltyView | RpsView | BingoView;
 
 export interface UserProfile {
   id: string;

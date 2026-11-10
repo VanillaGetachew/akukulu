@@ -21,7 +21,7 @@ export interface CreateRoomInput {
 type StartResult = Awaited<ReturnType<MatchRuntimeService['startFromRoom']>>;
 
 /** Default room stake per game: Ludo entry, Poker buy-in, Blackjack minimum bet. */
-const DEFAULT_STAKE: Record<GameSlug, number> = { ludo: 0, poker: 500, blackjack: 10, conquer: 0, crazy: 0, penalty: 0 };
+const DEFAULT_STAKE: Record<GameSlug, number> = { ludo: 0, poker: 500, blackjack: 10, conquer: 0, crazy: 0, penalty: 0, rps: 0, bingo: 0 };
 
 /** Points a player must hold to sit down. */
 function requiredBalance(slug: GameSlug, config: Record<string, unknown>): number {
@@ -30,7 +30,7 @@ function requiredBalance(slug: GameSlug, config: Record<string, unknown>): numbe
   if (slug === 'blackjack') return Number(config.minBet ?? 0);
   // A ጆከር ለመሬት or ዶቤ Conquer table needs twice the stake.
   if (slug === 'conquer') return conquerRequiredBalance({ stake: Number(config.stake ?? 0), jokerToGround: config.jokerToGround === true, dobe: config.dobe === true });
-  if (slug === 'crazy' || slug === 'penalty') return Number(config.stake ?? 0);
+  if (slug === 'crazy' || slug === 'penalty' || slug === 'rps' || slug === 'bingo') return Number(config.stake ?? 0);
   return 0;
 }
 

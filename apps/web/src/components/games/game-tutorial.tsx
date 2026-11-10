@@ -63,6 +63,21 @@ const STEPS: Record<GameSlug, Step[]> = {
     { icon: '🧤', title: 'When you are in goal', body: 'Tap the side you think the shot is going. Pick the same side and you save it.' },
     { icon: '⏱️', title: 'Winning', body: 'Five kicks each, stopping early if someone cannot be caught. Level after five goes to sudden death. You have 15 seconds per pick, and missing three in a row loses the match.' },
   ],
+  rps: [
+    { icon: '✊', title: 'Welcome to Rock Paper Scissors', body: 'One against one. Rock beats scissors, scissors beats paper, and paper beats rock.' },
+    SHARED_TABLES,
+    { icon: '💰', title: 'Stakes', body: STAKE_NOTE },
+    { icon: '🤫', title: 'Throw in secret', body: 'Tap Rock, Paper or Scissors. Your opponent cannot see your pick, and both hands are shown at the same moment.' },
+    { icon: '🏆', title: 'First to 3', body: 'Win 3 rounds to win the match. A draw does not count, you just throw again. You have 10 seconds per throw, and missing three in a row loses the match.' },
+  ],
+  bingo: [
+    { icon: '🎱', title: 'Welcome to Bingo', body: 'Classic 75-ball Bingo for 2 to 10 players. Everyone buys one card, and the first to complete a line takes the pot.' },
+    SHARED_TABLES,
+    { icon: '💰', title: 'Card price', body: STAKE_NOTE },
+    { icon: '🔄', title: 'Your card', body: 'You get a card when the game starts. Before the first number is called you can change it up to 3 times.' },
+    { icon: '🔔', title: 'Numbers are called', body: 'A new number comes out every 4 seconds. If it is on your card, it is marked for you. You do not need to tap anything.' },
+    { icon: '🏆', title: 'Winning', body: 'Complete any row, column, diagonal or the four corners. The win is spotted automatically. If two players finish on the same number, they share the pot.' },
+  ],
 };
 
 const key = (slug: GameSlug) => `akukulu.tutorial.v1.${slug}`;

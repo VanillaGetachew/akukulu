@@ -9,3 +9,5 @@ export * from './games/blackjack';
 export * from './games/conquer';
 export * from './games/crazy';
 export * from './games/penalty';
+export * from './games/rps';
+export * from './games/bingo';

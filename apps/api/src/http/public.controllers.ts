@@ -87,7 +87,7 @@ export class RoomsController {
       gameSlug: reqString(b.gameSlug, 'gameSlug'),
       visibility: b.visibility === 'private' ? 'private' : 'public',
       stake: b.stake === undefined ? undefined : optInt(b.stake, 'stake', 0, 1_000_000, 0),
-      maxPlayers: b.maxPlayers === undefined ? undefined : optInt(b.maxPlayers, 'maxPlayers', 1, 9, 2),
+      maxPlayers: b.maxPlayers === undefined ? undefined : optInt(b.maxPlayers, 'maxPlayers', 1, 10, 2),
       config: body(b.config),
     });
   }
@@ -97,7 +97,7 @@ export class RoomsController {
   quickPlay(@CurrentUser() user: UserEntity, @Body() input: unknown) {
     assertPhoneShared(user);
     const b = body(input);
-    return this.rooms.quickPlay(user, reqString(b.gameSlug, 'gameSlug'), b.stake === undefined ? undefined : optInt(b.stake, 'stake', 0, 1_000_000, 0), body(b.config), b.maxPlayers === undefined ? undefined : optInt(b.maxPlayers, 'maxPlayers', 2, 9, 2));
+    return this.rooms.quickPlay(user, reqString(b.gameSlug, 'gameSlug'), b.stake === undefined ? undefined : optInt(b.stake, 'stake', 0, 1_000_000, 0), body(b.config), b.maxPlayers === undefined ? undefined : optInt(b.maxPlayers, 'maxPlayers', 2, 10, 2));
   }
 
   @Get(':code')
