@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
-import { PENALTY_REVEAL_MS, type BlackjackView, type ConquerView, type CrazyView, type LudoView, type MatchSummary, type PenaltyView, type PokerView, type RoomSummary } from '@akukulu/shared';
+import { BINGO_FINISH_MS, PENALTY_REVEAL_MS, RPS_REVEAL_MS, type BingoView, type BlackjackView, type ConquerView, type CrazyView, type LudoView, type MatchSummary, type PenaltyView, type PokerView, type RoomSummary, type RpsView } from '@akukulu/shared';
 import { api } from '@/lib/api';
 import { useSession } from '@/lib/session';
 import { useMatch } from '@/lib/use-match';
@@ -16,6 +16,8 @@ import { BlackjackTable } from '@/components/games/blackjack-table';
 import { ConquerTable } from '@/components/games/conquer-table';
 import { CrazyTable } from '@/components/games/crazy-table';
 import { PenaltyTable } from '@/components/games/penalty-table';
+import { RpsTable } from '@/components/games/rps-table';
+import { BingoTable } from '@/components/games/bingo-table';
 import { TableSwitcher } from '@/components/games/table-switcher';
 import { CardRain, LudoWin, PenaltyWin } from '@/components/fx';
 
@@ -23,7 +25,12 @@ function WaitingRoom({ room, onAction, busy }: { room: RoomSummary; onAction: (p
   const { user } = useSession();
   const me = room.players.find((p) => p.userId === user?.id);
   const [copied, setCopied] = useState(false);
-  const seats = Array.from({ length: room.maxPlayers }, (_, i) => room.players.find((p) => p.seat === i) ?? null);
+  // A big table lists who is here, then one row for the seats still open.
+  const big = room.maxPlayers > 5;
+  const open = room.maxPlayers - room.players.length;
+  const seats = big
+    ? [...[...room.players].sort((a, b) => a.seat - b.seat), ...(open > 0 ? [null] : [])]
+    : Array.from({ length: room.maxPlayers }, (_, i) => room.players.find((p) => p.seat === i) ?? null);
 
   return (
     <div className="grid gap-4">
@@ -70,7 +77,9 @@ function WaitingRoom({ room, onAction, busy }: { room: RoomSummary; onAction: (p
       <section className="card p-4">
         <div className="mb-3 flex items-center justify-between">
           <h2 className="font-display text-base font-extrabold">Players</h2>
-          <span className="text-xs text-muted">Needs {room.minPlayers}+ players</span>
+          <span className="text-xs text-muted">
+            {big && room.players.length + ' of ' + room.maxPlayers + ' joined · '}Needs {room.minPlayers}+ players
+          </span>
         </div>
         <div className="grid gap-2">
           {seats.map((p, i) => (
@@ -88,7 +97,7 @@ function WaitingRoom({ room, onAction, busy }: { room: RoomSummary; onAction: (p
                   </div>
                 </>
               ) : (
-                <span className="text-sm text-muted">Waiting for a player…</span>
+                <span className="text-sm text-muted">{big ? (open === 1 ? '1 more seat open…' : open + ' more seats open…') : 'Waiting for a player…'}</span>
               )}
             </div>
           ))}
@@ -166,7 +175,7 @@ function ResultSheet({ summary, stake }: { summary: MatchSummary; stake: number 
   return (
     <div className="fixed inset-0 z-40 grid place-items-end bg-black/60 p-4 backdrop-blur-sm sm:place-items-center" role="dialog" aria-modal="true">
       {/* Each game celebrates its own way: Ludo with confetti and a trophy, the card games with falling cards. */}
-      {(delta > 0 || mine?.outcome === 'win') && (summary.gameSlug === 'ludo' ? <LudoWin /> : summary.gameSlug === 'penalty' ? <PenaltyWin /> : <CardRain />)}
+      {(delta > 0 || mine?.outcome === 'win') && (summary.gameSlug === 'ludo' || summary.gameSlug === 'rps' || summary.gameSlug === 'bingo' ? <LudoWin /> : summary.gameSlug === 'penalty' ? <PenaltyWin /> : <CardRain />)}
       <div className="card w-full max-w-md animate-pop p-5">
         <h2 className={`font-display text-2xl font-extrabold ${delta > 0 || mine?.outcome === 'win' ? 'text-lime' : delta < 0 ? 'text-danger' : ''}`}>{title}</h2>
         <div className="mt-3 grid gap-1.5">
@@ -244,9 +253,9 @@ function RoomView({ code }: { code: string }) {
   const dialog = useDialog();
   const status = match.state?.status;
   // A shootout won by a kick shows that kick before the result sheet covers the pitch.
-  const ending = (match.state?.view as PenaltyView | CrazyView | undefined)?.finishReason;
+  const ending = (match.state?.view as PenaltyView | CrazyView | RpsView | BingoView | undefined)?.finishReason;
   // A card game leaves the final table on screen for a moment, so everyone can see how it ended.
-  const resultDelay = !ending || ending === 'forfeit' ? 0 : room?.gameSlug === 'penalty' ? PENALTY_REVEAL_MS + 400 : room?.gameSlug === 'crazy' ? 6000 : 0;
+  const resultDelay = !ending || ending === 'forfeit' ? 0 : room?.gameSlug === 'penalty' ? PENALTY_REVEAL_MS + 400 : room?.gameSlug === 'rps' ? RPS_REVEAL_MS + 400 : room?.gameSlug === 'bingo' ? BINGO_FINISH_MS : room?.gameSlug === 'crazy' ? 6000 : 0;
   useEffect(() => {
     if (status !== 'finished' && status !== 'cancelled') return;
     const timer = setTimeout(() => {
@@ -285,6 +294,10 @@ function RoomView({ code }: { code: string }) {
         return <CrazyTable {...common} view={match.state.view as CrazyView} />;
       case 'penalty':
         return <PenaltyTable {...common} view={match.state.view as PenaltyView} />;
+      case 'rps':
+        return <RpsTable {...common} view={match.state.view as RpsView} />;
+      case 'bingo':
+        return <BingoTable {...common} view={match.state.view as BingoView} />;
     }
   })();
 
@@ -318,7 +331,7 @@ function RoomView({ code }: { code: string }) {
         <>
           {table}
           {match.state && match.state.view.game !== 'poker' && (
-            <div className="fixed right-2 z-[37]" style={{ top: `calc(var(--safe-top) + ${match.state.view.game === 'penalty' ? 64 : 8}px)` }}>
+            <div className="fixed right-2 z-[37]" style={{ top: `calc(var(--safe-top) + ${match.state.view.game === 'penalty' || match.state.view.game === 'rps' || match.state.view.game === 'bingo' ? 64 : 8}px)` }}>
               <TableSwitcher matchId={match.state.matchId} />
             </div>
           )}

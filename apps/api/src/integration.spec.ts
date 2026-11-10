@@ -15,8 +15,10 @@ import {
   type CrazyView,
   type LudoView,
   type MatchStatePayload,
+  type BingoView,
   type PenaltyView,
   type PokerView,
+  type RpsView,
 } from '@akukulu/shared';
 import { GamesService } from './games/games.service';
 import { MatchRuntimeService } from './matches/match-runtime.service';
@@ -87,14 +89,14 @@ suite('API integration', () => {
 
   it('serves exactly the game catalog, in home page order, and prunes legacy games', async () => {
     const ds = t.app.get(DataSource);
-    await ds.query(`INSERT INTO games (slug, name, tagline, description, "minPlayers", "maxPlayers") VALUES ('bingo','Bingo','x','x',1,1)`);
+    await ds.query(`INSERT INTO games (slug, name, tagline, description, "minPlayers", "maxPlayers") VALUES ('snakes','Snakes','x','x',1,1)`);
     // A database seeded before Conquer had an engine carries the automatic "rules pending" maintenance.
     await ds.query(`UPDATE games SET maintenance = true, "maintenanceMessage" = $1, "maxPlayers" = 5 WHERE slug = 'conquer'`, [LEGACY_CONQUER_MAINTENANCE_MESSAGE]);
     // A game first seeded while its engine was not loaded yet (e.g. a restart mid-build) is lifted once the engine is there.
     await ds.query(`UPDATE games SET maintenance = true, "maintenanceMessage" = $1 WHERE slug = 'crazy'`, [NO_ENGINE_MAINTENANCE_MESSAGE]);
     await t.app.get(GamesService).syncCatalog();
     const res = await api('GET', '/games');
-    expect(res.body.map((g: { slug: string }) => g.slug)).toEqual(['crazy', 'poker', 'ludo', 'conquer', 'penalty', 'blackjack']);
+    expect(res.body.map((g: { slug: string }) => g.slug)).toEqual(['crazy', 'poker', 'ludo', 'conquer', 'penalty', 'bingo', 'rps', 'blackjack']);
     const bySlug = Object.fromEntries(res.body.map((g: { slug: string }) => [g.slug, g]));
     expect(bySlug.ludo.playable).toBe(true);
     expect(bySlug.conquer).toMatchObject({ playable: true, maintenance: false, beta: false, minPlayers: 2, maxPlayers: 4 });
@@ -703,6 +705,81 @@ suite('API integration', () => {
     expect(end.view).toMatchObject({ phase: 'finished', winnerId: b.id, finishReason: 'score' });
     expect(await balance(a)).toBe(900);
     expect(await balance(b)).toBe(1100);
+  });
+
+  it('plays Rock Paper Scissors: hidden throws, first to three, one payout', async () => {
+    const [a, b] = [await login('RpsA'), await login('RpsB')];
+    const room = await api('POST', '/rooms', a.token, { gameSlug: 'rps', stake: 100, visibility: 'private' });
+    expect(room.body).toMatchObject({ maxPlayers: 2, minPlayers: 2 });
+    const joined = await api('POST', `/rooms/${room.body.code}/join`, b.token);
+    expect(joined.body.status).toBe('in_progress');
+    const matchId = joined.body.matchId as string;
+    expect(await balance(a)).toBe(900);
+    // A draw, then b wins three in a row.
+    const throws: [string, string][] = [['rock', 'rock'], ['rock', 'paper'], ['paper', 'scissors'], ['scissors', 'rock']];
+    for (const [mine, theirs] of throws) {
+      expect(await act(a, matchId, { type: 'throw', hand: mine })).toEqual({ ok: true });
+      const hidden = await state<RpsView>(matchId, b);
+      expect(hidden.view).toMatchObject({ myHand: null, opponentReady: true, canThrow: true });
+      expect((await act(a, matchId, { type: 'throw', hand: 'paper' })).ok).toBe(false);
+      expect(await act(b, matchId, { type: 'throw', hand: theirs })).toEqual({ ok: true });
+    }
+    const end = await state<RpsView>(matchId, a);
+    expect(end.view).toMatchObject({ phase: 'finished', winnerId: b.id, finishReason: 'score', round: 4 });
+    expect(end.view.players.map((p) => p.wins).sort()).toEqual([0, 3]);
+    expect(await balance(a)).toBe(900);
+    expect(await balance(b)).toBe(1100);
+  });
+
+  it('plays Bingo: private cards, balls on a clock, the pot paid out in full', async () => {
+    const players = [await login('BingoA'), await login('BingoB'), await login('BingoC')];
+    const [a, b, c] = players;
+    const room = await api('POST', '/rooms', a.token, { gameSlug: 'bingo', stake: 100, visibility: 'private', maxPlayers: 3 });
+    expect(room.body).toMatchObject({ maxPlayers: 3, minPlayers: 2 });
+    // The biggest table seats ten, by quick play too; other games keep their own limits.
+    const big = await api('POST', '/rooms/quick-play', players[1].token, { gameSlug: 'bingo', stake: 0, maxPlayers: 10 });
+    expect(big.body).toMatchObject({ maxPlayers: 10, status: 'waiting' });
+    expect((await api('POST', '/rooms', players[2].token, { gameSlug: 'ludo', stake: 0, visibility: 'private', maxPlayers: 10 })).body.maxPlayers).toBe(4);
+    expect((await api('POST', '/rooms', players[2].token, { gameSlug: 'bingo', stake: 0, visibility: 'private', maxPlayers: 11 })).status).toBe(400);
+    await api('POST', `/rooms/${room.body.code}/join`, b.token);
+    const joined = await api('POST', `/rooms/${room.body.code}/join`, c.token);
+    expect(joined.body.status).toBe('in_progress');
+    const matchId = joined.body.matchId as string;
+    for (const p of players) expect(await balance(p)).toBe(900);
+
+    const first = await state<BingoView>(matchId, a);
+    expect(first.view).toMatchObject({ phase: 'ready', pot: 300, called: [], swapsLeft: 3 });
+    expect(first.view.myCard).toHaveLength(25);
+    expect(await act(a, matchId, { type: 'swap' })).toEqual({ ok: true });
+    const swapped = await state<BingoView>(matchId, a);
+    expect(swapped.view.swapsLeft).toBe(2);
+    expect(swapped.view.myCard).not.toEqual(first.view.myCard);
+    expect((await state<BingoView>(matchId, b)).view.myCard).not.toEqual(swapped.view.myCard);
+    expect(JSON.stringify(swapped.view)).not.toContain('balls');
+
+    const runtime = t.app.get(MatchRuntimeService);
+    const T = Date.now();
+    try {
+      let last = swapped;
+      for (let i = 1; i <= 80 && last.status === 'active'; i++) {
+        runtime.now = () => T + i * 60_000;
+        await runtime.tick(matchId);
+        last = await state<BingoView>(matchId, a);
+        if (i === 1) expect(last.view.called).toHaveLength(1);
+        if (i === 1) expect((await act(b, matchId, { type: 'swap' })).ok).toBe(false);
+      }
+      expect(last.view.phase).toBe('finished');
+      expect(last.view.finishReason).toBe('bingo');
+      expect(last.view.winners.length).toBeGreaterThan(0);
+      const called = new Set(last.view.called);
+      for (const w of last.view.winners) expect(w.line.every((i) => w.card[i] === 0 || called.has(w.card[i]))).toBe(true);
+      const total = (await Promise.all(players.map(balance))).reduce((sum, n) => sum + n, 0);
+      expect(total).toBe(3000);
+      const winners = new Set(last.view.winners.map((w) => w.playerId));
+      for (const p of players) expect((await balance(p)) > 900).toBe(winners.has(p.id));
+    } finally {
+      runtime.now = () => Date.now();
+    }
   });
 
   it('quick play respects the chosen table size', async () => {

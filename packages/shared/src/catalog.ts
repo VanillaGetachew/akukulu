@@ -2,7 +2,7 @@
  * The one and only game catalog. Every layer (seed data, registry, API, lobby,
  * bot, docs) derives its list of games from here.
  */
-export const GAME_SLUGS = ['ludo', 'poker', 'blackjack', 'conquer', 'crazy', 'penalty'] as const;
+export const GAME_SLUGS = ['ludo', 'poker', 'blackjack', 'conquer', 'crazy', 'penalty', 'rps', 'bingo'] as const;
 export type GameSlug = (typeof GAME_SLUGS)[number];
 
 export function isGameSlug(value: unknown): value is GameSlug {
@@ -57,7 +57,7 @@ export const GAME_CATALOG: readonly GameCatalogEntry[] = [
     minPlayers: 1,
     maxPlayers: 1,
     solo: true,
-    sortOrder: 6,
+    sortOrder: 8,
     defaultMaintenance: false,
   },
   {
@@ -91,6 +91,28 @@ export const GAME_CATALOG: readonly GameCatalogEntry[] = [
     maxPlayers: 2,
     solo: false,
     sortOrder: 5,
+    defaultMaintenance: false,
+  },
+  {
+    slug: 'bingo',
+    name: 'Bingo',
+    tagline: 'ቢንጎ · 2–10 players',
+    description: 'Classic 75-ball Bingo for 2–10 players. Everyone gets a card, a number is called every few seconds, and the first to complete a line takes the pot.',
+    minPlayers: 2,
+    maxPlayers: 10,
+    solo: false,
+    sortOrder: 6,
+    defaultMaintenance: false,
+  },
+  {
+    slug: 'rps',
+    name: 'Rock Paper Scissors',
+    tagline: 'ድንጋይ ወረቀት መቀስ · 1v1',
+    description: 'One against one: both throw rock, paper or scissors at the same moment. First to win three rounds takes the pot.',
+    minPlayers: 2,
+    maxPlayers: 2,
+    solo: false,
+    sortOrder: 7,
     defaultMaintenance: false,
   },
 ];

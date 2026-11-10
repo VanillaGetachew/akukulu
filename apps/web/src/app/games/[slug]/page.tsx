@@ -22,6 +22,8 @@ const STAKES: Record<GameSlug, { label: string; options: number[]; default: numb
   conquer: { label: 'Stake per round', options: [0, ...WAGER_OPTIONS], default: 10, min: 10 },
   crazy: { label: 'Entry stake', options: [0, ...WAGER_OPTIONS], default: 10, min: 10 },
   penalty: { label: 'Entry stake', options: [0, ...WAGER_OPTIONS], default: 10, min: 10 },
+  rps: { label: 'Entry stake', options: [0, ...WAGER_OPTIONS], default: 10, min: 10 },
+  bingo: { label: 'Card price', options: [0, ...WAGER_OPTIONS], default: 10, min: 10 },
 };
 /** Poker Sit & Go buy-ins (the buy-in goes to the prize pool; free tournaments are allowed). */
 const SNG_STAKES = { label: 'Tournament buy-in', options: [...WAGER_OPTIONS], default: 10, min: 10 };
@@ -46,6 +48,22 @@ const RULES: Record<GameSlug, string[]> = {
     'Five kicks each, stopping early once someone cannot be caught. Level after five goes to sudden death.',
     'You have 15 seconds to pick. Run out of time and a side is picked for you; three misses in a row loses the match.',
     'The winner takes the pot, less the house fee on tables with a stake.',
+  ],
+  rps: [
+    'One against one. Rock beats scissors, scissors beats paper, paper beats rock.',
+    'Both players pick in secret and the hands are shown at the same moment, so nobody can wait and see.',
+    'The first to win 3 rounds wins the match. A draw does not count: you throw again.',
+    'You have 10 seconds to pick. Run out of time and a hand is picked for you; three misses in a row loses the match.',
+    'The winner takes the pot, less the house fee on tables with a stake.',
+  ],
+  bingo: [
+    'Classic 75-ball Bingo for 2 to 10 players. Everyone pays the same card price into the pot and gets one card.',
+    'Before the first number you can change your card up to 3 times if you do not like it.',
+    'A new number is called every 4 seconds. Numbers on your card are marked for you automatically.',
+    'Complete any row, any column, a diagonal or the four corners to win. The middle square is free.',
+    'The game spots a win the moment it happens, so a slow connection never costs you. If two players finish on the same number, they share the pot.',
+    'If you leave, your card is out of the game and your card price stays in the pot.',
+    'The winners take the pot, less the house fee on tables with a stake.',
   ],
 };
 
@@ -83,7 +101,7 @@ export default function GameLobby() {
   const [refreshing, setRefreshing] = useState(false);
   const [stake, setStake] = useState(isGameSlug(slug) ? STAKES[slug].default : 0);
   const [custom, setCustom] = useState('');
-  const [maxPlayers, setMaxPlayers] = useState(2);
+  const [maxPlayers, setMaxPlayers] = useState(slug === 'bingo' ? 10 : 2);
   const [code, setCode] = useState('');
   // Conquer's ጆከር ለመሬት option: players need twice the stake; a joker finish wins double.
   const [jokerToGround, setJokerToGround] = useState(false);
@@ -148,7 +166,7 @@ export default function GameLobby() {
   if (!isGameSlug(slug)) {
     return (
       <Page>
-        <EmptyState title="Game not found" body="Akukulu offers Ludo, Poker, Blackjack, Conquer and Crazy." />
+        <EmptyState title="Game not found" body="Pick a game from the home page." />
       </Page>
     );
   }
@@ -410,11 +428,11 @@ export default function GameLobby() {
                   </div>
                 )}
 
-                {slug !== 'blackjack' && slug !== 'conquer' && slug !== 'penalty' && (
+                {slug !== 'blackjack' && slug !== 'conquer' && slug !== 'penalty' && slug !== 'rps' && (
                   <div>
                     <div className="label mb-2">Players at the table</div>
                     <div className="flex gap-2">
-                      {(slug === 'ludo' ? [2, 3, 4] : slug === 'crazy' ? [2, 3, 4, 5] : [2, 4, 6, 9]).map((n) => (
+                      {(slug === 'ludo' ? [2, 3, 4] : slug === 'crazy' ? [2, 3, 4, 5] : slug === 'bingo' ? [2, 5, 10] : [2, 4, 6, 9]).map((n) => (
                         <button key={n} onClick={() => setMaxPlayers(n)} className={`grid h-11 w-11 place-items-center rounded-xl border text-sm font-bold transition ${maxPlayers === n ? 'border-lime bg-lime/10 text-lime' : 'border-line bg-night text-muted hover:text-fg'}`}>
                           {n}
                         </button>

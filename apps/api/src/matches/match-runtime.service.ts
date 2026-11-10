@@ -356,9 +356,9 @@ export class MatchRuntimeService implements OnApplicationBootstrap, OnModuleDest
 
   private async applyLedger(manager: EntityManager, matchId: string, slug: MatchEntity['gameSlug'], res: EngineResult<unknown>, touched: Set<string>) {
     if (!res.ok) return;
-    // Ludo, Conquer and Crazy: the winner's prize is paid less the house cut. Refunds are never cut.
+    // Every room game but poker: the winner's prize is paid less the house cut. Refunds are never cut.
     const stake = Number((res.state as { config?: { stake?: unknown } }).config?.stake ?? 0);
-    const percent = this.config.paymentsEnabled && (slug === 'ludo' || slug === 'conquer' || slug === 'crazy' || slug === 'penalty') ? houseCutPercent(stake) : 0;
+    const percent = this.config.paymentsEnabled && slug !== 'poker' && slug !== 'blackjack' ? houseCutPercent(stake) : 0;
     for (const intent of res.ledger) {
       if (intent.amount === 0) continue;
       const cut = intent.type === 'payout' && intent.amount > 0 ? houseCut(intent.amount, percent) : 0;

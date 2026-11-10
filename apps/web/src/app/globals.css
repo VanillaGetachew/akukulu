@@ -286,3 +286,52 @@ body {
   .pk-idle, .pk-zone, .pk-dot, .pk-win-shot, .pk-win-net, .pk-win-star { animation: none; }
   .pk-win-shot { opacity: 0; }
 }
+
+/* Rock Paper Scissors: fists pumping before the reveal, a hand landing, a fist idling. */
+.rps-arena {
+  background: radial-gradient(120% 90% at 50% 50%, #4a2673 0%, #2a1444 60%, #1a0c2e 100%);
+}
+.rps-shake {
+  animation: rps-shake 0.3s ease-in-out 3;
+}
+@keyframes rps-shake {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-16px); }
+}
+.rps-pop {
+  animation: rps-pop 0.3s cubic-bezier(0.3, 1.6, 0.5, 1) both;
+}
+@keyframes rps-pop {
+  from { transform: scale(0.5); opacity: 0.3; }
+  to { transform: scale(1); opacity: 1; }
+}
+.rps-bob {
+  animation: rps-bob 1.4s ease-in-out infinite alternate;
+}
+@keyframes rps-bob {
+  from { transform: translateY(-3px); }
+  to { transform: translateY(3px); }
+}
+
+/* Bingo: a ball dropping out of the cage, a counter landing on a called number. */
+.bingo-stage {
+  background: radial-gradient(130% 100% at 20% 0%, #7a2a45 0%, #4a1829 55%, #2e0f1a 100%);
+}
+.bingo-drop {
+  animation: bingo-drop 0.55s cubic-bezier(0.3, 1.5, 0.5, 1) both;
+}
+@keyframes bingo-drop {
+  0% { transform: translateY(-46px) scale(0.5) rotate(-140deg); opacity: 0; }
+  60% { opacity: 1; }
+  100% { transform: translateY(0) scale(1) rotate(0deg); opacity: 1; }
+}
+.bingo-daub {
+  animation: bingo-daub 0.45s cubic-bezier(0.3, 1.8, 0.5, 1) both;
+}
+@keyframes bingo-daub {
+  from { transform: scale(2.2); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rps-shake, .rps-pop, .rps-bob, .bingo-drop, .bingo-daub { animation: none; }
+}

@@ -216,14 +216,80 @@ function PenaltyArt() {
   );
 }
 
+function RpsArt() {
+  return (
+    <>
+      <rect width="160" height="120" fill="#3a1d5c" />
+      <g transform="translate(80 60)" opacity=".28">
+        {Array.from({ length: 12 }, (_, i) => (
+          <path key={i} d="M0 0 L6 -80 L-6 -80 Z" fill="#e6c77f" transform={`rotate(${i * 30})`} />
+        ))}
+      </g>
+      {/* A fist on the left, two fingers on the right, an open palm above. */}
+      <g fill="#f0c9a0" stroke="#8a5a34" strokeWidth="1.6" strokeLinejoin="round">
+        <g transform="translate(40 80) rotate(-14)">
+          <rect x="-15" y="-10" width="30" height="26" rx="10" />
+          <rect x="-14" y="-17" width="8" height="14" rx="4" />
+          <rect x="-6.5" y="-19" width="8" height="15" rx="4" />
+          <rect x="1" y="-18" width="8" height="15" rx="4" />
+          <rect x="8" y="-15" width="7" height="13" rx="3.5" />
+        </g>
+        <g transform="translate(120 84) rotate(14)">
+          <rect x="-9" y="-36" width="7" height="30" rx="3.5" transform="rotate(-12 -5 -6)" />
+          <rect x="2" y="-36" width="7" height="30" rx="3.5" transform="rotate(12 5 -6)" />
+          <rect x="-14" y="-10" width="28" height="26" rx="10" />
+        </g>
+        <g transform="translate(80 46)">
+          <rect x="-13" y="-4" width="26" height="24" rx="8" />
+          <rect x="-13" y="-24" width="6" height="26" rx="3" transform="rotate(-8 -10 0)" />
+          <rect x="-6.5" y="-29" width="6" height="30" rx="3" />
+          <rect x="0.5" y="-29" width="6" height="30" rx="3" />
+          <rect x="7" y="-24" width="6" height="26" rx="3" transform="rotate(8 10 0)" />
+        </g>
+      </g>
+    </>
+  );
+}
+
+function BingoArt() {
+  const balls: [number, number, number, string, string][] = [
+    [42, 34, 15, '#3fb6d9', 'B7'],
+    [118, 30, 14, '#d9534a', 'I22'],
+    [121, 88, 15, '#3aa866', 'G54'],
+    [40, 90, 13, '#9a7be0', 'O68'],
+  ];
+  return (
+    <>
+      <rect width="160" height="120" fill="#5a1f33" />
+      <g transform="translate(80 62) rotate(-6)">
+        <rect x="-27" y="-34" width="54" height="66" rx="6" fill="#f7f1e1" stroke="#d9cfb6" />
+        {Array.from({ length: 25 }, (_, i) => {
+          const marked = [0, 6, 12, 18, 24, 3, 16].includes(i);
+          return <rect key={i} x={-23 + (i % 5) * 9.6} y={-22 + Math.floor(i / 5) * 10.4} width="7.6" height="8.4" rx="2" fill={marked ? '#e0a92c' : '#ffffff'} stroke="#d9cfb6" strokeWidth=".5" />;
+        })}
+        <rect x="-23" y="-30" width="46" height="5" rx="2" fill="#d9534a" />
+      </g>
+      {balls.map(([x, y, r, color, label]) => (
+        <g key={label} transform={`translate(${x} ${y})`}>
+          <circle r={r} fill={color} stroke="#000" strokeOpacity=".25" />
+          <circle r={r * 0.62} fill="#fff" />
+          <text y={r * 0.2} textAnchor="middle" fontSize={r * 0.55} fontWeight="800" fill="#10182b">
+            {label}
+          </text>
+        </g>
+      ))}
+    </>
+  );
+}
+
 /** Each artwork's base colour, for extending it into wider banners. */
-export const ART_BG: Record<GameSlug, string> = { ludo: '#16357a', poker: '#3a0f17', blackjack: '#0d3a28', conquer: '#3a2410', crazy: '#0c3b3a', penalty: '#17532f' };
+export const ART_BG: Record<GameSlug, string> = { ludo: '#16357a', poker: '#3a0f17', blackjack: '#0d3a28', conquer: '#3a2410', crazy: '#0c3b3a', penalty: '#17532f', rps: '#3a1d5c', bingo: '#5a1f33' };
 
 /** Game artwork, filling its box. */
 export function GameThumb({ slug }: { slug: GameSlug }) {
   return (
     <svg viewBox="0 0 160 120" preserveAspectRatio="xMidYMid slice" className="block h-full w-full" aria-hidden="true">
-      {slug === 'ludo' ? <LudoArt /> : slug === 'poker' ? <PokerArt /> : slug === 'blackjack' ? <BlackjackArt /> : slug === 'conquer' ? <ConquerArt /> : slug === 'penalty' ? <PenaltyArt /> : <CrazyArt />}
+      {slug === 'ludo' ? <LudoArt /> : slug === 'poker' ? <PokerArt /> : slug === 'blackjack' ? <BlackjackArt /> : slug === 'conquer' ? <ConquerArt /> : slug === 'penalty' ? <PenaltyArt /> : slug === 'rps' ? <RpsArt /> : slug === 'bingo' ? <BingoArt /> : <CrazyArt />}
     </svg>
   );
 }
@@ -335,6 +401,8 @@ export function GameThumbClassic({ slug }: { slug: GameSlug }) {
     case 'crazy':
       return <CrazyThumbClassic />;
     case 'penalty':
-      return <GameThumb slug="penalty" />;
+    case 'rps':
+    case 'bingo':
+      return <GameThumb slug={slug} />;
   }
 }

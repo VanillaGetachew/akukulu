@@ -238,7 +238,7 @@ suite('real-money mode', () => {
     expect(revenue.total).toBe(await earnings());
     expect(revenue.today).toBe(revenue.total);
     expect(revenue.byGame.find((g: { gameSlug: string }) => g.gameSlug === 'ludo').total).toBeGreaterThanOrEqual(16);
-    expect(revenue.bySource[0]).toMatchObject({ source: 'Ludo, Conquer and Crazy prizes' });
+    expect(revenue.bySource[0]).toMatchObject({ source: 'Prizes in the other games' });
     expect(revenue.daily[0].total).toBe(revenue.total);
     expect(revenue.net).toBe(revenue.total - revenue.bonusesPaid - revenue.referralsPaid);
     expect(revenue.deposits).toBeGreaterThan(0);
@@ -265,6 +265,33 @@ suite('real-money mode', () => {
     expect(await emitAck(socket, 'match:action', { matchId: started.body.matchId, clientActionId: 'pk-leave-2', action: { type: 'leave' } })).toMatchObject({ ok: true });
     expect(await balance(b)).toBe(140);
     expect((await earnings()) - before).toBe(10);
+  });
+
+  it('takes the house cut from Bingo and Rock Paper Scissors prizes', async () => {
+    const before = await earnings();
+    const [a, b, c] = [await funded(100), await funded(100), await funded(100)];
+    const socket = await connect(t.url, a.token);
+    const socketC = await connect(t.url, c.token);
+    sockets.push(socket, socketC);
+
+    const bingo = await api('POST', '/rooms', a.token, { gameSlug: 'bingo', stake: 50, visibility: 'private', maxPlayers: 3 });
+    await api('POST', `/rooms/${bingo.body.code}/join`, b.token);
+    const started = await api('POST', `/rooms/${bingo.body.code}/join`, c.token);
+    expect(started.body.status).toBe('in_progress');
+    // Two leave; their card price stays in, and the last player takes the pot of 150 at 10%.
+    expect(await emitAck(socket, 'match:action', { matchId: started.body.matchId, clientActionId: 'bg-leave-a', action: { type: 'leave' } })).toMatchObject({ ok: true });
+    expect(await balance(b)).toBe(50);
+    expect(await emitAck(socketC, 'match:action', { matchId: started.body.matchId, clientActionId: 'bg-leave-c', action: { type: 'leave' } })).toMatchObject({ ok: true });
+    expect(await balance(b)).toBe(50 + 150 - 15);
+    expect((await earnings()) - before).toBe(15);
+
+    const rps = await api('POST', '/rooms', a.token, { gameSlug: 'rps', stake: 50, visibility: 'private' });
+    const joined = await api('POST', `/rooms/${rps.body.code}/join`, c.token);
+    expect(joined.body.status).toBe('in_progress');
+    expect(await emitAck(socket, 'match:action', { matchId: joined.body.matchId, clientActionId: 'rps-leave', action: { type: 'leave' } })).toMatchObject({ ok: true });
+    // Pot of 100 at 10%.
+    expect(await balance(c)).toBe(50 - 50 + 90);
+    expect((await earnings()) - before).toBe(25);
   });
 
   it('gives the first deposit a capped bonus that unlocks after wagering', async () => {
