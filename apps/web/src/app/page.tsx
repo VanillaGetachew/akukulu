@@ -39,7 +39,7 @@ function GameCard({ game }: { game: GameSummary }) {
       <div className="mt-2 flex items-center justify-between px-0.5">
         <span className="flex items-center gap-1 text-[11px] font-bold text-muted">
           <span className={`h-1.5 w-1.5 rounded-full ${game.activePlayers > 0 ? 'bg-lime' : 'bg-muted/50'}`} />
-          {game.activePlayers} playing
+          {game.activePlayers} online
         </span>
         <span className={`rounded-lg px-2 py-1 text-[11px] font-black ${disabled ? 'bg-white/5 text-muted' : 'bg-lime text-ink'}`}>
           {disabled ? 'Info' : 'Play'}

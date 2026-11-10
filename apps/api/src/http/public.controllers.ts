@@ -9,6 +9,7 @@ import { GamesService } from '../games/games.service';
 import { MatchRuntimeService } from '../matches/match-runtime.service';
 import { RoomsService } from '../rooms/rooms.service';
 import { WalletService } from '../wallet/wallet.service';
+import { PaymentsService } from '../wallet/payments.service';
 import { PresenceService } from '../realtime/presence.service';
 import { PokerService } from '../poker/poker.service';
 import { GameError, body, displayName, optInt, reqString, toProfile, assertPhoneShared } from '../common/util';
@@ -68,8 +69,10 @@ export class GamesController {
 
   @Get(':slug/rooms')
   @UseGuards(JwtAuthGuard)
-  openRooms(@Param('slug') slug: string) {
+  openRooms(@Param('slug') slug: string, @CurrentUser() user: UserEntity) {
     if (!isGameSlug(slug)) throw new GameError('UNKNOWN_GAME', 'Unknown game', 404);
+    // The lobby asks every few seconds, which is how we know who is looking at this game.
+    this.games.seenInLobby(slug, user.id);
     return this.rooms.listOpen(slug);
   }
 }
@@ -127,7 +130,25 @@ export class MeController {
     private readonly wallet: WalletService,
     private readonly runtime: MatchRuntimeService,
     private readonly rooms: RoomsService,
+    private readonly payments: PaymentsService,
   ) {}
+
+  /** Who a transfer would go to and what it costs, for the sender to confirm. */
+  @Post('transfer/preview')
+  @HttpCode(200)
+  transferPreview(@CurrentUser() user: UserEntity, @Body() raw: unknown) {
+    const b = body(raw);
+    return this.payments.previewTransfer(user.id, reqString(b.to, 'to', 64), Number(b.amount));
+  }
+
+  @Post('transfer')
+  @HttpCode(200)
+  transfer(@CurrentUser() user: UserEntity, @Body() raw: unknown) {
+    const b = body(raw);
+    const requestId = reqString(b.requestId, 'requestId', 36);
+    if (!/^[0-9a-f-]{36}$/i.test(requestId)) throw new GameError('BAD_REQUEST', 'requestId must be a UUID');
+    return this.payments.transfer(user.id, reqString(b.recipientId, 'recipientId', 36), Number(b.amount), requestId);
+  }
 
   @Get()
   me(@CurrentUser() user: UserEntity) {

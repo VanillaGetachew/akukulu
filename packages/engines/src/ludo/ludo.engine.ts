@@ -188,12 +188,6 @@ function performRoll(state: LudoState, ctx: EngineContext, out: StepOutput, auto
   state.consecutiveSixes = die === 6 ? state.consecutiveSixes + 1 : 0;
   out.events.push({ type: 'roll', playerId: player.playerId, data: { die } });
 
-  if (state.consecutiveSixes === 3) {
-    state.lastEvent = { playerId: player.playerId, kind: 'skip', die, reason: 'Three sixes in a row — turn forfeited' };
-    passTurn(state, ctx);
-    return;
-  }
-
   const legal = legalLudoTokens(player, die);
   if (legal.length === 0) {
     if (die === 6) {

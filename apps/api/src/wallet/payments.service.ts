@@ -1,8 +1,13 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { DataSource, EntityManager, In } from 'typeorm';
 import {
   PAYMENTS,
   PROMOTIONS,
+  TRANSFERS,
+  transferFee,
+  type TransferPreview,
+  type TransferResult,
   paymentButtons,
   paymentDecisionText,
   paymentRequestText,
@@ -166,6 +171,92 @@ export class PaymentsService {
     this.broadcaster.toUser(userId, 'balance:update', { balance });
     await this.alertAdmin(summary);
     return summary;
+  }
+
+  /* ---- Sending money to another player ---- */
+
+  /** By the phone number on their Telegram account, or their Telegram username. */
+  private async findRecipient(to: string): Promise<UserEntity | null> {
+    const users = this.dataSource.getRepository(UserEntity);
+    const phone = normalizeEthiopianPhone(to);
+    if (phone) return users.findOneBy({ phone });
+    const username = to.trim().replace(/^@/, '').toLowerCase();
+    if (!/^[a-z0-9_]{3,32}$/.test(username)) return null;
+    return users.createQueryBuilder('u').where('LOWER(u.username) = :username', { username }).getOne();
+  }
+
+  /** Bonus money has to be wagered first, so it cannot be sent on. */
+  private assertCanSend(sender: UserEntity, amount: number) {
+    const free = Math.max(0, Number(sender.balance) - sender.bonusLocked);
+    if (amount <= free) return;
+    if (sender.bonusLocked > 0 && amount <= Number(sender.balance)) {
+      throw new GameError('BONUS_LOCKED', `${sender.bonusLocked} ETB of your balance is bonus. You can send up to ${free} ETB now, and the rest after wagering ${sender.bonusWagerLeft} ETB more.`);
+    }
+    throw new GameError('INSUFFICIENT_BALANCE', `You only have ${Number(sender.balance)} ETB`);
+  }
+
+  private previewOf(recipient: UserEntity, amount: number): TransferPreview {
+    const fee = transferFee(amount);
+    return { recipientId: recipient.id, recipientName: displayName(recipient), amount, fee, receives: amount - fee };
+  }
+
+  /** Looks the other player up and works out the fee. Nothing moves. */
+  async previewTransfer(senderId: string, to: string, amount: number): Promise<TransferPreview> {
+    this.assertEnabled();
+    this.assertAmount(amount, TRANSFERS.min, TRANSFERS.max);
+    const sender = await this.dataSource.getRepository(UserEntity).findOneBy({ id: senderId });
+    this.assertActive(sender);
+    const recipient = await this.findRecipient(to);
+    if (!recipient || recipient.isBanned) throw new GameError('NO_RECIPIENT', 'No Akukulu player was found with that phone number or username', 404);
+    if (recipient.id === sender.id) throw new GameError('SELF_TRANSFER', 'You cannot send money to yourself');
+    this.assertCanSend(sender, amount);
+    return this.previewOf(recipient, amount);
+  }
+
+  /**
+   * Moves the money in one step: the sender pays the amount, the other player gets it
+   * less the fee, and the fee is the house's. `requestId` makes a repeated tap harmless.
+   */
+  async transfer(senderId: string, recipientId: string, amount: number, requestId: string): Promise<TransferResult> {
+    this.assertEnabled();
+    this.assertAmount(amount, TRANSFERS.min, TRANSFERS.max);
+    if (senderId === recipientId) throw new GameError('SELF_TRANSFER', 'You cannot send money to yourself');
+    const key = `transfer:${senderId}:${requestId}`;
+    const done = await this.dataSource.transaction(async (manager) => {
+      const users = manager.getRepository(UserEntity);
+      // Always locked in the same order, so two players sending to each other cannot deadlock.
+      const locked = new Map<string, UserEntity>();
+      for (const id of [senderId, recipientId].sort()) {
+        const row = await users.findOne({ where: { id }, lock: { mode: 'pessimistic_write' } });
+        if (row) locked.set(id, row);
+      }
+      const sender = locked.get(senderId) ?? null;
+      const recipient = locked.get(recipientId) ?? null;
+      this.assertActive(sender);
+      if (!recipient || recipient.isBanned) throw new GameError('NO_RECIPIENT', 'That player was not found', 404);
+      const preview = this.previewOf(recipient, amount);
+      if (await manager.query(`SELECT 1 FROM ledger_entries WHERE "idempotencyKey" = $1`, [`${key}:out`]).then((rows: unknown[]) => rows.length > 0)) {
+        return { ...preview, balance: Number(sender.balance), fresh: false, senderName: displayName(sender), recipientTelegramId: String(recipient.telegramId), recipientBalance: Number(recipient.balance) };
+      }
+      this.assertCanSend(sender, amount);
+      const out = await this.ledger.apply(manager, { userId: sender.id, amount: -amount, type: 'transfer_out', description: `Sent to ${preview.recipientName}`, key: `${key}:out` });
+      const received = await this.ledger.apply(manager, {
+        userId: recipient.id,
+        amount: preview.receives,
+        type: 'transfer_in',
+        description: `Received from ${displayName(sender)}`,
+        key: `${key}:in`,
+      });
+      await manager.query(`INSERT INTO house_earnings (id, "gameSlug", amount, "matchId", key, "createdAt") VALUES ($1, 'transfer', $2, NULL, $3, now()) ON CONFLICT (key) DO NOTHING`, [randomUUID(), preview.fee, key]);
+      return { ...preview, balance: out.balance, fresh: true, senderName: displayName(sender), recipientTelegramId: String(recipient.telegramId), recipientBalance: received.balance };
+    });
+    const { fresh, senderName, recipientTelegramId, recipientBalance, ...result } = done;
+    if (fresh) {
+      this.broadcaster.toUser(senderId, 'balance:update', { balance: result.balance });
+      this.broadcaster.toUser(recipientId, 'balance:update', { balance: recipientBalance });
+      await this.sendTelegram(recipientTelegramId, `💸 ${senderName} sent you ${result.receives.toLocaleString()} ETB on Akukulu. Your balance is now ${recipientBalance.toLocaleString()} ETB.`);
+    }
+    return result;
   }
 
   /* ---- Checking requests ---- */

@@ -140,6 +140,7 @@ export class AdminController {
     const bySource: { source: string; total: string }[] = await this.dataSource.query(
       `SELECT CASE WHEN key LIKE '%:hand:%' THEN 'Poker cash game pots'
                    WHEN key LIKE '%:prize-pool' THEN 'Poker tournament prize pools'
+                   WHEN key LIKE 'transfer:%' THEN 'Transfer fees'
                    ELSE 'Prizes in the other games' END AS source,
               SUM(amount)::bigint AS total
        FROM house_earnings GROUP BY 1 ORDER BY total DESC`,
