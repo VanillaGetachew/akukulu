@@ -141,17 +141,25 @@ bot.start(async (ctx) => {
   if (room) {
     await ctx.reply(`You're invited to table ${room[1].toUpperCase()}!`, Markup.inlineKeyboard([[Markup.button.webApp('🎲 Open table', `${env.webAppUrl}/room/${room[1].toUpperCase()}`)]]));
   }
-  await ctx.reply(
-    [
-      `Selam, ${summary.profile.firstName}! Welcome to አኩኩሉ | Akukulu.`,
-      '',
-      `Play ${GAME_CATALOG.map((g) => g.name).join(', ')} with friends.`,
-      `Balance: ${points(summary.profile.balance)}`,
-      '',
-      env.paymentsEnabled ? 'Use Deposit and Withdraw to move birr with Telebirr.' : 'Points are free virtual credits — they cannot be bought, transferred or exchanged for money.',
-    ].join('\n'),
-    mainMenu(),
+  const games = GAME_CATALOG.filter((g) => g.slug !== 'blackjack')
+    .map((g) => g.name)
+    .join(' · ');
+  const welcome = [
+    `🎉 ሰላም ${summary.profile.firstName}! እንኳን ወደ አኩኩሉ በደህና መጡ።`,
+    'Welcome to Akukulu: play with friends and win.',
+    '',
+    `🎮 ${games}`,
+    '👥 Every seat is a real player',
+    ...(env.paymentsEnabled
+      ? ['💸 Deposit and withdraw with Telebirr', '🆓 Free tables to practise', '', `💰 Balance: ${birr(summary.profile.balance)}`, '', '18+ only. Play with what you can afford to lose.']
+      : ['', `Balance: ${points(summary.profile.balance)}`, '', 'Points are free virtual credits — they cannot be bought, transferred or exchanged for money.']),
+  ].join('\n');
+  // The picture goes out on its own, so the menu below stays a text message its buttons can edit.
+  const pictured = await ctx.replyWithPhoto(`${env.webAppUrl}/brand/akukulu-welcome.png`, { caption: welcome }).then(
+    () => true,
+    () => false,
   );
+  await ctx.reply(pictured ? 'Tap 🎮 Play Games to start, or pick an option:' : welcome, mainMenu());
 });
 
 // Comes from the button above, or from the Mini App's own request. Only the sender's own number counts.
