@@ -46,6 +46,13 @@ export class UsersService {
     return repo.save(user);
   }
 
+  /** Makes the admin flag match the configured list, so a removed admin loses it on the next start. */
+  async onApplicationBootstrap() {
+    const res = await this.dataSource.query(`UPDATE users SET "isAdmin" = ("telegramId"::text = ANY($1::text[])) WHERE "isAdmin" <> ("telegramId"::text = ANY($1::text[]))`, [this.config.adminTelegramIds]);
+    const changed = Array.isArray(res) && typeof res[1] === 'number' ? res[1] : 0;
+    if (changed) this.logger.warn(`Admin access updated for ${changed} account(s) to match ADMIN_TELEGRAM_IDS`);
+  }
+
   /**
    * Creates or refreshes a user from a verified Telegram identity. New users get
    * the welcome bonus; a `ref_<code>` start parameter credits the referrer once.
@@ -63,7 +70,7 @@ export class UsersService {
       user.languageCode = identity.language_code ?? null;
       if (identity.photo_url) user.photoUrl = identity.photo_url;
       user.lastSeenAt = new Date();
-      if (this.config.adminTelegramIds.includes(telegramId)) user.isAdmin = true;
+      user.isAdmin = this.config.adminTelegramIds.includes(telegramId);
       user = await repo.save(user);
 
       if (isNew && this.config.paymentsEnabled) {

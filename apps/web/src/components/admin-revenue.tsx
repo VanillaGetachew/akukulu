@@ -78,7 +78,7 @@ export function AdminRevenue() {
               <h3 className="label mb-1">After promotions</h3>
               <div className="divide-y divide-line rounded-xl bg-black/20">
                 <Row label="House cuts" value={etb(data.total)} />
-                <Row label="First deposit bonuses paid" value={data.bonusesPaid ? `−${etb(data.bonusesPaid)}` : etb(0)} muted />
+                <Row label="First deposit bonuses paid (ended)" value={data.bonusesPaid ? `−${etb(data.bonusesPaid)}` : etb(0)} muted />
                 <Row label="Referral rewards paid" value={data.referralsPaid ? `−${etb(data.referralsPaid)}` : etb(0)} muted />
                 <Row label="Net" value={etb(data.net)} />
               </div>

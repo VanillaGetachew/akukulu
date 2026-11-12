@@ -147,11 +147,6 @@ export const ROOM_COUNTDOWN_SECONDS = 60;
 
 /** Real-money promotions, in whole birr. */
 export const PROMOTIONS = {
-  /** First deposit: this share is added as bonus, up to the maximum. */
-  firstDepositBonusPercent: 100,
-  firstDepositBonusMax: 1000,
-  /** The bonus can be played at once, and withdrawn after wagering this many times the bonus. */
-  bonusWagerMultiple: 5,
   /** The inviter is paid once the invited player has wagered this much. */
   referralWager: 100,
   referralReward: 5,

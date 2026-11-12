@@ -4,6 +4,9 @@
  */
 import type { Socket } from 'socket.io-client';
 import { randomUUID } from 'node:crypto';
+import { APP_CONFIG } from './config';
+import { RateLimiter } from './common/rate-limit';
+import { UsersService } from './users/users.service';
 import { DataSource } from 'typeorm';
 import type { PaymentRequestSummary } from '@akukulu/shared';
 import { normalizeEthiopianPhone, normalizeReference } from './wallet/payments.service';
@@ -67,7 +70,7 @@ suite('real-money mode', () => {
   const withdraw = (p: { telegramId: string }, amount: number, phone = '0912345678') => internal(`/users/${p.telegramId}/payments/withdraw`, { amount, phone });
   const earnings = async () => (await api('GET', '/admin/overview', adminToken)).body.houseEarnings as number;
 
-  /** Money without the first-deposit bonus, for tests about something else. */
+  /** Money added by an admin, for tests about something else. */
   async function funded(amount: number) {
     const p = await player();
     expect((await api('POST', `/admin/users/${p.id}/deposit`, adminToken, { amount, reason: 'test money' })).status).toBe(200);
@@ -117,7 +120,7 @@ suite('real-money mode', () => {
     const results = await Promise.all([1, 2, 3].map(() => decide(req.body.id, 'approve')));
     expect(results.filter((r) => r.status === 200)).toHaveLength(1);
     expect(results.filter((r) => r.body.code === 'ALREADY_DECIDED')).toHaveLength(2);
-    expect(await balance(p)).toBe(1000); // 500 plus the first-deposit bonus, once
+    expect(await balance(p)).toBe(500); // credited once, with no bonus on top
   });
 
   it('adds nothing when a deposit is rejected, and allows the ID to be resubmitted', async () => {
@@ -212,7 +215,7 @@ suite('real-money mode', () => {
 
     // Approving from the web app credits the player.
     expect((await api('POST', `/admin/payments/${current.body.id}/approve`, adminTwoToken, {})).status).toBe(200);
-    expect(await balance(q)).toBe(200);
+    expect(await balance(q)).toBe(100);
 
     accountId = (await setAccount('0911111111', 'First Admin')).body.id;
   });
@@ -224,7 +227,7 @@ suite('real-money mode', () => {
     expect((await api('POST', `/admin/payments/${req.body.id}/approve`, adminTwoToken, {})).status).toBe(403);
     const before = await balance(self);
     expect((await decide(req.body.id, 'approve')).status).toBe(200);
-    expect(await balance(self)).toBe(before + 200);
+    expect(await balance(self)).toBe(before + 100);
   });
 
   it('takes the house cut from a Ludo prize and records it', async () => {
@@ -360,32 +363,29 @@ suite('real-money mode', () => {
     expect(revenue.bySource.some((s: { source: string }) => s.source === 'Transfer fees')).toBe(true);
   });
 
-  it('gives the first deposit a capped bonus that unlocks after wagering', async () => {
+  it('adds no bonus to a first deposit, and still holds back a bonus given earlier', async () => {
     const p = await player();
     const first = await decide((await deposit(p, 200)).body.id, 'approve');
-    expect(first.body.bonus).toBe(200);
-    expect(await balance(p)).toBe(400);
-    const me = (await api('GET', '/me', p.token)).body;
-    expect(me).toMatchObject({ bonusLocked: 200, bonusWagerLeft: 1000 });
-    // The deposit can leave, the bonus cannot.
-    expect((await withdraw(p, 201)).body.code).toBe('BONUS_LOCKED');
+    expect(first.body.bonus).toBeUndefined();
+    expect(await balance(p)).toBe(200);
+    expect((await api('GET', '/me', p.token)).body).toMatchObject({ bonusLocked: 0, bonusWagerLeft: 0 });
+    const history = (await api('GET', '/me/transactions?limit=10', p.token)).body as { type: string }[];
+    expect(history.map((h) => h.type)).toEqual(['deposit']);
+    // All of it can be withdrawn straight away.
     const out = await withdraw(p, 200);
     expect(out.status).toBe(200);
     await decide(out.body.id, 'reject');
-    // A second deposit earns nothing more.
-    const second = await decide((await deposit(p, 200)).body.id, 'approve');
-    expect(second.body.bonus).toBeUndefined();
-    expect(await balance(p)).toBe(600);
 
-    const big = await player();
-    const capped = await decide((await deposit(big, 5000)).body.id, 'approve');
-    expect(capped.body.bonus).toBe(1000);
-    expect(await balance(big)).toBe(6000);
+    // A player who got the bonus before it ended still has to wager it.
+    const old = await funded(400);
+    await t.app.get(DataSource).query(`UPDATE users SET "bonusLocked" = 200, "bonusWagerLeft" = 1000 WHERE id = $1`, [old.id]);
+    expect((await withdraw(old, 201)).body.code).toBe('BONUS_LOCKED');
+    expect((await withdraw(old, 200)).status).toBe(200);
   });
 
-  it('unlocks the bonus once enough has been wagered', async () => {
-    const p = await player();
-    await decide((await deposit(p, 100)).body.id, 'approve');
+  it('unlocks an earlier bonus once enough has been wagered', async () => {
+    const p = await funded(200);
+    await t.app.get(DataSource).query(`UPDATE users SET "bonusLocked" = 100, "bonusWagerLeft" = 500 WHERE id = $1`, [p.id]);
     const rival = await funded(1000);
     for (let i = 0; i < 2; i++) await playLudo(rival, p, 100);
     expect((await api('GET', '/me', p.token)).body).toMatchObject({ bonusLocked: 100, bonusWagerLeft: 300 });
@@ -394,14 +394,104 @@ suite('real-money mode', () => {
   });
 
   it('frees the next deposit from a bonus that was played and lost', async () => {
-    const p = await player();
-    await decide((await deposit(p, 100)).body.id, 'approve');
+    const p = await funded(200);
+    await t.app.get(DataSource).query(`UPDATE users SET "bonusLocked" = 100, "bonusWagerLeft" = 500 WHERE id = $1`, [p.id]);
     const rival = await funded(1000);
     await playLudo(p, rival, 200);
     expect(await balance(p)).toBe(0);
     await decide((await deposit(p, 100)).body.id, 'approve');
     expect((await api('GET', '/me', p.token)).body).toMatchObject({ balance: 100, bonusLocked: 0 });
     expect((await withdraw(p, 100)).status).toBe(200);
+  });
+
+  it('limits what an admin can add, never to their own account', async () => {
+    const p = await player();
+    const add = (id: string, amount: number, path = 'deposit') => api('POST', `/admin/users/${id}/${path}`, adminToken, { amount, reason: 'test' });
+    expect((await add(p.id, 50_001)).status).toBe(400);
+    expect((await add(p.id, 50_001, 'adjust')).status).toBe(400);
+    expect((await add(p.id, -50_001, 'adjust')).status).toBe(400);
+    expect((await add(p.id, 50_000)).status).toBe(200);
+    expect((await add(p.id, -1000, 'adjust')).body).toMatchObject({ applied: true, balance: 49_000 });
+    const me = (await api('GET', '/me', adminToken)).body;
+    expect((await add(me.id, 100)).status).toBe(403);
+    expect((await add(me.id, 100, 'adjust')).status).toBe(403);
+    expect((await api('GET', '/me', adminToken)).body.balance).toBe(me.balance);
+    expect((await add(randomUUID(), 100)).status).toBe(404);
+  });
+
+  it('ends admin access as soon as someone is off the admin list', async () => {
+    const config = t.app.get(APP_CONFIG) as { adminTelegramIds: string[] };
+    const second = await api('POST', '/auth/telegram', undefined, { initData: initDataFor(Number(ADMIN_TWO), 'Second') });
+    expect(second.body.user.isAdmin).toBe(true);
+    expect((await api('GET', '/admin/overview', second.body.token)).status).toBe(200);
+    const listed = [...config.adminTelegramIds];
+    config.adminTelegramIds.splice(config.adminTelegramIds.indexOf(ADMIN_TWO), 1);
+    try {
+      // Same session, still flagged in the database: refused anyway.
+      expect((await api('GET', '/admin/overview', second.body.token)).status).toBe(403);
+      // A restart clears the flag, and so does signing in again.
+      await t.app.get(UsersService).onApplicationBootstrap();
+      const rows = await t.app.get(DataSource).query(`SELECT "isAdmin" FROM users WHERE "telegramId" = $1`, [ADMIN_TWO]);
+      expect(rows[0].isAdmin).toBe(false);
+      const again = await api('POST', '/auth/telegram', undefined, { initData: initDataFor(Number(ADMIN_TWO), 'Second') });
+      expect(again.body.user.isAdmin).toBe(false);
+      expect((await api('GET', '/admin/overview', adminToken)).status).toBe(200);
+    } finally {
+      config.adminTelegramIds.splice(0, config.adminTelegramIds.length, ...listed);
+      await t.app.get(UsersService).onApplicationBootstrap();
+    }
+    expect((await api('GET', '/admin/overview', second.body.token)).status).toBe(200);
+  });
+
+  it('puts a banned player out of their games at once', async () => {
+    const [a, b, c] = [await funded(100), await funded(100), await funded(100)];
+    // b waits in one room; a and c are in the middle of a staked game.
+    const waiting = await api('POST', '/rooms', b.token, { gameSlug: 'ludo', stake: 0, visibility: 'public' });
+    const room = await api('POST', '/rooms', a.token, { gameSlug: 'rps', stake: 50, visibility: 'private' });
+    const joined = await api('POST', `/rooms/${room.body.code}/join`, c.token);
+    expect(joined.body.status).toBe('in_progress');
+    const socket = await connect(t.url, a.token);
+    sockets.push(socket);
+    const dropped = new Promise<void>((resolve) => socket.on('disconnect', () => resolve()));
+
+    expect((await api('PATCH', `/admin/users/${a.id}`, adminToken, { isBanned: true })).body.isBanned).toBe(true);
+    await dropped;
+    // The game is over and the other player has the pot, less the 10% fee.
+    expect((await api('GET', `/matches/${joined.body.matchId}`, c.token)).body.status).toBe('finished');
+    expect(await balance(c)).toBe(140);
+    expect((await api('GET', '/me', a.token)).status).toBe(403);
+    // No new connection either.
+    await expect(connect(t.url, a.token)).rejects.toBeDefined();
+
+    expect((await api('PATCH', `/admin/users/${b.id}`, adminToken, { isBanned: true })).status).toBe(200);
+    const open = (await api('GET', '/games/ludo/rooms', c.token)).body as { code: string }[];
+    expect(open.some((r) => r.code === waiting.body.code)).toBe(false);
+  });
+
+  it('slows down anyone sending too many requests', async () => {
+    const limiter = t.app.get(RateLimiter);
+    const [a, b] = [await funded(500), await funded(100)];
+    await t.app.get(DataSource).query(`UPDATE users SET phone = '+251911222333' WHERE id = $1`, [b.id]);
+    limiter.enabled = true;
+    limiter.reset();
+    try {
+      const lookups = [];
+      for (let i = 0; i < 11; i++) lookups.push((await api('POST', '/me/transfer/preview', a.token, { to: '0911222333', amount: 50 })).status);
+      expect(lookups).toEqual([...Array(10).fill(200), 429]);
+      // Another player is not affected, and nor is the rest of the app for the first one.
+      expect((await api('POST', '/me/transfer/preview', b.token, { to: '0911222333', amount: 50 })).body.code).toBe('SELF_TRANSFER');
+      expect((await api('GET', '/me', a.token)).status).toBe(200);
+      // Without a session, requests are counted by address.
+      const anonymous = [];
+      for (let i = 0; i < 125; i++) anonymous.push((await api('GET', '/games')).status);
+      expect(anonymous.filter((s) => s === 200)).toHaveLength(120);
+      expect(anonymous.slice(120)).toEqual(Array(5).fill(429));
+      // The bot is never slowed down.
+      expect((await internal('/payments/account')).status).toBe(200);
+    } finally {
+      limiter.enabled = false;
+      limiter.reset();
+    }
   });
 
   it('pays the inviter 5 ETB once, when the friend has wagered 100 ETB', async () => {

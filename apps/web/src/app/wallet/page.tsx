@@ -61,9 +61,8 @@ export default function WalletPage() {
         <div className="tibeb absolute inset-x-0 bottom-0 opacity-60" aria-hidden />
       </section>
       <section className="card mb-3 p-4 text-[13px] text-muted">
-        <h2 className="mb-1 text-sm font-bold text-fg">🎁 Bonuses</h2>
-        <p>First deposit: {PROMOTIONS.firstDepositBonusPercent}% extra, up to {PROMOTIONS.firstDepositBonusMax.toLocaleString()} ETB. Play with it right away; it can be withdrawn after wagering {PROMOTIONS.bonusWagerMultiple} times the bonus.</p>
-        <p className="mt-1">Invite a friend: you get {PROMOTIONS.referralReward} ETB when they have played {PROMOTIONS.referralWager} ETB.</p>
+        <h2 className="mb-1 text-sm font-bold text-fg">🎁 Invite bonus</h2>
+        <p>Invite a friend: you get {PROMOTIONS.referralReward} ETB when they have played {PROMOTIONS.referralWager} ETB.</p>
         {user?.referralCode && (
           <button className="btn-ghost btn-sm mt-3 inline-flex" onClick={() => openShare(`${botLink}?start=ref_${user.referralCode}`, 'Play Ludo, Poker, Conquer and Crazy with me on Akukulu!')}>
             🤝 Invite friends

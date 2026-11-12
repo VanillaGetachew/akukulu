@@ -12,6 +12,8 @@ import { LedgerService } from './wallet/ledger.service';
 import { WalletService } from './wallet/wallet.service';
 import { RewardsService } from './wallet/rewards.service';
 import { PaymentsService } from './wallet/payments.service';
+import { APP_GUARD } from '@nestjs/core';
+import { RateLimitGuard, RateLimiter } from './common/rate-limit';
 import { GamesService } from './games/games.service';
 import { RoomsService } from './rooms/rooms.service';
 import { RoomPresenter } from './rooms/room-presenter';
@@ -73,6 +75,8 @@ export class AppModule {
       ],
       providers: [
         { provide: APP_CONFIG, useValue: config },
+        RateLimiter,
+        { provide: APP_GUARD, useClass: RateLimitGuard },
         { provide: REDIS, useValue: redis },
         AuthService,
         JwtAuthGuard,
