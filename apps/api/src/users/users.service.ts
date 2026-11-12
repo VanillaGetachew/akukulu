@@ -5,7 +5,7 @@ import { APP_CONFIG, type AppConfig } from '../config';
 import { UserEntity } from '../database/entities';
 import { LedgerService } from '../wallet/ledger.service';
 import { RewardsService } from '../wallet/rewards.service';
-import { GameError, normalizeContactPhone, telegramIdFromReferral } from '../common/util';
+import { GameError, normalizeContactPhone, publicName, telegramIdFromReferral } from '../common/util';
 
 export interface TelegramIdentity {
   id: number | string;
@@ -101,7 +101,7 @@ export class UsersService {
       userId: referrer.id,
       amount: ECONOMY.referralReward,
       type: 'referral',
-      description: `Referral reward — ${user.firstName} joined`,
+      description: `Referral reward — ${publicName(user)} joined`,
       key: `referral:${user.id}`,
     });
     this.logger.log(`Referral reward for ${referrer.id} (new user ${user.id}): ${res.status}`);

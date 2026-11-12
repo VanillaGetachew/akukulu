@@ -18,7 +18,7 @@ import { MatchEntity, MatchEventEntity, TournamentEntity, TournamentEntryEntity,
 import { APP_CONFIG, type AppConfig } from '../config';
 import { MatchRuntimeService } from '../matches/match-runtime.service';
 import { LedgerService } from '../wallet/ledger.service';
-import { GameError, displayName } from '../common/util';
+import { GameError, publicName } from '../common/util';
 
 const SWEEP_MS = 5_000;
 /** Names for the always-open cash tables, one per stake level; a second table at a level gets " II". */
@@ -208,7 +208,7 @@ export class PokerService implements OnApplicationBootstrap, OnModuleDestroy {
     const payloads = rows.map((r) => r.payload as unknown as HandSummaryPayload);
     const ids = [...new Set(payloads.flatMap((p) => p.seats.map((s) => s.playerId)))];
     const users = ids.length ? await this.dataSource.getRepository(UserEntity).findBy({ id: In(ids) }) : [];
-    const names = new Map(users.map((u) => [u.id, displayName(u)]));
+    const names = new Map(users.map((u) => [u.id, publicName(u)]));
     return rows.map((row, i) => {
       const p = payloads[i];
       const labels = new Map((p.shown ?? []).map((s) => [s.playerId, s.label]));

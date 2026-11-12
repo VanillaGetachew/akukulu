@@ -16,7 +16,7 @@ import { LedgerService } from '../wallet/ledger.service';
 import { Broadcaster, roomChannel, spectatorChannel } from '../realtime/broadcaster';
 import { RoomPresenter } from '../rooms/room-presenter';
 import { PresenceService } from '../realtime/presence.service';
-import { GameError, displayName } from '../common/util';
+import { GameError, publicName } from '../common/util';
 
 type Input =
   | { kind: 'action'; userId: string; clientActionId: string; action: Record<string, unknown> }
@@ -514,7 +514,7 @@ export class MatchRuntimeService implements OnApplicationBootstrap, OnModuleDest
       players: players.map((p) => ({
         userId: p.userId,
         seat: p.seat,
-        displayName: byId.get(p.userId) ? displayName(byId.get(p.userId)!) : 'Player',
+        displayName: byId.get(p.userId) ? publicName(byId.get(p.userId)!) : 'Player',
         photoUrl: byId.get(p.userId)?.photoUrl ?? null,
         online: online[p.userId] ?? false,
       })),
@@ -537,7 +537,7 @@ export class MatchRuntimeService implements OnApplicationBootstrap, OnModuleDest
       players: players.map((p) => ({
         userId: p.userId,
         seat: p.seat,
-        displayName: byId.get(p.userId) ? displayName(byId.get(p.userId)!) : 'Player',
+        displayName: byId.get(p.userId) ? publicName(byId.get(p.userId)!) : 'Player',
         placement: p.placement,
         outcome: p.outcome,
         pointsDelta: p.pointsDelta,

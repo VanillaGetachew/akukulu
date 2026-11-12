@@ -58,6 +58,29 @@ export function displayName(u: Pick<UserEntity, 'firstName' | 'lastName' | 'user
   return full || (u.username ? `@${u.username}` : 'Player');
 }
 
+type Named = Pick<UserEntity, 'firstName' | 'lastName' | 'username'>;
+
+/**
+ * What other players see at a table or on the leaderboard: the start of the first name
+ * and nothing else ("Kal***"). The surname and the Telegram username never leave the server.
+ */
+export function publicName(u: Named): string {
+  const first = Array.from((u.firstName || u.username || '').trim().split(/\s+/)[0] ?? '');
+  if (first.length === 0) return 'Player';
+  return `${first.slice(0, first.length <= 3 ? 1 : 3).join('')}***`;
+}
+
+/**
+ * For a money transfer, where the sender has to recognise who they are paying:
+ * the first name and the initial of the surname ("Kaleab B.").
+ */
+export function payeeName(u: Named): string {
+  const first = (u.firstName || '').trim();
+  if (!first) return publicName(u);
+  const initial = Array.from((u.lastName || '').trim())[0];
+  return initial ? `${first} ${initial}.` : first;
+}
+
 export function referralCodeFor(telegramId: string): string {
   return BigInt(telegramId).toString(36);
 }

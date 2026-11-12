@@ -12,7 +12,7 @@ import { WalletService } from '../wallet/wallet.service';
 import { PaymentsService } from '../wallet/payments.service';
 import { PresenceService } from '../realtime/presence.service';
 import { PokerService } from '../poker/poker.service';
-import { GameError, body, displayName, optInt, reqString, toProfile, assertPhoneShared } from '../common/util';
+import { GameError, body, displayName, publicName, optInt, reqString, toProfile, assertPhoneShared } from '../common/util';
 
 @Controller('auth')
 export class AuthController {
@@ -274,7 +274,7 @@ export class LeaderboardController {
     return rows.map((r, i) => ({
       rank: i + 1,
       userId: r.id,
-      displayName: displayName(r),
+      displayName: publicName(r),
       photoUrl: r.photoUrl,
       played: Number(r.played),
       won: Number(r.won),

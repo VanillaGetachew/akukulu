@@ -17,7 +17,7 @@ import {
 import { APP_CONFIG, type AppConfig } from '../config';
 import { PaymentAccountEntity, PaymentRequestEntity, UserEntity } from '../database/entities';
 import { Broadcaster } from '../realtime/broadcaster';
-import { GameError, assertPhoneShared, displayName } from '../common/util';
+import { GameError, assertPhoneShared, displayName, payeeName } from '../common/util';
 import { LedgerService } from './ledger.service';
 
 /** Returns +2517XXXXXXXX / +2519XXXXXXXX, or null when it is not an Ethiopian mobile number. */
@@ -197,7 +197,7 @@ export class PaymentsService {
 
   private previewOf(recipient: UserEntity, amount: number): TransferPreview {
     const fee = transferFee(amount);
-    return { recipientId: recipient.id, recipientName: displayName(recipient), amount, fee, receives: amount - fee };
+    return { recipientId: recipient.id, recipientName: payeeName(recipient), amount, fee, receives: amount - fee };
   }
 
   /** Looks the other player up and works out the fee. Nothing moves. */
@@ -236,7 +236,7 @@ export class PaymentsService {
       if (!recipient || recipient.isBanned) throw new GameError('NO_RECIPIENT', 'That player was not found', 404);
       const preview = this.previewOf(recipient, amount);
       if (await manager.query(`SELECT 1 FROM ledger_entries WHERE "idempotencyKey" = $1`, [`${key}:out`]).then((rows: unknown[]) => rows.length > 0)) {
-        return { ...preview, balance: Number(sender.balance), fresh: false, senderName: displayName(sender), recipientTelegramId: String(recipient.telegramId), recipientBalance: Number(recipient.balance) };
+        return { ...preview, balance: Number(sender.balance), fresh: false, senderName: payeeName(sender), recipientTelegramId: String(recipient.telegramId), recipientBalance: Number(recipient.balance) };
       }
       this.assertCanSend(sender, amount);
       const out = await this.ledger.apply(manager, { userId: sender.id, amount: -amount, type: 'transfer_out', description: `Sent to ${preview.recipientName}`, key: `${key}:out` });
@@ -244,11 +244,11 @@ export class PaymentsService {
         userId: recipient.id,
         amount: preview.receives,
         type: 'transfer_in',
-        description: `Received from ${displayName(sender)}`,
+        description: `Received from ${payeeName(sender)}`,
         key: `${key}:in`,
       });
       await manager.query(`INSERT INTO house_earnings (id, "gameSlug", amount, "matchId", key, "createdAt") VALUES ($1, 'transfer', $2, NULL, $3, now()) ON CONFLICT (key) DO NOTHING`, [randomUUID(), preview.fee, key]);
-      return { ...preview, balance: out.balance, fresh: true, senderName: displayName(sender), recipientTelegramId: String(recipient.telegramId), recipientBalance: received.balance };
+      return { ...preview, balance: out.balance, fresh: true, senderName: payeeName(sender), recipientTelegramId: String(recipient.telegramId), recipientBalance: received.balance };
     });
     const { fresh, senderName, recipientTelegramId, recipientBalance, ...result } = done;
     if (fresh) {
