@@ -31,9 +31,13 @@ export class JwtAuthGuard implements CanActivate {
 
 @Injectable()
 export class AdminGuard implements CanActivate {
+  constructor(@Inject(APP_CONFIG) private readonly config: AppConfig) {}
+
   canActivate(context: ExecutionContext): boolean {
     const req = context.switchToHttp().getRequest<AuthedRequest>();
-    if (!req.user?.isAdmin) throw new ForbiddenException('Administrator access required');
+    // The configured list decides, checked on every request: taking someone off it ends their access at once.
+    const listed = !!req.user && this.config.adminTelegramIds.includes(String(req.user.telegramId));
+    if (!req.user?.isAdmin || !listed) throw new ForbiddenException('Administrator access required');
     return true;
   }
 }

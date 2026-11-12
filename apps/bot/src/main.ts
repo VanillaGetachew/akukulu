@@ -259,12 +259,9 @@ function refusal(err: unknown): ApiError {
 
 async function depositScreen(ctx: Context) {
   const from = ctx.from!;
-  const { firstDepositBonus } = await register(ctx, null);
+  await register(ctx, null);
   paymentSteps.set(from.id, { step: 'deposit_amount' });
-  const lines = [`➕ Deposit with Telebirr\n\nHow much do you want to deposit? Type any whole amount from ${birr(PAYMENTS.minDeposit)} to ${birr(PAYMENTS.maxDeposit)}.`];
-  if (firstDepositBonus) {
-    lines.push(`🎁 First deposit bonus: ${PROMOTIONS.firstDepositBonusPercent}% extra, up to ${birr(PROMOTIONS.firstDepositBonusMax)}. Play with it right away; it can be withdrawn after wagering ${PROMOTIONS.bonusWagerMultiple} times the bonus.`);
-  }
+  const lines: string[] = [`➕ Deposit with Telebirr\n\nHow much do you want to deposit? Type any whole amount from ${birr(PAYMENTS.minDeposit)} to ${birr(PAYMENTS.maxDeposit)}.`];
   const buttons = [[Markup.button.callback('✖️ Cancel', 'pay_cancel')]];
   if (isAdmin(from.id)) {
     const { account } = await internal<{ account: PaymentAccountSummary | null }>('/payments/account');

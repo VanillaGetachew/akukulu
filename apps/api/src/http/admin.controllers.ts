@@ -5,6 +5,9 @@ import { isGameSlug, type AdminRevenue, type MatchStatus } from '@akukulu/shared
 import { AdminGuard, CurrentUser, InternalKeyGuard, JwtAuthGuard } from '../auth/guards';
 import { MatchEntity, UserEntity } from '../database/entities';
 import { GamesService } from '../games/games.service';
+import { RoomsService } from '../rooms/rooms.service';
+import { Broadcaster } from '../realtime/broadcaster';
+import { RateLimit } from '../common/rate-limit';
 import { MatchRuntimeService } from '../matches/match-runtime.service';
 import { PresenceService } from '../realtime/presence.service';
 import { UsersService } from '../users/users.service';
@@ -12,7 +15,10 @@ import { LedgerService } from '../wallet/ledger.service';
 import { WalletService } from '../wallet/wallet.service';
 import { RewardsService } from '../wallet/rewards.service';
 import { PaymentsService } from '../wallet/payments.service';
-import { GameError, body, optInt, reqString, toProfile } from '../common/util';
+import { GameError, body, displayName, optInt, reqString, toProfile } from '../common/util';
+
+/** The most an admin can add to, or take from, an account in one go. Bigger sums go through a Telebirr deposit. */
+const ADMIN_CREDIT_MAX = 50_000;
 
 @Controller('admin')
 @UseGuards(JwtAuthGuard, AdminGuard)
@@ -25,7 +31,36 @@ export class AdminController {
     private readonly presence: PresenceService,
     private readonly rewards: RewardsService,
     private readonly payments: PaymentsService,
+    private readonly rooms: RoomsService,
+    private readonly broadcaster: Broadcaster,
   ) {}
+
+  /** A banned player is out at once: connections closed, waiting rooms left, running games forfeited. */
+  private async removeFromPlay(user: UserEntity) {
+    this.broadcaster.disconnectUser(user.id);
+    for (const room of await this.rooms.roomsForUser(user.id)) {
+      await this.rooms.leave(user, room.code).catch(() => undefined);
+    }
+    // Poker tables and tournaments have no room of their own.
+    for (const match of await this.runtime.findActiveForUser(user.id)) {
+      await this.runtime.act(match.id, user.id, `ban-${randomUUID()}`, { type: 'leave' }).catch(() => undefined);
+    }
+  }
+
+  /** Who the money is for; an admin cannot add to their own account. */
+  private async creditTarget(admin: UserEntity, id: string, amount: number): Promise<UserEntity> {
+    const target = await this.dataSource.getRepository(UserEntity).findOneBy({ id });
+    if (!target) throw new GameError('NOT_FOUND', 'User not found', 404);
+    if (target.id === admin.id && amount > 0) throw new GameError('FORBIDDEN', 'Another admin has to add money to your own account', 403);
+    return target;
+  }
+
+  private alertCredit(admin: UserEntity, target: UserEntity, amount: number, reason: string, balance: number) {
+    const who = (u: UserEntity) => `${displayName(u)} (${u.telegramId})`;
+    return this.payments.alertAdmins(
+      `⚠️ Admin ${who(admin)} ${amount > 0 ? 'added' : 'removed'} ${Math.abs(amount).toLocaleString()} ETB ${amount > 0 ? 'to' : 'from'} ${who(target)}.\nReason: ${reason}\nNew balance: ${balance.toLocaleString()} ETB`,
+    );
+  }
 
   @Get('overview')
   async overview() {
@@ -74,21 +109,30 @@ export class AdminController {
     const repo = this.dataSource.getRepository(UserEntity);
     const user = await repo.findOneBy({ id });
     if (!user) throw new GameError('NOT_FOUND', 'User not found', 404);
+    const banning = b.isBanned === true && !user.isBanned;
     if (typeof b.isBanned === 'boolean') user.isBanned = b.isBanned;
     await repo.save(user);
+    if (banning) await this.removeFromPlay(user);
     return { ...toProfile(user), isBanned: user.isBanned };
   }
 
   /** Manual correction of virtual points; always recorded in the ledger. */
   @Post('users/:id/adjust')
   @HttpCode(200)
+  @RateLimit({ limit: 20, windowSec: 3600 })
   async adjust(@CurrentUser() admin: UserEntity, @Param('id') id: string, @Body() input: unknown) {
     const b = body(input);
-    const amount = optInt(b.amount, 'amount', -1_000_000, 1_000_000, 0);
+    const amount = optInt(b.amount, 'amount', -ADMIN_CREDIT_MAX, ADMIN_CREDIT_MAX, 0);
     if (amount === 0) throw new GameError('BAD_AMOUNT', 'Amount must not be zero');
     const reason = reqString(b.reason, 'reason', 200);
+    const target = await this.creditTarget(admin, id, amount);
     const key = typeof b.idempotencyKey === 'string' && b.idempotencyKey ? `admin:${b.idempotencyKey}` : `admin:${randomUUID()}`;
-    return this.ledger.applyStandalone({ userId: id, amount, type: 'admin_adjustment', description: `${reason} (by ${admin.id})`, key });
+    const res = await this.ledger.applyStandalone({ userId: id, amount, type: 'admin_adjustment', description: `${reason} (by ${admin.id})`, key });
+    if (res.applied) {
+      this.broadcaster.toUser(id, 'balance:update', { balance: res.balance });
+      await this.alertCredit(admin, target, amount, reason, res.balance);
+    }
+    return res;
   }
 
   /* ---- Rewards: only administrators can authorise them ---- */
@@ -116,11 +160,15 @@ export class AdminController {
   /** Manually deposit coins into an account (positive amounts only; recorded in the ledger). */
   @Post('users/:id/deposit')
   @HttpCode(200)
-  deposit(@CurrentUser() admin: UserEntity, @Param('id') id: string, @Body() input: unknown) {
+  @RateLimit({ limit: 20, windowSec: 3600 })
+  async deposit(@CurrentUser() admin: UserEntity, @Param('id') id: string, @Body() input: unknown) {
     const b = body(input);
-    const amount = optInt(b.amount, 'amount', 1, 10_000_000, 0);
+    const amount = optInt(b.amount, 'amount', 1, ADMIN_CREDIT_MAX, 0);
     const reason = reqString(b.reason, 'reason', 200);
-    return this.rewards.deposit(id, amount, reason, admin.id, typeof b.idempotencyKey === 'string' ? b.idempotencyKey : undefined);
+    const target = await this.creditTarget(admin, id, amount);
+    const res = await this.rewards.deposit(id, amount, reason, admin.id, typeof b.idempotencyKey === 'string' ? b.idempotencyKey : undefined);
+    if (res.applied) await this.alertCredit(admin, target, amount, reason, res.balance);
+    return res;
   }
 
   /** Everything the house earned from cuts, what promotions cost, and the money moved. Days are Ethiopian days. */

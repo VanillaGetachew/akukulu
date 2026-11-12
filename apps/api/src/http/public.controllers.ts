@@ -10,9 +10,10 @@ import { MatchRuntimeService } from '../matches/match-runtime.service';
 import { RoomsService } from '../rooms/rooms.service';
 import { WalletService } from '../wallet/wallet.service';
 import { PaymentsService } from '../wallet/payments.service';
+import { RateLimit } from '../common/rate-limit';
 import { PresenceService } from '../realtime/presence.service';
 import { PokerService } from '../poker/poker.service';
-import { GameError, body, displayName, optInt, reqString, toProfile, assertPhoneShared } from '../common/util';
+import { GameError, body, displayName, publicName, optInt, reqString, toProfile, assertPhoneShared } from '../common/util';
 
 @Controller('auth')
 export class AuthController {
@@ -27,6 +28,7 @@ export class AuthController {
   }
 
   @Post('telegram')
+  @RateLimit({ limit: 60, windowSec: 60 })
   @HttpCode(200)
   telegram(@Body() input: unknown) {
     return this.auth.loginWithInitData(reqString(body(input).initData, 'initData', 8192));
@@ -96,6 +98,7 @@ export class RoomsController {
   }
 
   @Post('quick-play')
+  @RateLimit({ limit: 30, windowSec: 60 })
   @HttpCode(200)
   quickPlay(@CurrentUser() user: UserEntity, @Body() input: unknown) {
     assertPhoneShared(user);
@@ -109,6 +112,7 @@ export class RoomsController {
   }
 
   @Post(':code/join')
+  @RateLimit({ limit: 30, windowSec: 60 })
   @HttpCode(200)
   join(@CurrentUser() user: UserEntity, @Param('code') code: string) {
     assertPhoneShared(user);
@@ -136,6 +140,8 @@ export class MeController {
   /** Who a transfer would go to and what it costs, for the sender to confirm. */
   @Post('transfer/preview')
   @HttpCode(200)
+  // Looking players up by phone number is kept slow, so numbers cannot be tried in bulk.
+  @RateLimit({ limit: 10, windowSec: 60 }, { limit: 40, windowSec: 3600 })
   transferPreview(@CurrentUser() user: UserEntity, @Body() raw: unknown) {
     const b = body(raw);
     return this.payments.previewTransfer(user.id, reqString(b.to, 'to', 64), Number(b.amount));
@@ -143,6 +149,7 @@ export class MeController {
 
   @Post('transfer')
   @HttpCode(200)
+  @RateLimit({ limit: 10, windowSec: 60 }, { limit: 60, windowSec: 3600 })
   transfer(@CurrentUser() user: UserEntity, @Body() raw: unknown) {
     const b = body(raw);
     const requestId = reqString(b.requestId, 'requestId', 36);
@@ -274,7 +281,7 @@ export class LeaderboardController {
     return rows.map((r, i) => ({
       rank: i + 1,
       userId: r.id,
-      displayName: displayName(r),
+      displayName: publicName(r),
       photoUrl: r.photoUrl,
       played: Number(r.played),
       won: Number(r.won),

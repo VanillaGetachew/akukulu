@@ -17,7 +17,7 @@ import {
 import { APP_CONFIG, type AppConfig } from '../config';
 import { PaymentAccountEntity, PaymentRequestEntity, UserEntity } from '../database/entities';
 import { Broadcaster } from '../realtime/broadcaster';
-import { GameError, assertPhoneShared, displayName } from '../common/util';
+import { GameError, assertPhoneShared, displayName, payeeName } from '../common/util';
 import { LedgerService } from './ledger.service';
 
 /** Returns +2517XXXXXXXX / +2519XXXXXXXX, or null when it is not an Ethiopian mobile number. */
@@ -173,6 +173,11 @@ export class PaymentsService {
     return summary;
   }
 
+  /** Tells every admin on Telegram, so no admin moves money unseen by the others. */
+  async alertAdmins(text: string) {
+    await Promise.all(this.config.adminTelegramIds.map((id) => this.sendTelegram(id, text)));
+  }
+
   /* ---- Sending money to another player ---- */
 
   /** By the phone number on their Telegram account, or their Telegram username. */
@@ -197,7 +202,7 @@ export class PaymentsService {
 
   private previewOf(recipient: UserEntity, amount: number): TransferPreview {
     const fee = transferFee(amount);
-    return { recipientId: recipient.id, recipientName: displayName(recipient), amount, fee, receives: amount - fee };
+    return { recipientId: recipient.id, recipientName: payeeName(recipient), amount, fee, receives: amount - fee };
   }
 
   /** Looks the other player up and works out the fee. Nothing moves. */
@@ -236,7 +241,7 @@ export class PaymentsService {
       if (!recipient || recipient.isBanned) throw new GameError('NO_RECIPIENT', 'That player was not found', 404);
       const preview = this.previewOf(recipient, amount);
       if (await manager.query(`SELECT 1 FROM ledger_entries WHERE "idempotencyKey" = $1`, [`${key}:out`]).then((rows: unknown[]) => rows.length > 0)) {
-        return { ...preview, balance: Number(sender.balance), fresh: false, senderName: displayName(sender), recipientTelegramId: String(recipient.telegramId), recipientBalance: Number(recipient.balance) };
+        return { ...preview, balance: Number(sender.balance), fresh: false, senderName: payeeName(sender), recipientTelegramId: String(recipient.telegramId), recipientBalance: Number(recipient.balance) };
       }
       this.assertCanSend(sender, amount);
       const out = await this.ledger.apply(manager, { userId: sender.id, amount: -amount, type: 'transfer_out', description: `Sent to ${preview.recipientName}`, key: `${key}:out` });
@@ -244,11 +249,11 @@ export class PaymentsService {
         userId: recipient.id,
         amount: preview.receives,
         type: 'transfer_in',
-        description: `Received from ${displayName(sender)}`,
+        description: `Received from ${payeeName(sender)}`,
         key: `${key}:in`,
       });
       await manager.query(`INSERT INTO house_earnings (id, "gameSlug", amount, "matchId", key, "createdAt") VALUES ($1, 'transfer', $2, NULL, $3, now()) ON CONFLICT (key) DO NOTHING`, [randomUUID(), preview.fee, key]);
-      return { ...preview, balance: out.balance, fresh: true, senderName: displayName(sender), recipientTelegramId: String(recipient.telegramId), recipientBalance: received.balance };
+      return { ...preview, balance: out.balance, fresh: true, senderName: payeeName(sender), recipientTelegramId: String(recipient.telegramId), recipientBalance: received.balance };
     });
     const { fresh, senderName, recipientTelegramId, recipientBalance, ...result } = done;
     if (fresh) {
@@ -290,10 +295,8 @@ export class PaymentsService {
       if (req.status !== 'pending') throw new GameError('ALREADY_DECIDED', `This request was already ${req.status}`);
       const admin = await users.findOneBy({ telegramId: adminTelegramId });
       let balanceChanged = false;
-      let bonus = 0;
       if (approve && req.kind === 'deposit') {
         await this.releaseSpentBonus(manager, owner);
-        bonus = await this.grantFirstDepositBonus(manager, req);
         await this.ledger.apply(manager, {
           userId: req.userId,
           amount: req.amount,
@@ -316,7 +319,7 @@ export class PaymentsService {
       await repo.save(req);
       const user = (await users.findOneBy({ id: req.userId }))!;
       const account = req.accountId ? await manager.getRepository(PaymentAccountEntity).findOneBy({ id: req.accountId }) : null;
-      return { summary: { ...this.summarize(req, user, account), ...(bonus ? { bonus } : {}) }, userId: user.id, balance: Number(user.balance), balanceChanged };
+      return { summary: this.summarize(req, user, account), userId: user.id, balance: Number(user.balance), balanceChanged };
     });
     if (result.balanceChanged) this.broadcaster.toUser(result.userId, 'balance:update', { balance: result.balance });
     await this.sendTelegram(result.summary.telegramId, paymentDecisionText(result.summary));
@@ -325,25 +328,9 @@ export class PaymentsService {
 
   /* ---- Promotions ---- */
 
-  async firstDepositBonusAvailable(userId: string): Promise<boolean> {
-    if (!this.config.paymentsEnabled) return false;
-    return !(await this.dataSource.getRepository(PaymentRequestEntity).existsBy({ userId, kind: 'deposit', status: 'approved' }));
-  }
-
-  /** Paid once per player: the ledger key cannot be applied twice. The bonus stays locked until it has been wagered. */
-  private async grantFirstDepositBonus(manager: EntityManager, req: PaymentRequestEntity): Promise<number> {
-    if (await manager.getRepository(PaymentRequestEntity).existsBy({ userId: req.userId, kind: 'deposit', status: 'approved' })) return 0;
-    const bonus = Math.min(Math.floor((req.amount * PROMOTIONS.firstDepositBonusPercent) / 100), PROMOTIONS.firstDepositBonusMax);
-    const res = await this.ledger.apply(manager, {
-      userId: req.userId,
-      amount: bonus,
-      type: 'deposit_bonus',
-      description: 'First deposit bonus',
-      key: `bonus:first:${req.userId}`,
-    });
-    if (!res.applied) return 0;
-    await manager.getRepository(UserEntity).update(req.userId, { bonusLocked: bonus, bonusWagerLeft: bonus * PROMOTIONS.bonusWagerMultiple });
-    return bonus;
+  /** The first-deposit bonus has ended. Bonuses already given keep their wagering lock. */
+  async firstDepositBonusAvailable(_userId: string): Promise<boolean> {
+    return false;
   }
 
   /** A bonus that was played and lost must not lock the player's next deposit. Money still on a table doesn't count as lost. */

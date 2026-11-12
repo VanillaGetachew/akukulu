@@ -3,7 +3,7 @@ import { DataSource, EntityManager, In } from 'typeorm';
 import type { RoomSummary } from '@akukulu/shared';
 import { APP_CONFIG, type AppConfig } from '../config';
 import { RoomEntity, RoomPlayerEntity, UserEntity } from '../database/entities';
-import { displayName } from '../common/util';
+import { publicName } from '../common/util';
 
 @Injectable()
 export class RoomPresenter {
@@ -48,7 +48,7 @@ export class RoomPresenter {
           return {
             userId: s.userId,
             seat: s.seat,
-            displayName: u ? displayName(u) : 'Player',
+            displayName: u ? publicName(u) : 'Player',
             photoUrl: u?.photoUrl ?? null,
           };
         }),

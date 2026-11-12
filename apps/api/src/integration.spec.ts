@@ -782,6 +782,31 @@ suite('API integration', () => {
     }
   });
 
+  it('shows other players only the start of a first name, never the surname or username', async () => {
+    const [a, b] = [await login('Kaleab'), await login('Li')];
+    const ds = t.app.get(DataSource);
+    await ds.query(`UPDATE users SET "lastName" = 'Bekele', username = 'kal_secret' WHERE id = $1`, [a.id]);
+    const room = await api('POST', '/rooms', a.token, { gameSlug: 'rps', stake: 0, visibility: 'public' });
+    const names = (r: { players: { displayName: string }[] }) => r.players.map((p) => p.displayName).sort();
+    expect(names(room.body)).toEqual(['Kal***']);
+    const listed = (await api('GET', '/games/rps/rooms', b.token)).body.find((r: { code: string }) => r.code === room.body.code);
+    expect(names(listed)).toEqual(['Kal***']);
+    const joined = await api('POST', `/rooms/${room.body.code}/join`, b.token);
+    const s = await state(joined.body.matchId, b);
+    expect(names(s)).toEqual(['Kal***', 'L***']);
+    await act(b, joined.body.matchId, { type: 'leave' });
+    const summary = (await api('GET', `/matches/${joined.body.matchId}`, b.token)).body;
+    const board = (await api('GET', '/leaderboard?game=rps', b.token)).body;
+    for (const text of [JSON.stringify(listed), JSON.stringify(s), JSON.stringify(summary), JSON.stringify(board)]) {
+      expect(text).not.toContain('Bekele');
+      expect(text).not.toContain('kal_secret');
+      expect(text).not.toContain('Kaleab');
+    }
+    expect(JSON.stringify(board)).toContain('Kal***');
+    // The player still sees their own full details.
+    expect((await api('GET', '/me', a.token)).body).toMatchObject({ firstName: 'Kaleab', lastName: 'Bekele' });
+  });
+
   it('counts everyone inside a game: waiting, playing, or looking at its lobby', async () => {
     const count = async (slug: string) => (await api('GET', '/games')).body.find((g: { slug: string }) => g.slug === slug).activePlayers as number;
     const [a, b, c] = [await login('InsideA'), await login('InsideB'), await login('InsideC')];

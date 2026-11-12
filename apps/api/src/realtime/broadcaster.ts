@@ -32,6 +32,11 @@ export class Broadcaster {
     this.server?.in(userChannel(userId)).socketsLeave(channel);
   }
 
+  /** Closes every connection a player has open. */
+  disconnectUser(userId: string) {
+    this.server?.in(userChannel(userId)).disconnectSockets(true);
+  }
+
   toUser<E extends keyof ServerToClientEvents>(userId: string, event: E, ...args: Parameters<ServerToClientEvents[E]>) {
     this.emit(userChannel(userId), event, ...args);
   }

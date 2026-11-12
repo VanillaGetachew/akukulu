@@ -20,8 +20,6 @@ export interface PaymentRequestSummary {
   username: string | null;
   balance: number;
   account: PaymentAccountSummary | null;
-  /** First-deposit bonus added when this deposit was approved. */
-  bonus?: number;
   createdAt: string;
 }
 
@@ -63,7 +61,7 @@ export function paymentDecisionText(r: PaymentRequestSummary): string {
   const approved = r.status === 'approved';
   if (r.kind === 'deposit') {
     return approved
-      ? `✅ Your deposit of ${birr(r.amount)} was confirmed.${r.bonus ? ` 🎁 First deposit bonus: +${birr(r.bonus)}.` : ''} Balance: ${birr(r.balance)}`
+      ? `✅ Your deposit of ${birr(r.amount)} was confirmed. Balance: ${birr(r.balance)}`
       : `❌ Your deposit of ${birr(r.amount)} (ID ${r.reference}) could not be confirmed. Contact support if you did send it.`;
   }
   return approved
